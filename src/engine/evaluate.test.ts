@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateCells } from './evaluate';
+import { clearEvaluationCache, evaluateCells } from './evaluate';
 import type { Cell, CellMode, EvalResult } from '../types';
 
 /**
@@ -246,6 +246,63 @@ describe('그래프 평가 (순서 비의존)', () => {
     // 어느 값이 맞는지 모르므로 참조하는 쪽은 치환 없이 심볼로 남는다.
     const [, , user] = run(['a=3', 'a=5', 'a x']);
     expect(latexOf(user)).toBe('ax');
+  });
+});
+
+describe('캐시 정합성', () => {
+  // 증분 재계산은 캐시로 구현된다. 캐시 버그는 "조용히 틀린 답"으로 나타나므로
+  // 여기서 집중적으로 감시한다.
+
+  it('상류 정의가 바뀌면 하류가 따라 바뀐다', () => {
+    // 지문에 의존 대상의 지문이 들어가는지 확인하는 핵심 테스트.
+    // 이게 깨지면 a를 고쳐도 ax가 옛날 값을 유지한다.
+    expect(latexOf(run(['a=3', 'a x'])[1])).toBe('3x');
+    expect(latexOf(run(['a=5', 'a x'])[1])).toBe('5x');
+    expect(latexOf(run(['a=3', 'a x'])[1])).toBe('3x');
+  });
+
+  it('전이 참조도 끝까지 전파된다', () => {
+    expect(latexOf(run(['a=3', 'b=a+1', 'b x'])[2])).toBe('4x');
+    expect(latexOf(run(['a=10', 'b=a+1', 'b x'])[2])).toBe('11x');
+  });
+
+  it('같은 식이라도 의존 문맥이 다르면 결과가 다르다', () => {
+    // 'a x' 라는 같은 latex가 서로 다른 a 값 아래에서 평가된다.
+    // 지문이 latex만으로 만들어지면 여기서 오염된다.
+    const withThree = latexOf(run(['a=3', 'a x'])[1]);
+    const withSeven = latexOf(run(['a=7', 'a x'])[1]);
+    expect(withThree).toBe('3x');
+    expect(withSeven).toBe('7x');
+  });
+
+  it('정의가 사라지면 심볼로 되돌아간다', () => {
+    expect(latexOf(run(['a=3', 'a x'])[1])).toBe('3x');
+    expect(latexOf(run([['a x', 'scoped']])[0])).toBe('ax');
+  });
+
+  it('캐시를 비워도 같은 결과가 나온다', () => {
+    const scenario: (string | [string, CellMode])[] = [
+      'a=3',
+      'b=a+1',
+      'b x',
+      `p=${M.p}`,
+      `q=${M.q}`,
+      'pq',
+      'x+1=1+x',
+      String.raw`\frac{x^2-1}{x-1}`,
+    ];
+    const cached = run(scenario);
+    clearEvaluationCache();
+    const cold = run(scenario);
+    expect(cold).toEqual(cached);
+  });
+
+  it('캐시 적중 시에도 행렬 선언이 유지된다', () => {
+    // 캐시에 맞은 정의는 계산을 건너뛰지만 ce.declare는 여전히 걸어야 한다.
+    // 안 그러면 두 번째 실행부터 곱셈 순서가 뒤집힌다.
+    const expected = norm(String.raw`\begin{pmatrix}3 & 3 & 3\\3 & 3 & 3\end{pmatrix}`);
+    expect(latexOf(run([`a=${M.wide}`, M.a + 'a'])[1])).toBe(expected);
+    expect(latexOf(run([`a=${M.wide}`, M.a + 'a'])[1])).toBe(expected);
   });
 });
 

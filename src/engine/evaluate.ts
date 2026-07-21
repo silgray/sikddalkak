@@ -1,5 +1,5 @@
 import { isFunction, isSymbol } from '@cortex-js/compute-engine';
-import type { Expression } from '@cortex-js/compute-engine';
+import type { Expression, MathJsonExpression } from '@cortex-js/compute-engine';
 import { ce } from './ce';
 import type { Cell, CellMode, EvalResult } from '../types';
 
@@ -91,18 +91,60 @@ export type EvalInput = {
   mode: CellMode;
 };
 
-/** 1단계 파싱으로 얻은 그래프 구조. */
-type Node = {
-  input: EvalInput;
-  /** 1단계 파싱 결과. 행렬 심볼을 참조하지 않으면 그대로 재사용한다. */
-  expr: Expression;
-  /** 이 오브젝트가 정의하는 이름 (정의가 아니면 null) */
-  defName: string | null;
-  /** 계산 순서를 정하는 간선. 정의는 우변만, symbolic 모드는 없음. */
-  deps: readonly string[];
-  /** 식 전체의 자유 변수. 재파싱이 필요한지 판단하는 데 쓴다. */
-  refs: readonly string[];
+/** 파싱해서 알아낸 그래프 구조. 식 자체(latex, mode)만으로 정해진다. */
+type Structure =
+  | { kind: 'empty' }
+  | { kind: 'error'; message: string }
+  | {
+      kind: 'node';
+      /** 이 오브젝트가 정의하는 이름 (정의가 아니면 null) */
+      defName: string | null;
+      /** 계산 순서를 정하는 간선. 정의는 우변만, symbolic 모드는 없음. */
+      deps: readonly string[];
+    };
+
+type Node = { input: EvalInput; defName: string | null; deps: readonly string[] };
+
+/** 한 노드를 평가한 결과와, 하류가 쓰려면 필요한 부산물. */
+type Computed = {
+  result: EvalResult;
+  /** 정의라면 바인딩 값. 스코프를 넘겨 보관하려고 Expression이 아니라 JSON으로 둔다. */
+  valueJson: MathJsonExpression | null;
+  isMatrix: boolean;
 };
+
+/**
+ * 캐시 두 개로 재계산을 실제로 바뀐 것에만 한정한다.
+ *
+ * 한 셀을 고칠 때 나머지 전부를 다시 파싱하고 계산하는 게 비용의 대부분이었다.
+ * (100개 기준 41ms 중 CE 파싱·계산이 33.6ms)
+ *
+ * - `structures`: latex+mode -> 파싱 구조. 식이 안 바뀌면 파싱 자체를 건너뛴다.
+ * - `computed`: 지문 -> 계산 결과. 지문에 의존 대상의 지문이 들어가므로
+ *   상류가 바뀌면 하류 지문도 자동으로 달라져 무효화된다. 별도의 무효화
+ *   로직이나 버전 스탬프가 필요 없다.
+ *
+ * 캐시는 순수 함수의 메모이제이션이므로 오래된 항목이 틀린 답을 줄 수 없다.
+ * 메모리만 관리하면 되어서 오래된 것부터 버린다.
+ */
+const CACHE_LIMIT = 2000;
+const structures = new Map<string, Structure>();
+const computed = new Map<string, Computed>();
+
+function remember<T>(cache: Map<string, T>, key: string, value: T): T {
+  cache.set(key, value);
+  if (cache.size > CACHE_LIMIT) {
+    const oldest = cache.keys().next();
+    if (!oldest.done) cache.delete(oldest.value);
+  }
+  return value;
+}
+
+/** 테스트용. 캐시가 결과에 영향을 주지 않는지 확인할 때 쓴다. */
+export function clearEvaluationCache(): void {
+  structures.clear();
+  computed.clear();
+}
 
 function pushTo<T>(map: Map<string, T[]>, key: string, value: T): void {
   const list = map.get(key);
@@ -110,53 +152,96 @@ function pushTo<T>(map: Map<string, T[]>, key: string, value: T): void {
   else list.push(value);
 }
 
-function evaluateNode(
-  node: Node,
-  bindings: Bindings,
-  duplicated: ReadonlySet<string>,
-  /** 지금까지 행렬로 선언된 이름. 이 함수가 정의를 만나면 여기 추가한다. */
-  matrixNames: Set<string>,
-): EvalResult {
+/**
+ * 파싱해서 구조만 뽑는다. 이 시점에는 아직 아무것도 declare되지 않았지만,
+ * 정의 이름과 자유 변수는 곱셈 피연산자 순서와 무관하므로 안전하다.
+ */
+function readStructure(input: EvalInput): Structure {
+  const latex = input.latex.trim();
+  if (latex === '') return { kind: 'empty' };
+
+  let expr: Expression;
   try {
-    // 행렬로 선언된 심볼을 참조할 때만 다시 파싱한다.
-    //
-    // 1단계 파싱 시점에는 선행 정의가 아직 declare되지 않았다. 그 상태에서는
-    // CE가 행렬 심볼을 스칼라로 보고 곱셈 피연산자를 정렬해 `(2x2) a` 를
-    // `a (2x2)` 로 뒤집는다 — 행렬곱은 교환법칙이 없으므로 오답이다.
-    // 위상 순서상 여기서는 선행 정의가 declare된 뒤이므로 재파싱이 올바르다.
-    //
-    // 반대로 행렬이 안 걸린 식은 1단계 결과가 이미 정확하므로 재파싱은
-    // 순수한 낭비다. 행렬을 안 쓰는 문서에서는 파싱이 노드당 한 번으로 끝난다.
-    const needsReparse = node.refs.some((name) => matrixNames.has(name));
-    const expr = needsReparse ? ce.parse(node.input.latex.trim()) : node.expr;
+    expr = ce.parse(latex);
+  } catch (err) {
+    return { kind: 'error', message: asMessage(err) };
+  }
+  if (!expr.isValid) return { kind: 'error', message: errorMessage(expr) };
+
+  const def = asDefinition(expr);
+  return {
+    kind: 'node',
+    defName: def?.name ?? null,
+    // 정의는 우변만 참조한다 (`a=3` 이 자기 자신을 참조하지 않도록).
+    // symbolic 모드는 치환하지 않으므로 의존성도 없다.
+    deps:
+      def !== null
+        ? def.value.freeVariables
+        : input.mode === 'scoped'
+          ? expr.freeVariables
+          : [],
+  };
+}
+
+function computeNode(node: Node, bindings: Bindings, duplicated: ReadonlySet<string>): Computed {
+  try {
+    // 여기서 파싱한다. 위상 순서상 선행 정의가 이미 declare된 뒤이므로
+    // 행렬 심볼의 곱셈 피연산자 순서가 보존된다. 구조 파악 때의 파싱을
+    // 재사용하면 `(2x2) a` 가 `a (2x2)` 로 뒤집힌다 — 행렬곱은 교환법칙이
+    // 없으므로 오답이다.
+    const expr = ce.parse(node.input.latex.trim());
     const def = asDefinition(expr);
 
     if (def !== null) {
       if (duplicated.has(def.name)) {
-        return { kind: 'error', message: `duplicate definition: ${def.name}` };
+        return {
+          result: { kind: 'error', message: `duplicate definition: ${def.name}` },
+          valueJson: null,
+          isMatrix: false,
+        };
       }
       // 선행 정의는 위상 순서에 의해 이미 bindings에 있다.
       const value = reduce(def.value.subs(bindings));
-      bindings[def.name] = value;
-      if (isMatrixLike(value)) {
-        ce.declare(def.name, 'matrix');
-        matrixNames.add(def.name);
-      }
       return {
-        kind: 'ok',
-        latex: `${def.name} = ${value.latex}`,
-        json: value.json,
-        definitionName: def.name,
+        result: {
+          kind: 'ok',
+          latex: `${def.name} = ${value.latex}`,
+          json: value.json,
+          definitionName: def.name,
+        },
+        valueJson: value.json,
+        isMatrix: isMatrixLike(value),
       };
     }
 
     const base = node.input.mode === 'scoped' ? expr.subs(bindings) : expr;
     const result = reduce(base);
     const bool = asBoolean(result);
-    if (bool !== null) return { kind: 'boolean', value: bool };
-    return { kind: 'ok', latex: result.latex, json: result.json, definitionName: null };
+    return {
+      result:
+        bool !== null
+          ? { kind: 'boolean', value: bool }
+          : { kind: 'ok', latex: result.latex, json: result.json, definitionName: null },
+      valueJson: null,
+      isMatrix: false,
+    };
   } catch (err) {
-    return { kind: 'error', message: asMessage(err) };
+    return { result: { kind: 'error', message: asMessage(err) }, valueJson: null, isMatrix: false };
+  }
+}
+
+/** 계산 결과를 하류가 볼 수 있도록 스코프에 반영한다. 캐시 적중 시에도 필요하다. */
+function applyBinding(
+  node: Node,
+  entry: Computed,
+  bindings: Bindings,
+  matrixNames: Set<string>,
+): void {
+  if (node.defName === null || entry.valueJson === null) return;
+  bindings[node.defName] = ce.box(entry.valueJson);
+  if (entry.isMatrix) {
+    ce.declare(node.defName, 'matrix');
+    matrixNames.add(node.defName);
   }
 }
 
@@ -182,39 +267,16 @@ export function evaluateGraph(inputs: readonly EvalInput[]): Map<string, EvalRes
   // (ce.forget()은 선언을 되돌리지 못한다.)
   ce.pushScope();
   try {
-    // --- 1단계: 파싱해서 그래프 구조만 뽑는다 ---
-    // 여기서의 파싱은 정의 이름과 참조 이름을 얻기 위한 것이다. 곱셈 피연산자
-    // 순서는 아직 틀릴 수 있지만 freeVariables와 Equal 판정에는 영향이 없다.
+    // --- 1단계: 그래프 구조 (안 바뀐 식은 캐시에서 꺼내 파싱을 건너뛴다) ---
     const nodes: Node[] = [];
     for (const input of inputs) {
-      const latex = input.latex.trim();
-      if (latex === '') {
-        results.set(input.id, { kind: 'empty' });
+      const key = `${input.mode}|${input.latex.trim()}`;
+      const structure = structures.get(key) ?? remember(structures, key, readStructure(input));
+      if (structure.kind !== 'node') {
+        results.set(input.id, structure);
         continue;
       }
-      let expr: Expression;
-      try {
-        expr = ce.parse(latex);
-      } catch (err) {
-        results.set(input.id, { kind: 'error', message: asMessage(err) });
-        continue;
-      }
-      if (!expr.isValid) {
-        results.set(input.id, { kind: 'error', message: errorMessage(expr) });
-        continue;
-      }
-      const def = asDefinition(expr);
-      nodes.push({
-        input,
-        expr,
-        defName: def?.name ?? null,
-        // 정의는 우변만 참조한다 (`a=3` 이 자기 자신을 참조하지 않도록).
-        // symbolic 모드는 치환하지 않으므로 의존성도 없다.
-        deps: def !== null ? def.value.freeVariables
-            : input.mode === 'scoped' ? expr.freeVariables
-            : [],
-        refs: expr.freeVariables,
-      });
+      nodes.push({ input, defName: structure.defName, deps: structure.deps });
     }
 
     // --- 2단계: 이름 -> 정의한 오브젝트 ---
@@ -258,13 +320,32 @@ export function evaluateGraph(inputs: readonly EvalInput[]): Map<string, EvalRes
     }
 
     // --- 4단계: 위상 순서대로 평가 ---
+    // 지문 = (모드, 식, 의존 대상들의 지문). 상류가 바뀌면 하류 지문이 자동으로
+    // 달라지므로 무효화 로직 없이 딱 필요한 만큼만 다시 계산된다.
     const bindings: Bindings = {};
     const matrixNames = new Set<string>();
+    const fingerprints = new Map<string, string>();
+
     for (const id of ordered) {
       const node = byId.get(id);
-      if (node !== undefined) {
-        results.set(id, evaluateNode(node, bindings, duplicated, matrixNames));
-      }
+      if (node === undefined) continue;
+
+      const depPrints = node.deps
+        .map((name) => {
+          const depId = resolvable.get(name);
+          return depId !== undefined ? `${name}=${fingerprints.get(depId) ?? '?'}` : null;
+        })
+        .filter((part): part is string => part !== null)
+        .sort();
+      const duplicateMark = node.defName !== null && duplicated.has(node.defName) ? '!dup' : '';
+      const fingerprint = `${node.input.mode}|${node.input.latex.trim()}|${depPrints.join('&')}${duplicateMark}`;
+      fingerprints.set(id, fingerprint);
+
+      const entry =
+        computed.get(fingerprint) ??
+        remember(computed, fingerprint, computeNode(node, bindings, duplicated));
+      applyBinding(node, entry, bindings, matrixNames);
+      results.set(id, entry.result);
     }
 
     // 위상정렬에 들어가지 못한 것들이 순환에 걸린 노드다.
