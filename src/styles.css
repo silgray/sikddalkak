@@ -1,0 +1,152 @@
+:root {
+  --bg: #fbfbfd;
+  --fg: #1c1c1e;
+  --muted: #8a8a8e;
+  --line: #e3e3e8;
+  --accent: #3b6ef5;
+  --error: #c0392b;
+  --def: #1f7a4d;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16161a;
+    --fg: #ececf1;
+    --muted: #8a8a94;
+    --line: #2c2c33;
+    --accent: #7aa2ff;
+    --error: #ff7b6b;
+    --def: #5ed49b;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, 'Segoe UI', 'Malgun Gothic', sans-serif;
+}
+
+.app {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 6rem;
+}
+
+.app-header h1 {
+  margin: 0 0 0.35rem;
+  font-size: 1.6rem;
+  letter-spacing: -0.02em;
+}
+
+.app-header p {
+  margin: 0 0 2rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.7;
+}
+
+.app-header code,
+.app-header kbd {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  border-radius: 4px;
+  padding: 0.1em 0.4em;
+  font-size: 0.9em;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cell {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fg) 2%, transparent);
+  overflow: hidden;
+}
+
+.cell-input {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+}
+
+.cell-input .mf {
+  flex: 1;
+  min-width: 0;
+}
+
+.mf math-field {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 1.15rem;
+  padding: 0.2rem 0;
+  --caret-color: var(--accent);
+  --selection-background-color: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.mf-readonly math-field {
+  font-size: 1.05rem;
+}
+
+.cell-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+.cell-actions button {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.cell-actions button:hover {
+  color: var(--fg);
+  border-color: var(--muted);
+}
+
+.cell-actions .mode-toggle {
+  white-space: nowrap;
+}
+
+.result {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border-top: 1px dashed var(--line);
+}
+
+.result-arrow {
+  color: var(--muted);
+  font-size: 0.95rem;
+  flex-shrink: 0;
+  width: 1rem;
+}
+
+.result-def .result-arrow {
+  color: var(--def);
+}
+
+.result-error {
+  color: var(--error);
+  font-size: 0.8rem;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+}

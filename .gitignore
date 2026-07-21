@@ -1,0 +1,6 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# scripts/copy-mathlive-assets.mjs 가 node_modules에서 복사해오는 것
+public/mathlive/
