@@ -21,7 +21,7 @@ function ResultRow({ result }: { result: EvalResult }) {
       <div className="result">
         <span className="result-arrow">=</span>
         <span className={result.value ? 'verdict verdict-true' : 'verdict verdict-false'}>
-          {result.value ? '참' : '거짓'}
+          {result.value ? 'True' : 'False'}
         </span>
       </div>
     );
@@ -54,15 +54,15 @@ export function Cell({ cell, result, focusToken, onInput, onCommit, onModeChange
               className="mode-toggle"
               title={
                 cell.mode === 'scoped'
-                  ? '위 셀에서 정의한 변수를 치환한다'
-                  : '변수를 미지수 그대로 둔다'
+                  ? 'Substitutes variables defined in the cells above'
+                  : 'Leaves variables as unknowns'
               }
               onClick={() => onModeChange(cell.mode === 'scoped' ? 'symbolic' : 'scoped')}
             >
-              {cell.mode === 'scoped' ? '정의 참조' : '순수 심볼릭'}
+              {cell.mode === 'scoped' ? 'scoped' : 'symbolic'}
             </button>
           )}
-          <button type="button" className="remove" title="셀 삭제" onClick={onRemove}>
+          <button type="button" className="remove" title="Delete cell" onClick={onRemove}>
             ×
           </button>
         </div>
