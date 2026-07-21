@@ -189,6 +189,66 @@ describe('정의와 변수 바인딩', () => {
   });
 });
 
+describe('그래프 평가 (순서 비의존)', () => {
+  // 캔버스에는 "위/아래"가 없으므로 의존성이 배열 순서가 아니라 이름으로
+  // 결정된다. 아래 테스트들이 그 성질을 고정한다.
+
+  it('정의가 아래에 있어도 참조한다', () => {
+    // 스택 시절에는 정의가 위에 있어야만 보였다. 이제는 위치와 무관하다.
+    const [user] = run(['a x + a x', 'a=3']);
+    expect(latexOf(user)).toBe('6x');
+  });
+
+  it('정의 순서가 뒤섞여도 전이 참조가 풀린다', () => {
+    // 배열 순서는 b -> 사용처 -> a 지만 실제 계산은 a -> b -> 사용처 순이어야 한다.
+    const [b, user, a] = run(['b=a+1', 'b x', 'a=3']);
+    expect(latexOf(a)).toBe(norm('a = 3'));
+    expect(latexOf(b)).toBe(norm('b = 4'));
+    expect(latexOf(user)).toBe('4x');
+  });
+
+  it('행렬 정의가 아래에 있어도 곱셈 순서를 보존한다', () => {
+    // 위상 순서대로 재파싱하므로 참조 셀이 먼저 나와도 declare가 제때 걸린다.
+    const [user] = run([M.a + 'a', `a=${M.wide}`]);
+    expect(latexOf(user)).toBe(
+      norm(String.raw`\begin{pmatrix}3 & 3 & 3\\3 & 3 & 3\end{pmatrix}`),
+    );
+  });
+
+  it('순환 참조를 감지하고 무한 루프에 빠지지 않는다', () => {
+    const [a, b] = run(['a=b+1', 'b=a+1']);
+    expect(a).toMatchObject({ kind: 'error' });
+    expect(b).toMatchObject({ kind: 'error' });
+    expect((a as { message: string }).message).toContain('cyclic');
+    expect((a as { message: string }).message).toContain('a, b');
+  });
+
+  it('자기 참조도 순환으로 본다', () => {
+    // `x=x` 는 자기 자신으로 정의하는 것이라 의미가 없다.
+    const [self] = run(['x=x']);
+    expect(self).toMatchObject({ kind: 'error' });
+  });
+
+  it('순환에 걸리지 않은 셀은 계속 평가한다', () => {
+    const [, , ok] = run(['a=b+1', 'b=a+1', '2x+3x']);
+    expect(latexOf(ok)).toBe('5x');
+  });
+
+  it('같은 이름을 두 곳에서 정의하면 양쪽 다 에러다', () => {
+    // 캔버스에는 "나중"이 없으므로 어느 쪽도 이기지 않는다.
+    const [first, second] = run(['a=3', 'a=5']);
+    expect(first).toMatchObject({ kind: 'error' });
+    expect(second).toMatchObject({ kind: 'error' });
+    expect((first as { message: string }).message).toContain('duplicate');
+  });
+
+  it('충돌한 이름은 바인딩을 만들지 않는다', () => {
+    // 어느 값이 맞는지 모르므로 참조하는 쪽은 치환 없이 심볼로 남는다.
+    const [, , user] = run(['a=3', 'a=5', 'a x']);
+    expect(latexOf(user)).toBe('ax');
+  });
+});
+
 describe('에러 처리', () => {
   it('불완전한 식을 에러로 표시하고 죽지 않는다', () => {
     expect(one('x+')).toEqual({ kind: 'error', message: 'unexpected-operator' });
