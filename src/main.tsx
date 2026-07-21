@@ -9,6 +9,14 @@ MathfieldElement.fontsDirectory = '/mathlive/fonts';
 // 계산기에 타이핑 효과음은 필요 없다.
 MathfieldElement.soundsDirectory = null;
 
+// MathLive 자체 CAS를 끈다. 이걸 null로 두지 않으면 MathLive가 자기 번들의
+// compute-engine 0.58 인스턴스를 몰래 만들고, ☰ 메뉴의 Evaluate/Simplify/Solve가
+// 그걸로 계산해서 결과를 **입력 필드에 직접 덮어쓴다**.
+//   "2\pi" -[메뉴 Simplify]-> "2\pi=2\pi" -[다시]-> "2\pi\error{\blacksquare}=2\pi"
+// 우리 평가 경로(Enter -> ce 0.90)를 우회할 뿐 아니라 입력 정본을 오염시킨다.
+// null이면 해당 메뉴 항목이 visible:false가 되고 실행돼도 no-op이 된다.
+MathfieldElement.computeEngine = null;
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

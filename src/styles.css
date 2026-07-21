@@ -145,6 +145,19 @@ body {
   color: var(--def);
 }
 
+.verdict {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.verdict-true {
+  color: var(--def);
+}
+
+.verdict-false {
+  color: var(--error);
+}
+
 .result-error {
   color: var(--error);
   font-size: 0.8rem;

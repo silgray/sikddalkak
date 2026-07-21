@@ -35,12 +35,36 @@ function asMatrixIfRows(expr: Expression): Expression {
 }
 
 /**
+ * 관계식(등식/부등식). 이 위에서는 simplify를 돌리면 안 된다 — CE 0.90의
+ * simplify가 `x+1=1+x` 를 `NaN=NaN` 으로 망가뜨리고, 그러면 evaluate가
+ * 참인 항등식을 거짓으로 판정한다. evaluate만 쓰면 올바르게 참이 나온다.
+ */
+const RELATIONS = new Set([
+  'Equal',
+  'NotEqual',
+  'Less',
+  'LessEqual',
+  'Greater',
+  'GreaterEqual',
+]);
+
+/**
  * simplify는 심볼릭 정리(약분, 삼각 항등식)를, evaluate는 실제 연산(행렬 곱/거듭제곱,
  * 유리수 계산)을 한다. 둘 다 필요하다. 순서가 중요한데, evaluate를 먼저 돌리면
  * `\frac{x^2-1}{x-1}` 이 약분되지 않고 `\sin^2+\cos^2` 도 1이 되지 않는다.
  */
 function reduce(expr: Expression): Expression {
-  return asMatrixIfRows(expr.simplify().evaluate());
+  const reduced = RELATIONS.has(expr.operator)
+    ? expr.evaluate()
+    : expr.simplify().evaluate();
+  return asMatrixIfRows(reduced);
+}
+
+/** 관계식을 평가하면 CE는 `True` / `False` 심볼(`\top` / `\bot`)을 돌려준다. */
+function asBoolean(expr: Expression): boolean | null {
+  if (expr.json === 'True') return true;
+  if (expr.json === 'False') return false;
+  return null;
 }
 
 /** `["Error", "'unexpected-operator'", …]` 에서 코드만 뽑아 읽을 만한 문자열로. */
@@ -89,6 +113,8 @@ function evaluateCell(cell: Cell, bindings: Bindings): EvalResult {
 
     const base = cell.mode === 'scoped' ? expr.subs(bindings) : expr;
     const result = reduce(base);
+    const bool = asBoolean(result);
+    if (bool !== null) return { kind: 'boolean', value: bool };
     return { kind: 'ok', latex: result.latex, json: result.json, definitionName: null };
   } catch (err) {
     return { kind: 'error', message: err instanceof Error ? err.message : String(err) };

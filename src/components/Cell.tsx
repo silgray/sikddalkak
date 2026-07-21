@@ -16,6 +16,16 @@ function ResultRow({ result }: { result: EvalResult }) {
   if (result.kind === 'error') {
     return <div className="result result-error">⚠ {result.message}</div>;
   }
+  if (result.kind === 'boolean') {
+    return (
+      <div className="result">
+        <span className="result-arrow">=</span>
+        <span className={result.value ? 'verdict verdict-true' : 'verdict verdict-false'}>
+          {result.value ? '참' : '거짓'}
+        </span>
+      </div>
+    );
+  }
   return (
     <div className={result.definitionName !== null ? 'result result-def' : 'result'}>
       <span className="result-arrow">=</span>

@@ -17,6 +17,12 @@ export type Cell = {
 export type EvalResult =
   | { kind: 'empty' }
   | { kind: 'error'; message: string }
+  /**
+   * 관계식(`1=1`, `x+1=1+x`, `2<1`)의 참/거짓 판정.
+   * 수식이 아니라 판정이므로 MathLive가 아니라 일반 텍스트로 렌더한다.
+   * (MathLive 수학 폰트에는 한글 글리프가 없어서 `\text{참}` 은 빈 칸으로 나온다.)
+   */
+  | { kind: 'boolean'; value: boolean }
   | {
       kind: 'ok';
       /** 표시용 LaTeX */
