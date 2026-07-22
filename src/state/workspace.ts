@@ -1,14 +1,18 @@
 import type { CellMode, FormulaObject } from '../types';
 
-/** objects의 불변 스냅샷. 구조 공유라 저렴하다. */
-type Snapshot = readonly FormulaObject[];
+/** 셀 안 캐럿 위치. id는 오브젝트, offset은 MathLive 오프셋. */
+export type Cursor = { id: string; offset: number } | null;
 
 /**
- * 탭 단위 실행취소 히스토리. 비영속(새로고침하면 비어서 시작).
- * coalesceId: 지금 히스토리 최상단이 이 id의 연속 편집으로 만들어졌음을 표시.
- * 같은 id에 이어지는 commitInput은 새 단계를 만들지 않고 합친다.
+ * 실행취소 한 단계 = 변경 **직전**의 문서와 캐럿.
+ * undo는 이 지점으로 문서를 되돌리고 캐럿도 그 자리로 옮긴다 —
+ * "모든 문서 변경은 (변경, 그 시점의 커서)를 함께 기록한다"는 원칙.
+ * 셀 추가를 취소하면 커서가 원래 셀로 돌아가는 것도 이 규칙에서 자동으로 나온다.
  */
-export type History = { past: Snapshot[]; future: Snapshot[]; coalesceId: string | null };
+type HistoryEntry = { objects: readonly FormulaObject[]; cursor: Cursor };
+
+/** 탭 단위 실행취소 히스토리. 비영속(새로고침하면 비어서 시작). */
+export type History = { past: HistoryEntry[]; future: HistoryEntry[] };
 
 /**
  * 워크스페이스 = 탭 여러 개. 각 탭이 독립된 문서(objects)를 갖고, 변수/정의는
@@ -18,14 +22,24 @@ export type Tab = {
   id: string;
   name: string;
   objects: FormulaObject[];
-  /** 포커스를 옮길 오브젝트. token은 같은 곳에 다시 포커스를 줄 때 구분용. */
-  focus: { id: string; token: number } | null;
+  /**
+   * 포커스(와 선택적으로 캐럿)를 옮길 지시. token은 같은 곳에 다시 지시할 때
+   * 구분용. offset이 있으면 포커스 후 캐럿을 그 위치로 놓는다(실행취소 복원).
+   */
+  focus: { id: string; token: number; offset?: number } | null;
   history: History;
   /**
    * 실행취소/다시실행이 일어날 때마다 증가. 포커스된 mathfield에도 값을 강제
    * 반영하기 위한 신호다(평상시 draft 보호를 뚫는 유일한 경로).
    */
   syncNonce: number;
+  /** 가장 최근 콘텐츠 변경 직후의 캐럿 — 다음 히스토리 entry의 cursor가 된다. */
+  lastCursor: Cursor;
+  /**
+   * 마지막 변경의 종류. typing(키 입력)이면 평가를 디바운스하고,
+   * structural(셀 추가/삭제/변환/실행취소 등)이면 즉시 평가한다.
+   */
+  lastChange: 'typing' | 'structural';
 };
 
 export type WorkspaceState = {
@@ -35,11 +49,10 @@ export type WorkspaceState = {
 
 /** 활성 탭의 문서를 대상으로 하는 액션. */
 type ObjectAction =
-  /**
-   * coalesce:false면 이 커밋을 앞뒤 연속 편집과 합치지 않고 독립된 실행취소
-   * 단계로 남긴다 (선택 변환처럼 명시적인 조작에 사용).
-   */
-  | { type: 'commitInput'; id: string; latex: string; coalesce?: boolean }
+  /** 키 입력 1회. cursor = 입력 직후의 캐럿 오프셋. 실행취소 1단계가 된다. */
+  | { type: 'editInput'; id: string; latex: string; cursor: number }
+  /** 명시적 편집(선택 변환 등). typing이 아니라 structural로 즉시 평가된다. */
+  | { type: 'commitInput'; id: string; latex: string; cursor?: number }
   | { type: 'enter'; id: string; latex: string }
   | { type: 'setMode'; id: string; mode: CellMode }
   | { type: 'remove'; id: string }
@@ -48,7 +61,7 @@ type ObjectAction =
    * 결과 행을 편집해 독립 식으로 분리한다. 편집한 latex로 새 오브젝트를 원본
    * 바로 뒤에 만들고, 원본은 결과 표시를 잃는다(resultDetached).
    */
-  | { type: 'detachResult'; id: string; latex: string };
+  | { type: 'detachResult'; id: string; latex: string; cursor?: number };
 
 /** 활성 탭의 히스토리를 다루는 액션. */
 type HistoryAction = { type: 'undo' } | { type: 'redo' };
@@ -62,20 +75,37 @@ type TabAction =
 
 export type Action = ObjectAction | HistoryAction | TabAction;
 
-const HISTORY_LIMIT = 100;
-const emptyHistory = (): History => ({ past: [], future: [], coalesceId: null });
+// 키 입력 단위로 쌓이므로 넉넉하게. 스냅샷은 구조 공유라 저렴하다.
+const HISTORY_LIMIT = 500;
+const emptyHistory = (): History => ({ past: [], future: [] });
 
 export function makeObject(): FormulaObject {
   return { id: crypto.randomUUID(), latex: '', mode: 'scoped', resultDetached: false };
 }
 
 export function makeTab(name: string): Tab {
-  return { id: crypto.randomUUID(), name, objects: [makeObject()], focus: null, history: emptyHistory(), syncNonce: 0 };
+  return {
+    id: crypto.randomUUID(),
+    name,
+    objects: [makeObject()],
+    focus: null,
+    history: emptyHistory(),
+    syncNonce: 0,
+    lastCursor: null,
+    lastChange: 'structural',
+  };
 }
 
-/** 저장본에서 복원할 때 비영속 필드(focus/history/syncNonce)를 채워 넣는다. */
+/** 저장본에서 복원할 때 비영속 필드(focus/history 등)를 채워 넣는다. */
 export function hydrateTab(base: { id: string; name: string; objects: FormulaObject[] }): Tab {
-  return { ...base, focus: null, history: emptyHistory(), syncNonce: 0 };
+  return {
+    ...base,
+    focus: null,
+    history: emptyHistory(),
+    syncNonce: 0,
+    lastCursor: null,
+    lastChange: 'structural',
+  };
 }
 
 export function initialWorkspace(): WorkspaceState {
@@ -91,7 +121,12 @@ function nextToken(tab: Tab): number {
   return tab.focus ? tab.focus.token + 1 : 1;
 }
 
-type Content = { objects: FormulaObject[]; focus: Tab['focus'] };
+type Content = {
+  objects: FormulaObject[];
+  focus: Tab['focus'];
+  /** 이 변경 직후의 캐럿. 없으면 이전 lastCursor 유지. */
+  cursorAfter?: Cursor;
+};
 
 /**
  * 문서 콘텐츠(objects/focus)만 변형한다. 히스토리는 모른다 —
@@ -99,6 +134,7 @@ type Content = { objects: FormulaObject[]; focus: Tab['focus'] };
  */
 function reduceContent(tab: Tab, action: ObjectAction): Content {
   switch (action.type) {
+    case 'editInput':
     case 'commitInput': {
       const target = tab.objects.find((o) => o.id === action.id);
       // 값이 그대로면 변화 없음 — objects 참조를 유지해 히스토리·재평가를 막는다.
@@ -109,6 +145,8 @@ function reduceContent(tab: Tab, action: ObjectAction): Content {
       return {
         objects: patch(tab.objects, action.id, { latex: action.latex, resultDetached: false }),
         focus: tab.focus,
+        cursorAfter:
+          action.cursor !== undefined ? { id: action.id, offset: action.cursor } : undefined,
       };
     }
 
@@ -121,10 +159,18 @@ function reduceContent(tab: Tab, action: ObjectAction): Content {
       const next = objects[index + 1];
       if (next !== undefined) {
         // 이미 아래 오브젝트가 있으면 새로 만들지 않고 거기로 이동한다.
-        return { objects, focus: { id: next.id, token: nextToken(tab) } };
+        return {
+          objects,
+          focus: { id: next.id, token: nextToken(tab) },
+          cursorAfter: { id: next.id, offset: 0 },
+        };
       }
       const created = makeObject();
-      return { objects: [...objects, created], focus: { id: created.id, token: nextToken(tab) } };
+      return {
+        objects: [...objects, created],
+        focus: { id: created.id, token: nextToken(tab) },
+        cursorAfter: { id: created.id, offset: 0 },
+      };
     }
 
     case 'remove': {
@@ -144,14 +190,19 @@ function reduceContent(tab: Tab, action: ObjectAction): Content {
         // 원본은 결과 표시를 잃고, 편집분이 새 독립 오브젝트로 바로 뒤에 선다.
         i === index ? [{ ...o, resultDetached: true }, created] : [o],
       );
-      // 사용자가 편집을 이어가던 흐름을 유지하도록 새 오브젝트에 포커스.
-      return { objects, focus: { id: created.id, token: nextToken(tab) } };
+      // 사용자가 편집을 이어가던 흐름을 유지하도록 새 오브젝트의 같은 캐럿 위치로.
+      return {
+        objects,
+        focus: { id: created.id, token: nextToken(tab), offset: action.cursor },
+        cursorAfter:
+          action.cursor !== undefined ? { id: created.id, offset: action.cursor } : undefined,
+      };
     }
   }
 }
 
-function cappedPush(past: Snapshot[], snapshot: Snapshot): Snapshot[] {
-  const next = [...past, snapshot];
+function cappedPush(past: HistoryEntry[], entry: HistoryEntry): HistoryEntry[] {
+  const next = [...past, entry];
   return next.length > HISTORY_LIMIT ? next.slice(next.length - HISTORY_LIMIT) : next;
 }
 
@@ -160,42 +211,63 @@ function tabReducer(tab: Tab, action: ObjectAction | HistoryAction): Tab {
   if (action.type === 'undo') {
     const { past, future } = tab.history;
     if (past.length === 0) return tab;
-    const prev = past[past.length - 1];
+    const entry = past[past.length - 1];
     return {
       ...tab,
-      objects: prev as FormulaObject[],
-      history: { past: past.slice(0, -1), future: [tab.objects, ...future], coalesceId: null },
+      objects: entry.objects as FormulaObject[],
+      history: {
+        past: past.slice(0, -1),
+        future: [{ objects: tab.objects, cursor: tab.lastCursor }, ...future],
+      },
+      // 캐럿을 그 편집이 일어났던 자리로 되돌린다 (포커스 + 오프셋).
+      focus: entry.cursor
+        ? { id: entry.cursor.id, token: nextToken(tab), offset: entry.cursor.offset }
+        : tab.focus,
+      lastCursor: entry.cursor,
       syncNonce: tab.syncNonce + 1,
+      lastChange: 'structural',
     };
   }
   if (action.type === 'redo') {
     const { past, future } = tab.history;
     if (future.length === 0) return tab;
-    const next = future[0];
+    const entry = future[0];
     return {
       ...tab,
-      objects: next as FormulaObject[],
-      history: { past: [...past, tab.objects], future: future.slice(1), coalesceId: null },
+      objects: entry.objects as FormulaObject[],
+      history: {
+        past: [...past, { objects: tab.objects, cursor: tab.lastCursor }],
+        future: future.slice(1),
+      },
+      focus: entry.cursor
+        ? { id: entry.cursor.id, token: nextToken(tab), offset: entry.cursor.offset }
+        : tab.focus,
+      lastCursor: entry.cursor,
       syncNonce: tab.syncNonce + 1,
+      lastChange: 'structural',
     };
   }
 
-  const { objects, focus } = reduceContent(tab, action);
+  const { objects, focus, cursorAfter } = reduceContent(tab, action);
   const objectsChanged = objects !== tab.objects;
 
   if (!objectsChanged) {
-    // 콘텐츠 변화 없음. 포커스만 바뀌면 반영하고 코얼레싱을 끊는다(다른 셀로 이동).
+    // 콘텐츠 변화 없음. 포커스만 바뀌면 반영한다.
     if (focus === tab.focus) return tab;
-    return { ...tab, focus, history: { ...tab.history, coalesceId: null } };
+    return { ...tab, focus };
   }
 
-  // 같은 id에 이어지는 commitInput은 한 단계로 합친다(디바운스 커밋이 쌓이지 않게).
-  // coalesce:false는 이 커밋을 앞뒤 어느 쪽과도 합치지 않는다.
-  const coalesceId =
-    action.type === 'commitInput' && action.coalesce !== false ? action.id : null;
-  const coalesce = coalesceId !== null && tab.history.coalesceId === coalesceId;
-  const past = coalesce ? tab.history.past : cappedPush(tab.history.past, tab.objects);
-  return { ...tab, objects, focus, history: { past, future: [], coalesceId } };
+  // 변경 직전 상태를 히스토리에 남긴다. 키 입력(editInput)마다 1 entry —
+  // 실행취소 단위가 곧 키 입력 단위다.
+  const entry: HistoryEntry = { objects: tab.objects, cursor: tab.lastCursor };
+  return {
+    ...tab,
+    objects,
+    focus,
+    history: { past: cappedPush(tab.history.past, entry), future: [] },
+    lastCursor: cursorAfter ?? tab.lastCursor,
+    lastChange: action.type === 'editInput' ? 'typing' : 'structural',
+  };
 }
 
 function mapActiveTab(state: WorkspaceState, fn: (tab: Tab) => Tab): WorkspaceState {

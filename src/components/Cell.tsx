@@ -7,15 +7,17 @@ type Props = {
   object: FormulaObject;
   result: EvalResult;
   focusToken: number | null;
+  focusOffset: number | null;
   syncKey: number;
-  onFlush: (latex: string) => void;
+  /** 입력 필드의 키 입력 1회 (latex 전체값 + 캐럿). */
+  onEdit: (latex: string, caret: number) => void;
   onEnter: (latex: string) => void;
   onModeChange: (mode: CellMode) => void;
   onRemove: () => void;
-  /** 결과 행을 편집해 독립 식으로 분리할 때 (편집된 latex 전달). */
-  onDetachResult: (latex: string) => void;
-  /** 선택 변환처럼 앞뒤 편집과 합쳐지면 안 되는 확정 (독립 실행취소 단계). */
-  onCommitDistinct: (latex: string) => void;
+  /** 결과 행을 편집해 독립 식으로 분리할 때 (편집된 latex + 캐럿). */
+  onDetachResult: (latex: string, caret?: number) => void;
+  /** 선택 변환처럼 즉시 평가돼야 하는 명시적 편집. */
+  onCommitDistinct: (latex: string, caret?: number) => void;
 };
 
 /** 공백 차이는 MathLive 재직렬화 재량이라 "달라졌다" 판정에서 뺀다. */
@@ -84,7 +86,7 @@ function ResultRow({
   fieldRef: React.Ref<MathFieldHandle>;
   transforms: SelectionTransforms | null;
   onApply: (op: TransformOp) => void;
-  onDetach: (latex: string) => void;
+  onDetach: (latex: string, caret?: number) => void;
   onSelectionChange: (selectedLatex: string | null) => void;
 }) {
   if (result.kind === 'empty') return null;
@@ -101,10 +103,10 @@ function ResultRow({
       </div>
     );
   }
-  // 결과도 일반 식처럼 편집할 수 있다. 실제로 내용이 바뀌었을 때만
-  // (MathField의 dirty 판정 + 정규화 비교) 독립 식으로 분리한다.
-  const detachIfChanged = (latex: string) => {
-    if (norm(latex) !== norm(result.latex)) onDetach(latex);
+  // 결과도 일반 식처럼 편집할 수 있다. 실제로 내용이 바뀌는 첫 키 입력 순간
+  // 독립 식으로 분리되고, 캐럿은 새 오브젝트의 같은 자리로 이어진다.
+  const detachIfChanged = (latex: string, caret?: number) => {
+    if (norm(latex) !== norm(result.latex)) onDetach(latex, caret);
   };
   return (
     <div className={result.definitionName !== null ? 'result result-def' : 'result'}>
@@ -113,8 +115,8 @@ function ResultRow({
         ref={fieldRef}
         value={result.latex}
         syncKey={syncKey}
-        onFlush={detachIfChanged}
-        onEnter={detachIfChanged}
+        onEdit={detachIfChanged}
+        onEnter={(latex) => detachIfChanged(latex)}
         onSelectionChange={onSelectionChange}
       />
       {/* 결과 필드의 선택 변환 버튼은 결과 행에 뜬다 — 조작 대상 옆에. */}
@@ -131,8 +133,9 @@ export function Cell({
   object,
   result,
   focusToken,
+  focusOffset,
   syncKey,
-  onFlush,
+  onEdit,
   onEnter,
   onModeChange,
   onRemove,
@@ -159,14 +162,14 @@ export function Cell({
     const replacement = transforms.replacements[op];
     if (replacement === undefined) return;
     const handle = transforms.field === 'input' ? inputRef.current : resultRef.current;
-    const newValue = handle?.replaceSelection(replacement) ?? null;
-    if (newValue === null) return;
+    const applied = handle?.replaceSelection(replacement) ?? null;
+    if (applied === null) return;
     if (transforms.field === 'input') {
-      // 명시적 조작이므로 앞뒤 타이핑과 합쳐지지 않는 독립 실행취소 단계로 확정.
-      onCommitDistinct(newValue);
-    } else if (result.kind === 'ok' && norm(newValue) !== norm(result.latex)) {
+      // 명시적 조작 — structural 편집으로 즉시 평가된다.
+      onCommitDistinct(applied.value, applied.caret);
+    } else if (result.kind === 'ok' && norm(applied.value) !== norm(result.latex)) {
       // 결과 필드의 변환은 곧 결과 편집 — 분리 규칙을 그대로 따른다.
-      onDetachResult(newValue);
+      onDetachResult(applied.value, applied.caret);
     }
     // setTransforms(null)를 부르지 않는다 — replaceSelection이 삽입물의 새 선택을
     // 재보고해서 상태가 이미 갱신됐다 (expand 직후 factor로 되돌리기 등).
@@ -179,8 +182,9 @@ export function Cell({
           ref={inputRef}
           value={object.latex}
           focusToken={focusToken}
+          focusOffset={focusOffset}
           syncKey={syncKey}
-          onFlush={onFlush}
+          onEdit={onEdit}
           onEnter={onEnter}
           onSelectionChange={trackSelection('input')}
         />

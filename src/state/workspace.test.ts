@@ -188,43 +188,54 @@ describe('전역 실행취소/다시실행', () => {
     expect(workspaceReducer(s, { type: 'redo' })).toBe(s); // redo 없음
   });
 
-  it('coalesce:false 커밋은 독립 실행취소 단계다', () => {
+  it('키 입력마다 실행취소 한 단계다 (코얼레싱 없음)', () => {
     let { s, id } = seed();
-    // 타이핑 커밋 뒤 선택 변환(coalesce:false)이 이어지는 상황
-    s = workspaceReducer(s, { type: 'commitInput', id, latex: '(x+1)^2' });
-    s = workspaceReducer(s, { type: 'commitInput', id, latex: 'x^2+2x+1', coalesce: false });
-    // undo 한 번: 변환만 되돌아가고 타이핑 결과는 유지
+    // editInput = 키 입력 1회. 한 단계씩 되돌아가야 한다.
+    s = workspaceReducer(s, { type: 'editInput', id, latex: '2', cursor: 1 });
+    s = workspaceReducer(s, { type: 'editInput', id, latex: '2x', cursor: 2 });
+    s = workspaceReducer(s, { type: 'editInput', id, latex: '2x+3x', cursor: 5 });
     s = workspaceReducer(s, { type: 'undo' });
-    expect(active(s).objects[0].latex).toBe('(x+1)^2');
-    // 이후 타이핑도 변환과 합쳐지지 않고 새 단계에서 시작
-    s = workspaceReducer(s, { type: 'redo' });
-    s = workspaceReducer(s, { type: 'commitInput', id, latex: 'x^2+2x+2' });
+    expect(active(s).objects[0].latex).toBe('2x');
     s = workspaceReducer(s, { type: 'undo' });
-    expect(active(s).objects[0].latex).toBe('x^2+2x+1');
-  });
-
-  it('같은 id 연속 편집은 한 단계로 합쳐진다', () => {
-    let { s, id } = seed();
-    // 디바운스 커밋이 연속으로 들어오는 상황
-    s = workspaceReducer(s, { type: 'commitInput', id, latex: '2' });
-    s = workspaceReducer(s, { type: 'commitInput', id, latex: '2x' });
-    s = workspaceReducer(s, { type: 'commitInput', id, latex: '2x+3x' });
-    // 한 번의 undo로 편집 시작 전(빈 문자열)까지 돌아가야 한다.
+    expect(active(s).objects[0].latex).toBe('2');
     s = workspaceReducer(s, { type: 'undo' });
     expect(active(s).objects[0].latex).toBe('');
   });
 
-  it('다른 셀로 이동하면 코얼레싱이 끊긴다', () => {
+  it('undo가 캐럿을 그 편집이 일어났던 자리로 되돌린다', () => {
     let { s, id } = seed();
-    s = workspaceReducer(s, { type: 'enter', id, latex: 'a=3' }); // 새 셀 생성 + 이동
-    const id2 = active(s).objects[1].id;
-    s = workspaceReducer(s, { type: 'commitInput', id: id2, latex: 'a x' });
-    // 첫 셀(id)로 포커스 이동 -> 코얼레싱 끊김
-    s = workspaceReducer(s, { type: 'focus', id });
-    s = workspaceReducer(s, { type: 'commitInput', id, latex: 'a=5' });
-    // undo 한 번: a=5 편집만 되돌아가고 a=3은 유지
+    s = workspaceReducer(s, { type: 'editInput', id, latex: '2', cursor: 1 });
+    s = workspaceReducer(s, { type: 'editInput', id, latex: '2x', cursor: 2 });
+    // 'x' 입력을 취소하면 캐럿은 'x'를 치기 직전 자리(offset 1)여야 한다.
     s = workspaceReducer(s, { type: 'undo' });
-    expect(active(s).objects[0].latex).toBe('a=3');
+    expect(active(s).focus).toMatchObject({ id, offset: 1 });
+    expect(active(s).lastCursor).toEqual({ id, offset: 1 });
+  });
+
+  it('다른 셀 편집을 건너뛰고 되돌리면 캐럿이 그 셀로 이동한다', () => {
+    let { s, id } = seed();
+    s = workspaceReducer(s, { type: 'editInput', id, latex: 'a=3', cursor: 3 });
+    s = workspaceReducer(s, { type: 'enter', id, latex: 'a=3' });
+    const id2 = active(s).objects[1].id;
+    s = workspaceReducer(s, { type: 'editInput', id: id2, latex: 'ax', cursor: 2 });
+    // undo 1: 셀2의 'ax' 취소 → 캐럿은 셀2 시작(enter 직후 자리)
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[1].latex).toBe('');
+    expect(active(s).focus).toMatchObject({ id: id2, offset: 0 });
+    // undo 2: 셀 추가 취소 → 캐럿이 원래 셀(셀1)의 편집 자리로 복귀
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects).toHaveLength(1);
+    expect(active(s).focus).toMatchObject({ id, offset: 3 });
+  });
+
+  it('redo는 취소했던 지점의 캐럿으로 돌아간다', () => {
+    let { s, id } = seed();
+    s = workspaceReducer(s, { type: 'editInput', id, latex: '2', cursor: 1 });
+    s = workspaceReducer(s, { type: 'editInput', id, latex: '2x', cursor: 2 });
+    s = workspaceReducer(s, { type: 'undo' });
+    s = workspaceReducer(s, { type: 'redo' });
+    expect(active(s).objects[0].latex).toBe('2x');
+    expect(active(s).focus).toMatchObject({ id, offset: 2 });
   });
 
   it('undo가 syncNonce를 올린다 (강제 반영 신호)', () => {
