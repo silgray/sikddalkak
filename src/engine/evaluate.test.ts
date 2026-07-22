@@ -149,6 +149,24 @@ describe('행렬', () => {
     const latex = latexOf(one(String.raw`\lbrack 1, 2, 3\rbrack`));
     expect(latex).not.toContain('pmatrix');
   });
+
+  // A = 행 1,2 교환 순열행렬. A²=I 라서 simplify가 교환법칙 가정으로
+  // ABA -> A²B 로 집계하면 결과가 그냥 B가 되는 오답이 나온다.
+  const PERM = String.raw`\begin{pmatrix}0 & 1 & 0\\1 & 0 & 0\\0 & 0 & 1\end{pmatrix}`;
+  const B3 = String.raw`\begin{pmatrix}1 & 2 & 3\\4 & 5 & 6\\7 & 8 & 9\end{pmatrix}`;
+  const ABA = norm(String.raw`\begin{pmatrix}5 & 4 & 6\\2 & 1 & 3\\8 & 7 & 9\end{pmatrix}`);
+
+  it('연속 심볼 행렬 곱의 순서와 반복을 지킨다 (ABA ≠ A²B)', () => {
+    const [, , r] = run([`A=${PERM}`, `B=${B3}`, 'ABA']);
+    expect(latexOf(r)).toBe(ABA);
+  });
+
+  it('정의된 행렬 이름의 괄호 적용은 함수가 아니라 곱셈이다 (A(BA))', () => {
+    // A가 matrix로 declare돼 있어도 CE는 A(...)를 함수 적용으로 파싱한다.
+    // 우리 정의는 전부 값이므로 곱셈으로 재작성돼야 한다.
+    const [, , r] = run([`A=${PERM}`, `B=${B3}`, String.raw`A\left(BA\right)`]);
+    expect(latexOf(r)).toBe(ABA);
+  });
 });
 
 describe('정의와 변수 바인딩', () => {

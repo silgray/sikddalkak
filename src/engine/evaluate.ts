@@ -52,11 +52,18 @@ const RELATIONS = new Set([
  * simplify는 심볼릭 정리(약분, 삼각 항등식)를, evaluate는 실제 연산(행렬 곱/거듭제곱,
  * 유리수 계산)을 한다. 둘 다 필요하다. 순서가 중요한데, evaluate를 먼저 돌리면
  * `\frac{x^2-1}{x-1}` 이 약분되지 않고 `\sin^2+\cos^2` 도 1이 되지 않는다.
+ *
+ * 단, **행렬이 관여하면 simplify를 건너뛴다.** CE 0.90의 simplify는 곱셈 인자를
+ * 교환법칙 가정으로 재배열·멱집계해서 `ABA` 를 `A^2·B` 로 만들어버린다 —
+ * 순열행렬이면 A^2=I라 결과가 그냥 B가 되는 오답. evaluate는 순서를 지킨다.
+ * 행렬 관여는 표현식의 타입으로 감지한다(subs 전 심볼 곱이어도 declare 덕에
+ * type이 matrix로 잡힌다).
  */
 function reduce(expr: Expression): Expression {
-  const reduced = RELATIONS.has(expr.operator)
-    ? expr.evaluate()
-    : expr.simplify().evaluate();
+  const reduced =
+    RELATIONS.has(expr.operator) || isMatrixLike(expr)
+      ? expr.evaluate()
+      : expr.simplify().evaluate();
   return asMatrixIfRows(reduced);
 }
 
@@ -189,7 +196,8 @@ function computeNode(node: Node, bindings: Bindings, duplicated: ReadonlySet<str
     // 행렬 심볼의 곱셈 피연산자 순서가 보존된다. 구조 파악 때의 파싱을
     // 재사용하면 `(2x2) a` 가 `a (2x2)` 로 뒤집힌다 — 행렬곱은 교환법칙이
     // 없으므로 오답이다.
-    const expr = ce.parse(node.input.latex.trim());
+    const parsed = ce.parse(node.input.latex.trim());
+    const expr = rewriteBoundApplications(parsed, bindings);
     const def = asDefinition(expr);
 
     if (def !== null) {
@@ -228,6 +236,35 @@ function computeNode(node: Node, bindings: Bindings, duplicated: ReadonlySet<str
   } catch (err) {
     return { result: { kind: 'error', message: asMessage(err) }, valueJson: null, isMatrix: false };
   }
+}
+
+/**
+ * 정의된 값 이름의 "함수 적용"을 곱셈으로 되돌린다.
+ *
+ * `A(BA)` 를 파싱하면 A가 matrix로 declare돼 있어도 CE는 함수 적용
+ * `["A", ["Multiply","B","A"]]` 로 읽는다. 그러면 subs가 연산자 자리의 A를
+ * 치환하지 못해 `A([[…]])` 가 미평가로 남는다. 우리 문서에서 정의는 전부
+ * **값**(함수가 아님)이므로, 정의된 이름이 머리에 오는 적용은 곱셈이 맞다.
+ */
+function rewriteBoundApplications(expr: Expression, bindings: Bindings): Expression {
+  const bound = Object.keys(bindings);
+  if (bound.length === 0) return expr;
+  const boundSet = new Set(bound);
+  let changed = false;
+
+  const walk = (json: MathJsonExpression): MathJsonExpression => {
+    if (!Array.isArray(json)) return json;
+    const [head, ...args] = json as [MathJsonExpression, ...MathJsonExpression[]];
+    const mappedArgs = args.map(walk);
+    if (typeof head === 'string' && boundSet.has(head) && mappedArgs.length > 0) {
+      changed = true;
+      return ['Multiply', head, ...mappedArgs] as unknown as MathJsonExpression;
+    }
+    return [walk(head), ...mappedArgs] as unknown as MathJsonExpression;
+  };
+
+  const rewritten = walk(expr.json);
+  return changed ? ce.box(rewritten) : expr;
 }
 
 /** 계산 결과를 하류가 볼 수 있도록 스코프에 반영한다. 캐시 적중 시에도 필요하다. */
