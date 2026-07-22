@@ -1,4 +1,4 @@
-import { CellStack } from './components/CellStack';
+import { Workspace } from './components/Workspace';
 
 export default function App() {
   return (
@@ -8,10 +8,10 @@ export default function App() {
         <p>
           Type an expression and press <kbd>Enter</kbd> to simplify it.
           <br />
-          Write <code>a = 3</code> to define a variable the cells below can use.
+          Write <code>a = 3</code> to define a variable other cells can use.
         </p>
       </header>
-      <CellStack />
+      <Workspace />
     </main>
   );
 }

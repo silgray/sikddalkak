@@ -59,6 +59,80 @@ body {
   font-size: 0.9em;
 }
 
+.tabbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--line);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: -1px;
+}
+
+.tab-active {
+  background: var(--bg);
+  color: var(--fg);
+  border-color: var(--line);
+  border-bottom: 1px solid var(--bg);
+  font-weight: 600;
+}
+
+.tab-name {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-rename {
+  font: inherit;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0.05rem 0.25rem;
+  width: 7rem;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.tab-close,
+.tab-add {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0.1rem 0.25rem;
+  border-radius: 4px;
+}
+
+.tab-close:hover,
+.tab-add:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+
+.tab-add {
+  align-self: center;
+  font-size: 1.1rem;
+  padding: 0.15rem 0.5rem;
+}
+
 .stack {
   display: flex;
   flex-direction: column;

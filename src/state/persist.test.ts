@@ -1,65 +1,122 @@
 import { describe, expect, it } from 'vitest';
-import { parseDocument, serializeDocument } from './persist';
+import { parseWorkspace, serializeWorkspace } from './persist';
+import type { WorkspaceState } from './workspace';
 import type { FormulaObject } from '../types';
 
-const sample: FormulaObject[] = [
-  { id: 'a1', latex: '2x+3x', mode: 'scoped' },
-  { id: 'b2', latex: 'a=3', mode: 'symbolic' },
-];
+const obj = (id: string, latex: string, extra: Partial<FormulaObject> = {}): FormulaObject => ({
+  id,
+  latex,
+  mode: 'scoped',
+  resultDetached: false,
+  ...extra,
+});
+
+const workspace: WorkspaceState = {
+  tabs: [
+    { id: 't1', name: 'Tab 1', objects: [obj('a1', '2x+3x')], focus: null },
+    { id: 't2', name: 'Calc', objects: [obj('b1', 'a=3', { mode: 'symbolic' })], focus: null },
+  ],
+  activeTabId: 't2',
+};
 
 describe('직렬화 왕복', () => {
-  it('저장했다 불러오면 그대로다', () => {
-    expect(parseDocument(serializeDocument(sample))).toEqual(sample);
+  it('저장했다 불러오면 그대로다 (focus는 비영속이라 null)', () => {
+    expect(parseWorkspace(serializeWorkspace(workspace))).toEqual(workspace);
   });
 
-  it('빈 문서도 왕복한다', () => {
-    expect(parseDocument(serializeDocument([]))).toEqual([]);
+  it('버전 2로 저장한다', () => {
+    expect(JSON.parse(serializeWorkspace(workspace))).toMatchObject({ version: 2 });
   });
 
-  it('버전을 포함해 저장한다', () => {
-    expect(JSON.parse(serializeDocument(sample))).toMatchObject({ version: 1 });
+  it('resultDetached도 왕복한다', () => {
+    const ws: WorkspaceState = {
+      tabs: [{ id: 't1', name: 'T', objects: [obj('a', '2x', { resultDetached: true })], focus: null }],
+      activeTabId: 't1',
+    };
+    expect(parseWorkspace(serializeWorkspace(ws))?.tabs[0].objects[0].resultDetached).toBe(true);
+  });
+});
+
+describe('v1 → v2 마이그레이션', () => {
+  it('단일 문서를 Tab 1로 감싼다', () => {
+    const v1 = JSON.stringify({
+      version: 1,
+      objects: [{ id: 'x', latex: '2x+3x', mode: 'scoped' }],
+    });
+    const ws = parseWorkspace(v1);
+    expect(ws?.tabs).toHaveLength(1);
+    expect(ws?.tabs[0].name).toBe('Tab 1');
+    expect(ws?.tabs[0].objects[0]).toEqual(obj('x', '2x+3x'));
+    expect(ws?.activeTabId).toBe(ws?.tabs[0].id);
   });
 
-  it('정본 외 필드는 저장하지 않는다', () => {
-    const dirty = [{ ...sample[0], transient: 'x', committed: true }];
-    const parsed = JSON.parse(serializeDocument(dirty));
-    expect(Object.keys(parsed.objects[0]).sort()).toEqual(['id', 'latex', 'mode']);
+  it('v1 오브젝트에 없던 resultDetached는 false로 채운다', () => {
+    const v1 = JSON.stringify({ version: 1, objects: [{ id: 'x', latex: '2x', mode: 'scoped' }] });
+    expect(parseWorkspace(v1)?.tabs[0].objects[0].resultDetached).toBe(false);
   });
 });
 
 describe('손상 데이터 방어', () => {
   it('없는 데이터는 null', () => {
-    expect(parseDocument(null)).toBeNull();
+    expect(parseWorkspace(null)).toBeNull();
   });
 
   it('깨진 JSON은 null', () => {
-    expect(parseDocument('{not json')).toBeNull();
+    expect(parseWorkspace('{not json')).toBeNull();
   });
 
-  it('스키마 버전이 다르면 null (마이그레이션 없이 무시)', () => {
-    expect(parseDocument(JSON.stringify({ version: 2, objects: sample }))).toBeNull();
-    expect(parseDocument(JSON.stringify({ objects: sample }))).toBeNull();
+  it('알 수 없는 버전은 null', () => {
+    expect(parseWorkspace(JSON.stringify({ version: 99, tabs: [] }))).toBeNull();
   });
 
-  it('objects가 배열이 아니면 null', () => {
-    expect(parseDocument(JSON.stringify({ version: 1, objects: 'nope' }))).toBeNull();
+  it('탭이 없으면 null', () => {
+    expect(parseWorkspace(JSON.stringify({ version: 2, tabs: [], activeTabId: 'x' }))).toBeNull();
   });
 
-  it('오브젝트 하나라도 형식이 틀리면 전체 null', () => {
-    const bad = [sample[0], { id: 'x', latex: 5, mode: 'scoped' }];
-    expect(parseDocument(JSON.stringify({ version: 1, objects: bad }))).toBeNull();
+  it('오브젝트 형식이 틀리면 null', () => {
+    const bad = JSON.stringify({
+      version: 2,
+      tabs: [{ id: 't', name: 'T', objects: [{ id: 'a', latex: 5, mode: 'scoped' }] }],
+      activeTabId: 't',
+    });
+    expect(parseWorkspace(bad)).toBeNull();
   });
 
   it('알 수 없는 mode는 거부한다', () => {
-    const bad = [{ id: 'x', latex: 'y', mode: 'wild' }];
-    expect(parseDocument(JSON.stringify({ version: 1, objects: bad }))).toBeNull();
+    const bad = JSON.stringify({
+      version: 2,
+      tabs: [{ id: 't', name: 'T', objects: [{ id: 'a', latex: 'x', mode: 'wild' }] }],
+      activeTabId: 't',
+    });
+    expect(parseWorkspace(bad)).toBeNull();
+  });
+
+  it('activeTabId가 실제 탭을 안 가리키면 첫 탭으로 보정', () => {
+    const raw = JSON.stringify({
+      version: 2,
+      tabs: [{ id: 't1', name: 'T', objects: [{ id: 'a', latex: 'x', mode: 'scoped' }] }],
+      activeTabId: 'gone',
+    });
+    expect(parseWorkspace(raw)?.activeTabId).toBe('t1');
+  });
+
+  it('빈 objects 탭은 셀 하나를 채운다', () => {
+    const raw = JSON.stringify({
+      version: 2,
+      tabs: [{ id: 't1', name: 'T', objects: [] }],
+      activeTabId: 't1',
+    });
+    const ws = parseWorkspace(raw);
+    expect(ws?.tabs[0].objects).toHaveLength(1);
+    expect(ws?.tabs[0].objects[0].latex).toBe('');
   });
 
   it('낯선 필드가 섞여 있어도 정본만 남긴다', () => {
     const raw = JSON.stringify({
-      version: 1,
-      objects: [{ id: 'a1', latex: '2x', mode: 'scoped', color: 'red', x: 10 }],
+      version: 2,
+      tabs: [{ id: 't', name: 'T', objects: [{ id: 'a', latex: '2x', mode: 'scoped', x: 10, color: 'red' }] }],
+      activeTabId: 't',
     });
-    expect(parseDocument(raw)).toEqual([{ id: 'a1', latex: '2x', mode: 'scoped' }]);
+    expect(parseWorkspace(raw)?.tabs[0].objects[0]).toEqual(obj('a', '2x'));
   });
 });

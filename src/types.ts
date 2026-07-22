@@ -17,6 +17,12 @@ export type FormulaObject = {
   /** 확정된 LaTeX (평가 대상) */
   latex: string;
   mode: CellMode;
+  /**
+   * 결과가 편집돼 독립 식으로 분리됐는지. true면 이 식의 `=` 결과를 표시하지
+   * 않는다(결과가 별개 오브젝트로 이전됐으므로). `latex`가 바뀌면 false로 리셋 —
+   * 재평가된 새 결과는 다시 보여준다.
+   */
+  resultDetached: boolean;
 };
 
 export type EvalResult =
