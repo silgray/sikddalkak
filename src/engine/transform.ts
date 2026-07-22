@@ -1,9 +1,31 @@
 import { expand, factor } from '@cortex-js/compute-engine';
+import type { MathJsonExpression } from '@cortex-js/compute-engine';
 import { ce } from './ce';
 
 export type TransformOp = 'expand' | 'simplify' | 'factor';
 
 const norm = (s: string) => s.replace(/\s+/g, '');
+
+/**
+ * CE의 expand는 복소 계수 산술을 부동소수점 경로로 계산해서 부스러기를 남긴다.
+ * 예: `(i\sin x+\cos x)^3` 전개 시 sin³ 계수가 정확히 -i가 아니라
+ * `["Complex", -3.9e-21, -1]` 로 나온다 (i^3 단독 평가는 정확한데 expand 내부만 그렇다).
+ *
+ * 엔진이 스스로 "사실상 0"으로 정의하는 tolerance(기본 1e-10)를 기준으로
+ * 숫자 리터럴을 잘라낸다 — Mathematica의 Chop과 같은 관행이다. 명시적 변환
+ * 결과에만 적용하므로 평가(evaluate) 결과의 충실성에는 영향이 없다.
+ */
+function chopJson(json: MathJsonExpression): MathJsonExpression {
+  if (typeof json === 'number') return ce.chop(json);
+  if (Array.isArray(json)) {
+    return json.map((item) => chopJson(item as MathJsonExpression)) as unknown as MathJsonExpression;
+  }
+  if (typeof json === 'object' && json !== null && 'num' in json) {
+    const value = Number(json.num);
+    if (Number.isFinite(value) && ce.chop(value) === 0) return 0;
+  }
+  return json;
+}
 
 /**
  * 선택한 부분식을 구문적으로 변환한다 (전개/정리/인수분해).
@@ -37,7 +59,8 @@ export function transformSelection(selectedLatex: string, op: TransformOp): stri
     const baseline = expr.latex;
     const result =
       op === 'expand' ? expand(expr) : op === 'factor' ? factor(expr) : expr.simplify();
-    const out = result.latex;
+    // 부동소수점 부스러기를 자른 뒤 다시 박싱해 정규형 LaTeX을 얻는다.
+    const out = ce.box(chopJson(result.json)).latex;
     if (norm(out) === norm(baseline)) return null;
     const startsWithSign = out.startsWith('+') || out.startsWith('-');
     return needsJoin && !startsWithSign ? `+${out}` : out;

@@ -168,7 +168,8 @@ export function Cell({
       // 결과 필드의 변환은 곧 결과 편집 — 분리 규칙을 그대로 따른다.
       onDetachResult(newValue);
     }
-    setTransforms(null);
+    // setTransforms(null)를 부르지 않는다 — replaceSelection이 삽입물의 새 선택을
+    // 재보고해서 상태가 이미 갱신됐다 (expand 직후 factor로 되돌리기 등).
   };
 
   return (

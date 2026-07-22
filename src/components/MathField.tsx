@@ -87,6 +87,8 @@ export function MathField({
    */
   const isDirty = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** 현재 선택을 부모에 보고하는 함수. 마운트 이펙트가 채우고 핸들이 재사용한다. */
+  const reportRef = useRef<(() => void) | undefined>(undefined);
   const clearTimer = () => {
     if (timerRef.current !== undefined) {
       clearTimeout(timerRef.current);
@@ -121,9 +123,20 @@ export function MathField({
       clearTimer();
       timerRef.current = setTimeout(flush, debounce.current);
     });
+    const reportSelection = () => {
+      const notify = handlers.current.onSelectionChange;
+      if (notify === undefined) return;
+      notify(mf.selectionIsCollapsed ? null : mf.getValue(mf.selection, 'latex'));
+    };
+    reportRef.current = reportSelection;
+
     mf.addEventListener('focusin', () => {
       isEditing.current = true;
       handlers.current.onFocus?.();
+      // selection-change는 "변화"에만 발화한다. 이미 선택이 있는 필드에 포커스가
+      // 들어오면(예: 이전 조작이 남긴 선택) 이벤트 없이 선택만 존재해 버튼 상태가
+      // 어긋난다 — 포커스 시점의 선택을 즉시 보고해 동기화한다.
+      reportSelection();
     });
     mf.addEventListener('focusout', () => {
       // 편집을 떠나면 대기 중인 디바운스를 기다리지 않고 즉시 확정한다.
@@ -133,11 +146,7 @@ export function MathField({
       // 선택은 살아 있고(변환 적용 가능), 창 포커스 전환(alt-tab)만으로 선택
       // 조작 버튼이 사라지면 안 된다. 선택 해제는 selection-change가 알린다.
     });
-    mf.addEventListener('selection-change', () => {
-      const notify = handlers.current.onSelectionChange;
-      if (notify === undefined) return;
-      notify(mf.selectionIsCollapsed ? null : mf.getValue(mf.selection, 'latex'));
-    });
+    mf.addEventListener('selection-change', reportSelection);
     mf.addEventListener('keydown', (ev) => {
       // MathLive의 'change'는 blur 시에도 발사되므로 Enter만 직접 잡는다.
       if (ev.key === 'Enter') {
@@ -209,6 +218,9 @@ export function MathField({
         // 호출자가 직접 한다 — 별도 실행취소 단계로 만들기 위해서다.
         clearTimer();
         isDirty.current = false;
+        // 삽입물이 새로 선택된 상태다(selectionMode:'item'). 그 선택을 재보고해
+        // 버튼 상태를 갱신한다 — expand ↔ factor 왕복이 자연스럽게 된다.
+        reportRef.current?.();
         return mf.value;
       },
     }),

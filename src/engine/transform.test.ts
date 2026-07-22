@@ -58,4 +58,15 @@ describe('선택 변환', () => {
     // 2\pi 를 6.28... 로 수치화하면 안 된다. 변화 없음 -> null.
     expect(transformSelection(String.raw`2\pi`, 'simplify')).toBeNull();
   });
+
+  it('복소 계수 전개에 부동소수점 부스러기가 남지 않는다', () => {
+    // CE의 expand는 복소 계수를 부동소수점 경로로 계산해 sin^3 계수가
+    // -i가 아니라 (-3.9e-21 - i) 처럼 나온다. chop이 이를 정리해야 한다.
+    const out = transformSelection(String.raw`(\mathrm{i}\sin x+\cos x)^3`, 'expand');
+    expect(out).not.toBeNull();
+    expect(out).not.toMatch(/10\^|e-|\d{8,}/); // 지수 표기·긴 가수가 없어야
+    expect(norm(out)).toBe(
+      norm(String.raw`(-\imaginaryI)\sin(x)^3+\cos(x)^3-3\cos(x)\sin(x)^2+(3\imaginaryI)\sin(x)\cos(x)^2`),
+    );
+  });
 });
