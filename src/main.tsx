@@ -5,7 +5,8 @@ import App from './App';
 import './styles.css';
 
 // 폰트는 public/mathlive/fonts 로 복사해둔다 (scripts/copy-mathlive-assets.mjs).
-MathfieldElement.fontsDirectory = '/mathlive/fonts';
+// BASE_URL 기준 상대경로여야 서브경로 배포(GitHub Pages 등)에서도 폰트가 로드된다.
+MathfieldElement.fontsDirectory = `${import.meta.env.BASE_URL}mathlive/fonts`;
 // 계산기에 타이핑 효과음은 필요 없다.
 MathfieldElement.soundsDirectory = null;
 
