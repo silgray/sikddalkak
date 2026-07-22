@@ -6,4 +6,4 @@ dist/
 public/mathlive/
 
 # 개인 메모
-.claude/my_plan..txt
+.claude/my_plan*

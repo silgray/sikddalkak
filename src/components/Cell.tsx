@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { FormulaObject, CellMode, EvalResult } from '../types';
 import { MathField, type MathFieldHandle } from './MathField';
-import { transformLatex, type TransformOp } from '../engine/transform';
+import { transformSelection, type TransformOp } from '../engine/transform';
 
 type Props = {
   object: FormulaObject;
@@ -21,34 +21,69 @@ type Props = {
 /** 공백 차이는 MathLive 재직렬화 재량이라 "달라졌다" 판정에서 뺀다. */
 const norm = (s: string) => s.replace(/\s+/g, '');
 
-/** 어느 필드에 어떤 변환이 가능한지. 결과가 실제로 달라질 때만 버튼을 보인다. */
+const TRANSFORM_OPS: readonly TransformOp[] = ['expand', 'simplify', 'factor'];
+
+/** 어느 필드에 어떤 변환이 가능한지. 실질 변화가 있는 것만 값이 있다. */
 type SelectionTransforms = {
   field: 'input' | 'result';
-  expand: string | null;
-  simplify: string | null;
+  replacements: Partial<Record<TransformOp, string>>;
 };
 
-function availableTransforms(field: 'input' | 'result', selected: string): SelectionTransforms | null {
-  const compute = (op: TransformOp) => {
-    const out = transformLatex(selected, op);
-    return out !== null && norm(out) !== norm(selected) ? out : null;
-  };
-  const expand = compute('expand');
-  const simplify = compute('simplify');
-  if (expand === null && simplify === null) return null;
-  return { field, expand, simplify };
+function availableTransforms(
+  field: 'input' | 'result',
+  selected: string,
+): SelectionTransforms | null {
+  const replacements: Partial<Record<TransformOp, string>> = {};
+  for (const op of TRANSFORM_OPS) {
+    const out = transformSelection(selected, op);
+    if (out !== null) replacements[op] = out;
+  }
+  return Object.keys(replacements).length > 0 ? { field, replacements } : null;
+}
+
+/**
+ * 변환 버튼 묶음. 선택이 있는 필드 바로 옆에 렌더한다.
+ * mousedown preventDefault로 포커스(=선택)를 뺏지 않는다.
+ */
+function TransformButtons({
+  transforms,
+  onApply,
+}: {
+  transforms: SelectionTransforms;
+  onApply: (op: TransformOp) => void;
+}) {
+  return (
+    <>
+      {TRANSFORM_OPS.filter((op) => transforms.replacements[op] !== undefined).map((op) => (
+        <button
+          key={op}
+          type="button"
+          className="transform-btn"
+          title={`Apply ${op} to the selection`}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onApply(op)}
+        >
+          {op}
+        </button>
+      ))}
+    </>
+  );
 }
 
 function ResultRow({
   result,
   syncKey,
   fieldRef,
+  transforms,
+  onApply,
   onDetach,
   onSelectionChange,
 }: {
   result: EvalResult;
   syncKey: number;
   fieldRef: React.Ref<MathFieldHandle>;
+  transforms: SelectionTransforms | null;
+  onApply: (op: TransformOp) => void;
   onDetach: (latex: string) => void;
   onSelectionChange: (selectedLatex: string | null) => void;
 }) {
@@ -82,6 +117,12 @@ function ResultRow({
         onEnter={detachIfChanged}
         onSelectionChange={onSelectionChange}
       />
+      {/* 결과 필드의 선택 변환 버튼은 결과 행에 뜬다 — 조작 대상 옆에. */}
+      {transforms !== null && transforms.field === 'result' && (
+        <div className="result-actions">
+          <TransformButtons transforms={transforms} onApply={onApply} />
+        </div>
+      )}
     </div>
   );
 }
@@ -115,8 +156,8 @@ export function Cell({
 
   const applyTransform = (op: TransformOp) => {
     if (transforms === null) return;
-    const replacement = transforms[op];
-    if (replacement === null) return;
+    const replacement = transforms.replacements[op];
+    if (replacement === undefined) return;
     const handle = transforms.field === 'input' ? inputRef.current : resultRef.current;
     const newValue = handle?.replaceSelection(replacement) ?? null;
     if (newValue === null) return;
@@ -143,29 +184,9 @@ export function Cell({
           onSelectionChange={trackSelection('input')}
         />
         <div className="cell-actions">
-          {/* 선택 변환: 선택이 있고 결과가 실제로 달라질 때만 보인다.
-              mousedown preventDefault로 포커스(=선택)를 뺏지 않는다. */}
-          {transforms !== null && transforms.expand !== null && (
-            <button
-              type="button"
-              className="transform-btn"
-              title="Expand the selection"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => applyTransform('expand')}
-            >
-              expand
-            </button>
-          )}
-          {transforms !== null && transforms.simplify !== null && (
-            <button
-              type="button"
-              className="transform-btn"
-              title="Simplify the selection"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => applyTransform('simplify')}
-            >
-              simplify
-            </button>
+          {/* 입력 필드의 선택 변환 버튼 — 조작 대상 옆에. */}
+          {transforms !== null && transforms.field === 'input' && (
+            <TransformButtons transforms={transforms} onApply={applyTransform} />
           )}
           {/* 정의 오브젝트는 항상 바인딩을 만들므로 모드 토글이 의미가 없다. */}
           {!isDefinition && (
@@ -191,6 +212,8 @@ export function Cell({
         result={result}
         syncKey={syncKey}
         fieldRef={resultRef}
+        transforms={transforms}
+        onApply={applyTransform}
         onDetach={onDetachResult}
         onSelectionChange={trackSelection('result')}
       />

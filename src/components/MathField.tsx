@@ -129,8 +129,9 @@ export function MathField({
       // 편집을 떠나면 대기 중인 디바운스를 기다리지 않고 즉시 확정한다.
       isEditing.current = false;
       flush();
-      // 떠난 필드의 선택은 더 이상 유효한 조작 대상이 아니다.
-      handlers.current.onSelectionChange?.(null);
+      // 주의: 여기서 onSelectionChange(null)를 부르지 않는다. blur돼도 모델의
+      // 선택은 살아 있고(변환 적용 가능), 창 포커스 전환(alt-tab)만으로 선택
+      // 조작 버튼이 사라지면 안 된다. 선택 해제는 selection-change가 알린다.
     });
     mf.addEventListener('selection-change', () => {
       const notify = handlers.current.onSelectionChange;

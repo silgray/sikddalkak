@@ -222,6 +222,23 @@ body {
   border-top: 1px dashed var(--line);
 }
 
+.result-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+.result-actions button {
+  border: 1px solid var(--line);
+  background: transparent;
+  border-radius: 6px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
 .result-arrow {
   color: var(--muted);
   font-size: 0.95rem;
