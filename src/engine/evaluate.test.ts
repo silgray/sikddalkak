@@ -167,6 +167,58 @@ describe('행렬', () => {
     const [, , r] = run([`A=${PERM}`, `B=${B3}`, String.raw`A\left(BA\right)`]);
     expect(latexOf(r)).toBe(ABA);
   });
+
+  // 열벡터 b = (1,2,3)ᵀ. CE는 Transpose(b)를 (b가 matrix declare여도) 행렬로
+  // 인정하지 않고 곱을 재배열한다 — b^Tb가 b·b^T로 뒤집히면 스칼라가 아니라
+  // 3×3 외적이 나오는 오답. 행렬 경로의 축소 정규화 파싱이 이를 막는다.
+  const COLVEC = String.raw`\begin{pmatrix}1\\2\\3\end{pmatrix}`;
+
+  it('b^Tb는 스칼라다 (전치 곱 순서 보존 + 1×1 접기)', () => {
+    const [, r] = run([`b=${COLVEC}`, 'b^Tb']);
+    expect(latexOf(r)).toBe('14');
+  });
+
+  it('bb^T는 3×3 외적이다', () => {
+    const [, r] = run([`b=${COLVEC}`, 'bb^T']);
+    expect(latexOf(r)).toBe(
+      norm(String.raw`\begin{pmatrix}1 & 2 & 3\\2 & 4 & 6\\3 & 6 & 9\end{pmatrix}`),
+    );
+  });
+
+  it('b^T 단독은 행벡터다', () => {
+    const [, r] = run([`b=${COLVEC}`, 'b^T']);
+    expect(latexOf(r)).toBe(norm(String.raw`\begin{pmatrix}1 & 2 & 3\end{pmatrix}`));
+  });
+
+  it('b^Tb를 정의하면 스칼라로 바인딩돼 이후 스칼라 연산에 쓰인다', () => {
+    const [, , r] = run([`b=${COLVEC}`, 'c=b^Tb', 'c x + c x']);
+    expect(latexOf(r)).toBe('28x');
+  });
+
+  // \cdot/\times는 CE 파싱에서 Multiply로 뭉개져 의미가 사라진다.
+  // 행렬 경로에서 마커로 살려 벡터면 Dot/Cross, 아니면 일반 곱으로 해석한다.
+  it('벡터 \\cdot 은 내적이다', () => {
+    const [, r] = run([`b=${COLVEC}`, String.raw`b\cdot b`]);
+    expect(latexOf(r)).toBe('14');
+  });
+
+  it('벡터 \\times 는 외적이다 (평행이면 영벡터, e1×e2=e3)', () => {
+    const [, r1] = run([`b=${COLVEC}`, String.raw`b\times b`]);
+    expect(latexOf(r1)).toBe(norm(String.raw`\begin{pmatrix}0\\0\\0\end{pmatrix}`));
+    const e1 = String.raw`\begin{pmatrix}1\\0\\0\end{pmatrix}`;
+    const e2 = String.raw`\begin{pmatrix}0\\1\\0\end{pmatrix}`;
+    const [, , r2] = run([`u=${e1}`, `v=${e2}`, String.raw`u\times v`]);
+    expect(latexOf(r2)).toBe(norm(String.raw`\begin{pmatrix}0\\0\\1\end{pmatrix}`));
+  });
+
+  it('행렬 문맥의 스칼라 \\cdot 은 일반 곱셈으로 남는다', () => {
+    const [, r] = run([`b=${COLVEC}`, String.raw`2\cdot b`]);
+    expect(latexOf(r)).toBe(norm(String.raw`\begin{pmatrix}2\\4\\6\end{pmatrix}`));
+  });
+
+  it('스칼라 전용 \\cdot 은 영향 없다 (행렬 경로 밖)', () => {
+    expect(latexOf(one(String.raw`2\cdot 3`))).toBe('6');
+  });
 });
 
 describe('정의와 변수 바인딩', () => {
