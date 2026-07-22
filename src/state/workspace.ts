@@ -35,7 +35,11 @@ export type WorkspaceState = {
 
 /** 활성 탭의 문서를 대상으로 하는 액션. */
 type ObjectAction =
-  | { type: 'commitInput'; id: string; latex: string }
+  /**
+   * coalesce:false면 이 커밋을 앞뒤 연속 편집과 합치지 않고 독립된 실행취소
+   * 단계로 남긴다 (선택 변환처럼 명시적인 조작에 사용).
+   */
+  | { type: 'commitInput'; id: string; latex: string; coalesce?: boolean }
   | { type: 'enter'; id: string; latex: string }
   | { type: 'setMode'; id: string; mode: CellMode }
   | { type: 'remove'; id: string }
@@ -186,7 +190,9 @@ function tabReducer(tab: Tab, action: ObjectAction | HistoryAction): Tab {
   }
 
   // 같은 id에 이어지는 commitInput은 한 단계로 합친다(디바운스 커밋이 쌓이지 않게).
-  const coalesceId = action.type === 'commitInput' ? action.id : null;
+  // coalesce:false는 이 커밋을 앞뒤 어느 쪽과도 합치지 않는다.
+  const coalesceId =
+    action.type === 'commitInput' && action.coalesce !== false ? action.id : null;
   const coalesce = coalesceId !== null && tab.history.coalesceId === coalesceId;
   const past = coalesce ? tab.history.past : cappedPush(tab.history.past, tab.objects);
   return { ...tab, objects, focus, history: { past, future: [], coalesceId } };

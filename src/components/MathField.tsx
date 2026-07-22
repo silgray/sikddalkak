@@ -1,10 +1,21 @@
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type Ref } from 'react';
 import { MathfieldElement } from 'mathlive';
 import { patchMathliveDisposedBlur } from '../mathlivePatch';
+
+/** 부모가 명시적으로 조작할 때 쓰는 핸들 (선택 변환 등). */
+export type MathFieldHandle = {
+  /**
+   * 현재 선택을 주어진 LaTeX으로 치환하고 필드의 새 전체 값을 돌려준다.
+   * 선택이 없으면 아무것도 하지 않고 null. 디바운스/dirty를 소모하므로
+   * 커밋은 호출자가 직접 dispatch해야 한다 (변환을 별도 실행취소 단계로 만들기 위함).
+   */
+  replaceSelection: (latex: string) => string | null;
+};
 
 type Props = {
   value: string;
   readOnly?: boolean;
+  ref?: Ref<MathFieldHandle>;
   /**
    * draft를 확정하려 할 때. 타이핑이 멈춰 디바운스가 만료되거나 blur될 때 불린다.
    * 제자리에 머무는 확정이다.
@@ -13,6 +24,11 @@ type Props = {
   /** Enter를 눌렀을 때. 확정하고 다음으로 넘어가는 신호다. */
   onEnter?: (latex: string) => void;
   onFocus?: () => void;
+  /**
+   * 선택 영역이 바뀔 때. 선택이 없으면(collapsed/blur) null, 있으면 선택된 LaTeX.
+   * 선택 변환 버튼의 표시 여부 판단에 쓴다.
+   */
+  onSelectionChange?: (selectedLatex: string | null) => void;
   /**
    * 값이 바뀔 때마다가 아니라, 이 토큰이 바뀔 때만 포커스를 준다.
    * 리렌더마다 focus()가 불려 커서가 튀는 것을 막기 위한 장치.
@@ -42,9 +58,11 @@ type Props = {
 export function MathField({
   value,
   readOnly = false,
+  ref,
   onFlush,
   onEnter,
   onFocus,
+  onSelectionChange,
   focusToken,
   syncKey,
   debounceMs = 300,
@@ -53,8 +71,8 @@ export function MathField({
   const mfRef = useRef<MathfieldElement | null>(null);
 
   // 핸들러는 ref로 들고 있어야 prop이 바뀌어도 엘리먼트를 다시 만들지 않는다.
-  const handlers = useRef({ onFlush, onEnter, onFocus });
-  handlers.current = { onFlush, onEnter, onFocus };
+  const handlers = useRef({ onFlush, onEnter, onFocus, onSelectionChange });
+  handlers.current = { onFlush, onEnter, onFocus, onSelectionChange };
   const initialValue = useRef(value);
   const debounce = useRef(debounceMs);
   debounce.current = debounceMs;
@@ -111,6 +129,13 @@ export function MathField({
       // 편집을 떠나면 대기 중인 디바운스를 기다리지 않고 즉시 확정한다.
       isEditing.current = false;
       flush();
+      // 떠난 필드의 선택은 더 이상 유효한 조작 대상이 아니다.
+      handlers.current.onSelectionChange?.(null);
+    });
+    mf.addEventListener('selection-change', () => {
+      const notify = handlers.current.onSelectionChange;
+      if (notify === undefined) return;
+      notify(mf.selectionIsCollapsed ? null : mf.getValue(mf.selection, 'latex'));
     });
     mf.addEventListener('keydown', (ev) => {
       // MathLive의 'change'는 blur 시에도 발사되므로 Enter만 직접 잡는다.
@@ -171,6 +196,23 @@ export function MathField({
   useEffect(() => {
     if (focusToken !== null && focusToken !== undefined) mfRef.current?.focus();
   }, [focusToken]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      replaceSelection(latex: string): string | null {
+        const mf = mfRef.current;
+        if (mf === null || mf.selectionIsCollapsed) return null;
+        mf.insert(latex, { insertionMode: 'replaceSelection', selectionMode: 'item' });
+        // insert가 input 이벤트를 발사해 디바운스가 걸리는데, 이 변경의 커밋은
+        // 호출자가 직접 한다 — 별도 실행취소 단계로 만들기 위해서다.
+        clearTimer();
+        isDirty.current = false;
+        return mf.value;
+      },
+    }),
+    [],
+  );
 
   return <div ref={hostRef} className={readOnly ? 'mf mf-readonly' : 'mf'} />;
 }

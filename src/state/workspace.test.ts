@@ -188,6 +188,21 @@ describe('전역 실행취소/다시실행', () => {
     expect(workspaceReducer(s, { type: 'redo' })).toBe(s); // redo 없음
   });
 
+  it('coalesce:false 커밋은 독립 실행취소 단계다', () => {
+    let { s, id } = seed();
+    // 타이핑 커밋 뒤 선택 변환(coalesce:false)이 이어지는 상황
+    s = workspaceReducer(s, { type: 'commitInput', id, latex: '(x+1)^2' });
+    s = workspaceReducer(s, { type: 'commitInput', id, latex: 'x^2+2x+1', coalesce: false });
+    // undo 한 번: 변환만 되돌아가고 타이핑 결과는 유지
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('(x+1)^2');
+    // 이후 타이핑도 변환과 합쳐지지 않고 새 단계에서 시작
+    s = workspaceReducer(s, { type: 'redo' });
+    s = workspaceReducer(s, { type: 'commitInput', id, latex: 'x^2+2x+2' });
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('x^2+2x+1');
+  });
+
   it('같은 id 연속 편집은 한 단계로 합쳐진다', () => {
     let { s, id } = seed();
     // 디바운스 커밋이 연속으로 들어오는 상황
