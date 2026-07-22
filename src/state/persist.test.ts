@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseWorkspace, serializeWorkspace } from './persist';
-import type { WorkspaceState } from './workspace';
+import { hydrateTab, type WorkspaceState } from './workspace';
 import type { FormulaObject } from '../types';
 
 const obj = (id: string, latex: string, extra: Partial<FormulaObject> = {}): FormulaObject => ({
@@ -13,8 +13,8 @@ const obj = (id: string, latex: string, extra: Partial<FormulaObject> = {}): For
 
 const workspace: WorkspaceState = {
   tabs: [
-    { id: 't1', name: 'Tab 1', objects: [obj('a1', '2x+3x')], focus: null },
-    { id: 't2', name: 'Calc', objects: [obj('b1', 'a=3', { mode: 'symbolic' })], focus: null },
+    hydrateTab({ id: 't1', name: 'Tab 1', objects: [obj('a1', '2x+3x')] }),
+    hydrateTab({ id: 't2', name: 'Calc', objects: [obj('b1', 'a=3', { mode: 'symbolic' })] }),
   ],
   activeTabId: 't2',
 };
@@ -30,7 +30,7 @@ describe('직렬화 왕복', () => {
 
   it('resultDetached도 왕복한다', () => {
     const ws: WorkspaceState = {
-      tabs: [{ id: 't1', name: 'T', objects: [obj('a', '2x', { resultDetached: true })], focus: null }],
+      tabs: [hydrateTab({ id: 't1', name: 'T', objects: [obj('a', '2x', { resultDetached: true })] })],
       activeTabId: 't1',
     };
     expect(parseWorkspace(serializeWorkspace(ws))?.tabs[0].objects[0].resultDetached).toBe(true);

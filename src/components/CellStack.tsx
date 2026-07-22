@@ -24,6 +24,7 @@ export function CellStack({ tab, dispatch }: Props) {
           object={object}
           result={object.resultDetached ? { kind: 'empty' } : (results.get(object.id) ?? { kind: 'empty' })}
           focusToken={tab.focus?.id === object.id ? tab.focus.token : null}
+          syncKey={tab.syncNonce}
           onFlush={(latex) => dispatch({ type: 'commitInput', id: object.id, latex })}
           onEnter={(latex) => dispatch({ type: 'enter', id: object.id, latex })}
           onModeChange={(mode) => dispatch({ type: 'setMode', id: object.id, mode })}

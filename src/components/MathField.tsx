@@ -17,6 +17,11 @@ type Props = {
    * 리렌더마다 focus()가 불려 커서가 튀는 것을 막기 위한 장치.
    */
   focusToken?: number | null;
+  /**
+   * 이 값이 바뀌면 편집 중(focused)이어도 `value`를 강제로 반영한다.
+   * 실행취소/다시실행이 포커스된 필드의 draft를 되돌리기 위한 유일한 경로.
+   */
+  syncKey?: number;
   /** 타이핑이 멈춘 뒤 flush까지의 지연(ms). */
   debounceMs?: number;
 };
@@ -40,6 +45,7 @@ export function MathField({
   onEnter,
   onFocus,
   focusToken,
+  syncKey,
   debounceMs = 300,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -122,6 +128,20 @@ export function MathField({
       mf.setValue(value, { silenceNotifications: true });
     }
   }, [value]);
+
+  // 강제 반영: 편집 중이어도 value를 밀어넣는다. 실행취소/다시실행 전용.
+  // value가 아니라 syncKey에만 의존하므로 평상시 타이핑에는 절대 끼어들지 않는다.
+  const firstSync = useRef(true);
+  useEffect(() => {
+    if (firstSync.current) {
+      firstSync.current = false;
+      return; // 마운트 시점의 값은 이미 반영돼 있다.
+    }
+    const mf = mfRef.current;
+    if (mf !== null && mf.value !== value) {
+      mf.setValue(value, { silenceNotifications: true });
+    }
+  }, [syncKey]);
 
   useEffect(() => {
     if (focusToken !== null && focusToken !== undefined) mfRef.current?.focus();

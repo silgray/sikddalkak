@@ -5,6 +5,7 @@ type Props = {
   object: FormulaObject;
   result: EvalResult;
   focusToken: number | null;
+  syncKey: number;
   onFlush: (latex: string) => void;
   onEnter: (latex: string) => void;
   onModeChange: (mode: CellMode) => void;
@@ -34,7 +35,7 @@ function ResultRow({ result }: { result: EvalResult }) {
   );
 }
 
-export function Cell({ object, result, focusToken, onFlush, onEnter, onModeChange, onRemove }: Props) {
+export function Cell({ object, result, focusToken, syncKey, onFlush, onEnter, onModeChange, onRemove }: Props) {
   const isDefinition = result.kind === 'ok' && result.definitionName !== null;
 
   return (
@@ -43,6 +44,7 @@ export function Cell({ object, result, focusToken, onFlush, onEnter, onModeChang
         <MathField
           value={object.latex}
           focusToken={focusToken}
+          syncKey={syncKey}
           onFlush={onFlush}
           onEnter={onEnter}
         />

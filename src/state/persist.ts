@@ -1,5 +1,6 @@
 import type { CellMode, FormulaObject } from '../types';
-import type { Tab, WorkspaceState } from './workspace';
+import type { WorkspaceState } from './workspace';
+import { hydrateTab } from './workspace';
 
 /**
  * 워크스페이스 영속화. localStorage I/O와 순수 검증/직렬화/마이그레이션을 분리한다 —
@@ -74,18 +75,18 @@ export function parseWorkspace(raw: string | null): WorkspaceState | null {
   if (parsed.version === 1) {
     const objects = normalizeObjects(parsed.objects);
     if (objects === null) return null;
-    const tab: Tab = { id: crypto.randomUUID(), name: 'Tab 1', objects: ensureNonEmpty(objects), focus: null };
+    const tab = hydrateTab({ id: crypto.randomUUID(), name: 'Tab 1', objects: ensureNonEmpty(objects) });
     return { tabs: [tab], activeTabId: tab.id };
   }
 
   // --- v2 ---
   if (parsed.version === SCHEMA_VERSION && Array.isArray(parsed.tabs)) {
-    const tabs: Tab[] = [];
+    const tabs = [];
     for (const t of parsed.tabs) {
       if (!isRecord(t) || typeof t.id !== 'string' || typeof t.name !== 'string') return null;
       const objects = normalizeObjects(t.objects);
       if (objects === null) return null;
-      tabs.push({ id: t.id, name: t.name, objects: ensureNonEmpty(objects), focus: null });
+      tabs.push(hydrateTab({ id: t.id, name: t.name, objects: ensureNonEmpty(objects) }));
     }
     if (tabs.length === 0) return null;
     // activeTabId가 실제 탭을 가리키지 않으면 첫 탭으로 보정.

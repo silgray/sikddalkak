@@ -113,3 +113,75 @@ describe('makeTab', () => {
     expect(t.objects[0].latex).toBe('');
   });
 });
+
+describe('전역 실행취소/다시실행', () => {
+  const seed = () => {
+    const s = initialWorkspace();
+    return { s, id: active(s).objects[0].id };
+  };
+
+  it('편집을 되돌리고 다시 실행한다', () => {
+    let { s, id } = seed();
+    s = workspaceReducer(s, { type: 'commitInput', id, latex: '2x+3x' });
+    expect(active(s).objects[0].latex).toBe('2x+3x');
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('');
+    s = workspaceReducer(s, { type: 'redo' });
+    expect(active(s).objects[0].latex).toBe('2x+3x');
+  });
+
+  it('빈 히스토리에서 undo/redo는 no-op', () => {
+    const { s } = seed();
+    expect(workspaceReducer(s, { type: 'undo' })).toBe(s);
+    expect(workspaceReducer(s, { type: 'redo' })).toBe(s);
+  });
+
+  it('새 편집은 redo 스택을 비운다', () => {
+    let { s, id } = seed();
+    s = workspaceReducer(s, { type: 'commitInput', id, latex: 'a' });
+    s = workspaceReducer(s, { type: 'undo' }); // future에 'a'
+    s = workspaceReducer(s, { type: 'commitInput', id, latex: 'b' }); // 새 분기
+    expect(workspaceReducer(s, { type: 'redo' })).toBe(s); // redo 없음
+  });
+
+  it('같은 id 연속 편집은 한 단계로 합쳐진다', () => {
+    let { s, id } = seed();
+    // 디바운스 커밋이 연속으로 들어오는 상황
+    s = workspaceReducer(s, { type: 'commitInput', id, latex: '2' });
+    s = workspaceReducer(s, { type: 'commitInput', id, latex: '2x' });
+    s = workspaceReducer(s, { type: 'commitInput', id, latex: '2x+3x' });
+    // 한 번의 undo로 편집 시작 전(빈 문자열)까지 돌아가야 한다.
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('');
+  });
+
+  it('다른 셀로 이동하면 코얼레싱이 끊긴다', () => {
+    let { s, id } = seed();
+    s = workspaceReducer(s, { type: 'enter', id, latex: 'a=3' }); // 새 셀 생성 + 이동
+    const id2 = active(s).objects[1].id;
+    s = workspaceReducer(s, { type: 'commitInput', id: id2, latex: 'a x' });
+    // 첫 셀(id)로 포커스 이동 -> 코얼레싱 끊김
+    s = workspaceReducer(s, { type: 'focus', id });
+    s = workspaceReducer(s, { type: 'commitInput', id, latex: 'a=5' });
+    // undo 한 번: a=5 편집만 되돌아가고 a=3은 유지
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('a=3');
+  });
+
+  it('undo가 syncNonce를 올린다 (강제 반영 신호)', () => {
+    let { s, id } = seed();
+    const before = active(s).syncNonce;
+    s = workspaceReducer(s, { type: 'commitInput', id, latex: 'x' });
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).syncNonce).toBe(before + 1);
+  });
+
+  it('히스토리는 탭마다 독립이다', () => {
+    let s = initialWorkspace();
+    const id1 = active(s).objects[0].id;
+    s = workspaceReducer(s, { type: 'commitInput', id: id1, latex: 'tab1edit' });
+    s = workspaceReducer(s, { type: 'addTab' }); // Tab 2로 전환
+    // Tab 2에서 undo는 Tab 2 히스토리만 봄 → 비어서 no-op
+    expect(workspaceReducer(s, { type: 'undo' })).toBe(s);
+  });
+});

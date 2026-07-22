@@ -20,6 +20,27 @@ export function Workspace() {
     return () => clearTimeout(timer);
   }, [state]);
 
+  // 전역 실행취소/다시실행. window의 capture 단계에서 잡으면 이벤트가 mathfield까지
+  // 내려가기 전에 막혀서, MathLive의 필드 내 실행취소가 자연히 비활성화된다.
+  // 히스토리가 탭 문서 단위로 하나만 남는다.
+  useEffect(() => {
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (!(ev.ctrlKey || ev.metaKey)) return;
+      const key = ev.key.toLowerCase();
+      if (key === 'z') {
+        ev.preventDefault();
+        ev.stopPropagation();
+        dispatch(ev.shiftKey ? { type: 'redo' } : { type: 'undo' });
+      } else if (key === 'y') {
+        ev.preventDefault();
+        ev.stopPropagation();
+        dispatch({ type: 'redo' });
+      }
+    };
+    window.addEventListener('keydown', onKeyDown, true); // capture
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, []);
+
   const activeTab = state.tabs.find((t) => t.id === state.activeTabId) ?? state.tabs[0];
 
   return (
