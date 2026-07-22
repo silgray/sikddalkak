@@ -10,9 +10,22 @@ type Props = {
   onEnter: (latex: string) => void;
   onModeChange: (mode: CellMode) => void;
   onRemove: () => void;
+  /** 결과 행을 편집해 독립 식으로 분리할 때 (편집된 latex 전달). */
+  onDetachResult: (latex: string) => void;
 };
 
-function ResultRow({ result }: { result: EvalResult }) {
+/** 공백 차이는 MathLive 재직렬화 재량이라 "편집됨" 판정에서 뺀다. */
+const norm = (s: string) => s.replace(/\s+/g, '');
+
+function ResultRow({
+  result,
+  syncKey,
+  onDetach,
+}: {
+  result: EvalResult;
+  syncKey: number;
+  onDetach: (latex: string) => void;
+}) {
   if (result.kind === 'empty') return null;
   if (result.kind === 'error') {
     return <div className="result result-error">⚠ {result.message}</div>;
@@ -27,15 +40,35 @@ function ResultRow({ result }: { result: EvalResult }) {
       </div>
     );
   }
+  // 결과도 일반 식처럼 편집할 수 있다. 실제로 내용이 바뀌었을 때만
+  // (MathField의 dirty 판정 + 정규화 비교) 독립 식으로 분리한다.
+  const detachIfChanged = (latex: string) => {
+    if (norm(latex) !== norm(result.latex)) onDetach(latex);
+  };
   return (
     <div className={result.definitionName !== null ? 'result result-def' : 'result'}>
       <span className="result-arrow">=</span>
-      <MathField value={result.latex} readOnly />
+      <MathField
+        value={result.latex}
+        syncKey={syncKey}
+        onFlush={detachIfChanged}
+        onEnter={detachIfChanged}
+      />
     </div>
   );
 }
 
-export function Cell({ object, result, focusToken, syncKey, onFlush, onEnter, onModeChange, onRemove }: Props) {
+export function Cell({
+  object,
+  result,
+  focusToken,
+  syncKey,
+  onFlush,
+  onEnter,
+  onModeChange,
+  onRemove,
+  onDetachResult,
+}: Props) {
   const isDefinition = result.kind === 'ok' && result.definitionName !== null;
 
   return (
@@ -69,7 +102,7 @@ export function Cell({ object, result, focusToken, syncKey, onFlush, onEnter, on
           </button>
         </div>
       </div>
-      <ResultRow result={result} />
+      <ResultRow result={result} syncKey={syncKey} onDetach={onDetachResult} />
     </div>
   );
 }

@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { MathfieldElement } from 'mathlive';
+import { patchMathliveDisposedBlur } from '../mathlivePatch';
 
 type Props = {
   value: string;
@@ -60,8 +61,27 @@ export function MathField({
 
   // 편집 중인지 추적한다. 편집 중에는 외부 value 동기화가 draft를 덮지 않도록 막는다.
   const isEditing = useRef(false);
+  /**
+   * 마지막 외부 반영 이후 사용자 입력이 있었는지. flush는 dirty일 때만 부모에
+   * 알린다 — MathLive가 LaTeX을 재직렬화해 문자열이 달라져도(예: 행렬 줄바꿈)
+   * 단순 blur가 "편집"으로 오인되지 않게 하기 위해서다. 결과 행 분리(feature 3)의
+   * 오탐 방지에 특히 중요하다.
+   */
+  const isDirty = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const clearTimer = () => {
+    if (timerRef.current !== undefined) {
+      clearTimeout(timerRef.current);
+      timerRef.current = undefined;
+    }
+  };
 
-  useEffect(() => {
+  // useLayoutEffect여야 한다: layout cleanup은 React가 DOM 노드를 떼기 **전에**
+  // 동기 실행된다. 포커스된 mathfield가 blur 없이 DOM에서 떨어지면 MathLive의
+  // 전역 포커스 추적(_globallyFocusedMathfield)에 dispose된 필드가 남고, 다음
+  // 필드가 포커스될 때 그 낡은 참조의 onBlur를 불러 크래시한다. cleanup에서
+  // 아직 붙어있는 동안 blur()를 호출해 추적을 정리한다.
+  useLayoutEffect(() => {
     const host = hostRef.current;
     if (host === null) return;
 
@@ -70,22 +90,18 @@ export function MathField({
     // 데스크톱에서 가상 키보드가 멋대로 뜨지 않게.
     mf.mathVirtualKeyboardPolicy = 'manual';
 
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const clear = () => {
-      if (timer !== undefined) {
-        clearTimeout(timer);
-        timer = undefined;
-      }
-    };
     const flush = () => {
-      clear();
+      clearTimer();
+      if (!isDirty.current) return; // 사용자 입력이 없었다 — 알릴 것도 없다.
+      isDirty.current = false;
       handlers.current.onFlush?.(mf.value);
     };
 
     mf.addEventListener('input', () => {
       // 타이핑이 멈추면 flush. 매 입력마다 타이머를 다시 건다.
-      clear();
-      timer = setTimeout(flush, debounce.current);
+      isDirty.current = true;
+      clearTimer();
+      timerRef.current = setTimeout(flush, debounce.current);
     });
     mf.addEventListener('focusin', () => {
       isEditing.current = true;
@@ -100,15 +116,19 @@ export function MathField({
       // MathLive의 'change'는 blur 시에도 발사되므로 Enter만 직접 잡는다.
       if (ev.key === 'Enter') {
         ev.preventDefault();
-        clear();
+        clearTimer();
+        isDirty.current = false;
         handlers.current.onEnter?.(mf.value);
       }
     });
 
     host.append(mf);
+    // 포커스된 필드가 언마운트될 때의 MathLive 크래시 우회 (mathlivePatch.ts 참고).
+    // 내부 프로토타입에 접근해야 해서 살아있는 인스턴스가 필요하다. 최초 1회만 적용됨.
+    patchMathliveDisposedBlur(mf);
     mfRef.current = mf;
     return () => {
-      clear();
+      clearTimer();
       mf.remove();
       mfRef.current = null;
     };
@@ -126,6 +146,7 @@ export function MathField({
     const mf = mfRef.current;
     if (mf !== null && !isEditing.current && mf.value !== value) {
       mf.setValue(value, { silenceNotifications: true });
+      isDirty.current = false; // 외부 반영은 편집이 아니다.
     }
   }, [value]);
 
@@ -138,6 +159,10 @@ export function MathField({
       return; // 마운트 시점의 값은 이미 반영돼 있다.
     }
     const mf = mfRef.current;
+    // 대기 중인 디바운스 flush를 버린다 — 되돌린 직후 낡은 draft가 커밋되면
+    // 실행취소가 즉시 무효화되는 경쟁을 막는다.
+    clearTimer();
+    isDirty.current = false;
     if (mf !== null && mf.value !== value) {
       mf.setValue(value, { silenceNotifications: true });
     }

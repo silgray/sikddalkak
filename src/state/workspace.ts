@@ -39,7 +39,12 @@ type ObjectAction =
   | { type: 'enter'; id: string; latex: string }
   | { type: 'setMode'; id: string; mode: CellMode }
   | { type: 'remove'; id: string }
-  | { type: 'focus'; id: string };
+  | { type: 'focus'; id: string }
+  /**
+   * 결과 행을 편집해 독립 식으로 분리한다. 편집한 latex로 새 오브젝트를 원본
+   * 바로 뒤에 만들고, 원본은 결과 표시를 잃는다(resultDetached).
+   */
+  | { type: 'detachResult'; id: string; latex: string };
 
 /** 활성 탭의 히스토리를 다루는 액션. */
 type HistoryAction = { type: 'undo' } | { type: 'redo' };
@@ -126,6 +131,18 @@ function reduceContent(tab: Tab, action: ObjectAction): Content {
 
     case 'focus':
       return { objects: tab.objects, focus: { id: action.id, token: nextToken(tab) } };
+
+    case 'detachResult': {
+      const index = tab.objects.findIndex((o) => o.id === action.id);
+      if (index === -1) return { objects: tab.objects, focus: tab.focus };
+      const created = { ...makeObject(), latex: action.latex };
+      const objects = tab.objects.flatMap((o, i) =>
+        // 원본은 결과 표시를 잃고, 편집분이 새 독립 오브젝트로 바로 뒤에 선다.
+        i === index ? [{ ...o, resultDetached: true }, created] : [o],
+      );
+      // 사용자가 편집을 이어가던 흐름을 유지하도록 새 오브젝트에 포커스.
+      return { objects, focus: { id: created.id, token: nextToken(tab) } };
+    }
   }
 }
 

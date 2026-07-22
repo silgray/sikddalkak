@@ -4,3 +4,6 @@ dist/
 
 # scripts/copy-mathlive-assets.mjs 가 node_modules에서 복사해오는 것
 public/mathlive/
+
+# 개인 메모
+.claude/my_plan..txt

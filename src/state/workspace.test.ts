@@ -114,6 +114,50 @@ describe('makeTab', () => {
   });
 });
 
+describe('결과 분리 (detachResult)', () => {
+  const seed = () => {
+    let s = initialWorkspace();
+    const id = active(s).objects[0].id;
+    s = workspaceReducer(s, { type: 'commitInput', id, latex: '2x+3x' });
+    return { s, id };
+  };
+
+  it('편집분이 원본 바로 뒤에 독립 오브젝트로 선다', () => {
+    let { s, id } = seed();
+    s = workspaceReducer(s, { type: 'detachResult', id, latex: '5x+1' });
+    const objects = active(s).objects;
+    expect(objects).toHaveLength(2);
+    expect(objects[0].latex).toBe('2x+3x');
+    expect(objects[0].resultDetached).toBe(true); // 원본은 결과 표시를 잃는다
+    expect(objects[1].latex).toBe('5x+1');
+    expect(objects[1].resultDetached).toBe(false);
+    expect(objects[1].id).not.toBe(id);
+    // 편집 흐름 유지를 위해 새 오브젝트에 포커스
+    expect(active(s).focus?.id).toBe(objects[1].id);
+  });
+
+  it('원본 latex를 고치면 결과 표시가 되살아난다', () => {
+    let { s, id } = seed();
+    s = workspaceReducer(s, { type: 'detachResult', id, latex: '5x+1' });
+    s = workspaceReducer(s, { type: 'commitInput', id, latex: '2x+4x' });
+    expect(active(s).objects[0].resultDetached).toBe(false);
+  });
+
+  it('분리는 실행취소 한 단계다', () => {
+    let { s, id } = seed();
+    s = workspaceReducer(s, { type: 'detachResult', id, latex: '5x+1' });
+    s = workspaceReducer(s, { type: 'undo' });
+    const objects = active(s).objects;
+    expect(objects).toHaveLength(1);
+    expect(objects[0].resultDetached).toBe(false); // 결과 행 복귀
+  });
+
+  it('없는 id는 no-op', () => {
+    const { s } = seed();
+    expect(workspaceReducer(s, { type: 'detachResult', id: 'ghost', latex: 'x' })).toBe(s);
+  });
+});
+
 describe('전역 실행취소/다시실행', () => {
   const seed = () => {
     const s = initialWorkspace();

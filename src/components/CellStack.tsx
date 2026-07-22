@@ -29,6 +29,7 @@ export function CellStack({ tab, dispatch }: Props) {
           onEnter={(latex) => dispatch({ type: 'enter', id: object.id, latex })}
           onModeChange={(mode) => dispatch({ type: 'setMode', id: object.id, mode })}
           onRemove={() => dispatch({ type: 'remove', id: object.id })}
+          onDetachResult={(latex) => dispatch({ type: 'detachResult', id: object.id, latex })}
         />
       ))}
     </div>
