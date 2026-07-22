@@ -1,60 +1,65 @@
-import type { Cell, CellMode } from '../types';
+import type { CellMode, FormulaObject } from '../types';
 
 export type CellsState = {
-  cells: Cell[];
-  /** 포커스를 옮길 셀. token은 같은 셀에 다시 포커스를 줄 때 구분용. */
+  objects: FormulaObject[];
+  /** 포커스를 옮길 오브젝트. token은 같은 곳에 다시 포커스를 줄 때 구분용. */
   focus: { id: string; token: number } | null;
 };
 
 export type Action =
-  | { type: 'setInput'; id: string; input: string }
+  /** draft를 확정 값으로 flush한다 (디바운스/blur). 제자리에 머문다. */
+  | { type: 'commitInput'; id: string; latex: string }
+  /** flush하고 다음 오브젝트로 이동한다 (Enter). 없으면 새로 만든다. */
+  | { type: 'enter'; id: string; latex: string }
   | { type: 'setMode'; id: string; mode: CellMode }
-  | { type: 'commit'; id: string; input: string }
   | { type: 'remove'; id: string }
   | { type: 'focus'; id: string };
 
-let nextId = 0;
-export function makeCell(): Cell {
-  nextId += 1;
-  return { id: `c${nextId}`, input: '', mode: 'scoped', committed: false };
+export function makeObject(): FormulaObject {
+  return { id: crypto.randomUUID(), latex: '', mode: 'scoped' };
 }
 
-export const initialState: CellsState = { cells: [makeCell()], focus: null };
+export const initialState: CellsState = { objects: [makeObject()], focus: null };
 
-function patch(cells: Cell[], id: string, change: Partial<Cell>): Cell[] {
-  return cells.map((c) => (c.id === id ? { ...c, ...change } : c));
+function patch(objects: FormulaObject[], id: string, change: Partial<FormulaObject>): FormulaObject[] {
+  return objects.map((o) => (o.id === id ? { ...o, ...change } : o));
+}
+
+function nextToken(state: CellsState): number {
+  return state.focus ? state.focus.token + 1 : 1;
 }
 
 export function cellsReducer(state: CellsState, action: Action): CellsState {
   switch (action.type) {
-    case 'setInput':
-      return { ...state, cells: patch(state.cells, action.id, { input: action.input }) };
+    case 'commitInput': {
+      const target = state.objects.find((o) => o.id === action.id);
+      // 값이 그대로면 새 상태를 만들지 않는다 — 불필요한 재평가/리렌더를 막는다.
+      if (target === undefined || target.latex === action.latex) return state;
+      return { ...state, objects: patch(state.objects, action.id, { latex: action.latex }) };
+    }
 
     case 'setMode':
-      return { ...state, cells: patch(state.cells, action.id, { mode: action.mode }) };
+      return { ...state, objects: patch(state.objects, action.id, { mode: action.mode }) };
 
-    case 'commit': {
-      const cells = patch(state.cells, action.id, { input: action.input, committed: true });
-      const index = cells.findIndex((c) => c.id === action.id);
-      const next = cells[index + 1];
+    case 'enter': {
+      const objects = patch(state.objects, action.id, { latex: action.latex });
+      const index = objects.findIndex((o) => o.id === action.id);
+      const next = objects[index + 1];
       if (next !== undefined) {
-        // 이미 아래 셀이 있으면 새로 만들지 않고 거기로 이동한다.
-        return { cells, focus: { id: next.id, token: state.focus ? state.focus.token + 1 : 1 } };
+        // 이미 아래 오브젝트가 있으면 새로 만들지 않고 거기로 이동한다.
+        return { objects, focus: { id: next.id, token: nextToken(state) } };
       }
-      const created = makeCell();
-      return {
-        cells: [...cells, created],
-        focus: { id: created.id, token: state.focus ? state.focus.token + 1 : 1 },
-      };
+      const created = makeObject();
+      return { objects: [...objects, created], focus: { id: created.id, token: nextToken(state) } };
     }
 
     case 'remove': {
-      const cells = state.cells.filter((c) => c.id !== action.id);
+      const objects = state.objects.filter((o) => o.id !== action.id);
       // 스택이 비지 않도록 항상 최소 한 개는 남긴다.
-      return { ...state, cells: cells.length > 0 ? cells : [makeCell()] };
+      return { ...state, objects: objects.length > 0 ? objects : [makeObject()] };
     }
 
     case 'focus':
-      return { ...state, focus: { id: action.id, token: state.focus ? state.focus.token + 1 : 1 } };
+      return { ...state, focus: { id: action.id, token: nextToken(state) } };
   }
 }

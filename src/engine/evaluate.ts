@@ -1,7 +1,7 @@
 import { isFunction, isSymbol } from '@cortex-js/compute-engine';
 import type { Expression, MathJsonExpression } from '@cortex-js/compute-engine';
 import { ce } from './ce';
-import type { Cell, CellMode, EvalResult } from '../types';
+import type { CellMode, EvalResult } from '../types';
 
 type Bindings = Record<string, Expression>;
 
@@ -365,18 +365,4 @@ export function evaluateGraph(inputs: readonly EvalInput[]): Map<string, EvalRes
   } finally {
     ce.popScope();
   }
-}
-
-/**
- * 셀 스택 뷰용 어댑터. 미확정 셀을 거르고 결과를 입력 순서 배열로 되돌린다.
- * 엔진 자체는 스택을 모른다.
- */
-export function evaluateCells(cells: readonly Cell[]): EvalResult[] {
-  const live = cells.filter((cell) => cell.committed);
-  const results = evaluateGraph(
-    live.map((cell) => ({ id: cell.id, latex: cell.input, mode: cell.mode })),
-  );
-  return cells.map((cell) =>
-    cell.committed ? (results.get(cell.id) ?? { kind: 'empty' }) : { kind: 'empty' },
-  );
 }

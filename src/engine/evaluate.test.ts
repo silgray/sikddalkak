@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { clearEvaluationCache, evaluateCells } from './evaluate';
-import type { Cell, CellMode, EvalResult } from '../types';
+import { clearEvaluationCache, evaluateGraph, type EvalInput } from './evaluate';
+import type { CellMode, EvalResult } from '../types';
 
 /**
  * 엔진 회귀 테스트.
@@ -11,15 +11,18 @@ import type { Cell, CellMode, EvalResult } from '../types';
  */
 
 let seq = 0;
-function cell(input: string, mode: CellMode = 'scoped'): Cell {
+function input(latex: string, mode: CellMode = 'scoped'): EvalInput {
   seq += 1;
-  return { id: `t${seq}`, input, mode, committed: true };
+  return { id: `t${seq}`, latex, mode };
 }
 
+/** 엔진을 입력 순서대로 평가하고 결과를 그 순서 배열로 되돌린다. */
 function run(inputs: readonly (string | [string, CellMode])[]): EvalResult[] {
-  return evaluateCells(
-    inputs.map((i) => (typeof i === 'string' ? cell(i) : cell(i[0], i[1]))),
+  const evalInputs = inputs.map((i) =>
+    typeof i === 'string' ? input(i) : input(i[0], i[1]),
   );
+  const results = evaluateGraph(evalInputs);
+  return evalInputs.map((i) => results.get(i.id) ?? { kind: 'empty' });
 }
 
 /** 공백과 줄바꿈은 CE 직렬화 재량이라 비교에서 뺀다. */
@@ -316,10 +319,6 @@ describe('에러 처리', () => {
     expect(one('   ')).toEqual({ kind: 'empty' });
   });
 
-  it('미확정 셀은 평가하지 않는다', () => {
-    const results = evaluateCells([{ ...cell('2x+3x'), committed: false }]);
-    expect(results[0]).toEqual({ kind: 'empty' });
-  });
 
   it('에러 셀이 있어도 다른 셀은 계속 평가한다', () => {
     const [, , third] = run(['a=3', 'x+', 'a x']);

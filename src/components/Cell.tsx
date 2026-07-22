@@ -1,12 +1,12 @@
-import type { Cell as CellData, CellMode, EvalResult } from '../types';
+import type { FormulaObject, CellMode, EvalResult } from '../types';
 import { MathField } from './MathField';
 
 type Props = {
-  cell: CellData;
+  object: FormulaObject;
   result: EvalResult;
   focusToken: number | null;
-  onInput: (input: string) => void;
-  onCommit: (input: string) => void;
+  onFlush: (latex: string) => void;
+  onEnter: (latex: string) => void;
   onModeChange: (mode: CellMode) => void;
   onRemove: () => void;
 };
@@ -34,32 +34,32 @@ function ResultRow({ result }: { result: EvalResult }) {
   );
 }
 
-export function Cell({ cell, result, focusToken, onInput, onCommit, onModeChange, onRemove }: Props) {
+export function Cell({ object, result, focusToken, onFlush, onEnter, onModeChange, onRemove }: Props) {
   const isDefinition = result.kind === 'ok' && result.definitionName !== null;
 
   return (
     <div className="cell">
       <div className="cell-input">
         <MathField
-          value={cell.input}
+          value={object.latex}
           focusToken={focusToken}
-          onInput={onInput}
-          onCommit={onCommit}
+          onFlush={onFlush}
+          onEnter={onEnter}
         />
         <div className="cell-actions">
-          {/* 정의 셀은 항상 바인딩을 만들므로 모드 토글이 의미가 없다. */}
+          {/* 정의 오브젝트는 항상 바인딩을 만들므로 모드 토글이 의미가 없다. */}
           {!isDefinition && (
             <button
               type="button"
               className="mode-toggle"
               title={
-                cell.mode === 'scoped'
-                  ? 'Substitutes variables defined in the cells above'
+                object.mode === 'scoped'
+                  ? 'Substitutes variables defined elsewhere'
                   : 'Leaves variables as unknowns'
               }
-              onClick={() => onModeChange(cell.mode === 'scoped' ? 'symbolic' : 'scoped')}
+              onClick={() => onModeChange(object.mode === 'scoped' ? 'symbolic' : 'scoped')}
             >
-              {cell.mode === 'scoped' ? 'scoped' : 'symbolic'}
+              {object.mode === 'scoped' ? 'scoped' : 'symbolic'}
             </button>
           )}
           <button type="button" className="remove" title="Delete cell" onClick={onRemove}>
