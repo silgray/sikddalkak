@@ -2,6 +2,16 @@ import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type Ref } fro
 import { MathfieldElement } from 'mathlive';
 import { patchMathliveDisposedBlur } from '../mathlivePatch';
 
+/** run 안에 미결(안 닫힌) 여는 괄호가 몇 개인지. `\left(`/`\right)`도 (,)를 포함해 같이 세어진다. */
+function unmatchedOpenParens(latex: string): number {
+  let depth = 0;
+  for (const ch of latex) {
+    if (ch === '(') depth += 1;
+    else if (ch === ')') depth = Math.max(0, depth - 1);
+  }
+  return depth;
+}
+
 /** 부모가 명시적으로 조작할 때 쓰는 핸들 (선택 변환 등). */
 export type MathFieldHandle = {
   /**
@@ -132,6 +142,34 @@ export function MathField({
         handlers.current.onEnter?.(mf.value);
       }
     });
+
+    // `)` 왼쪽 감싸기: smartFence의 `(`(오른쪽 같은 레벨 전부 감싸기)의 거울상.
+    // 같은 레벨에 미결 `(`가 없을 때 `)`를 치면 캐럿 왼쪽의 같은 레벨 run을
+    // \left(...\right)로 감싼다. 미결 `(`가 있으면 기본 동작(닫기)에 맡긴다.
+    // capture 단계여야 MathLive의 자체 처리보다 먼저 가로챌 수 있다.
+    mf.addEventListener(
+      'keydown',
+      (ev) => {
+        if (ev.key !== ')' || mf.readOnly) return;
+        if (!mf.selectionIsCollapsed) return; // 선택이 있으면 기본 동작(치환)에 맡김
+        const pos = mf.position;
+        // 같은 레벨(현재 그룹)의 시작~캐럿 run을 읽는다. 실측: 미결 스마트펜스는
+        // 중첩 그룹을 만들지 않고 같은 레벨에 평평하게 있어 run에 `(`로 나타난다.
+        mf.executeCommand('extendToGroupStart');
+        const run = mf.getValue(mf.selection, 'latex');
+        mf.position = pos; // 분석 후 복원
+        if (run.trim() === '' || unmatchedOpenParens(run) > 0) return; // 기본 동작
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+        mf.executeCommand('extendToGroupStart');
+        mf.insert(`\\left(${run}\\right)`, {
+          insertionMode: 'replaceSelection',
+          selectionMode: 'after',
+        });
+        // insert가 input 이벤트를 발사해 onEdit으로 문서·실행취소가 갱신된다.
+      },
+      { capture: true },
+    );
 
     host.append(mf);
     // 포커스된 필드가 언마운트될 때의 MathLive 크래시 우회 (mathlivePatch.ts 참고).
