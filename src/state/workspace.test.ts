@@ -3,6 +3,7 @@ import {
   workspaceReducer,
   initialWorkspace,
   makeTab,
+  hydrateTab,
   type WorkspaceState,
 } from './workspace';
 
@@ -126,7 +127,7 @@ describe('결과 분리 (detachResult)', () => {
     let { s, id } = seed();
     s = workspaceReducer(s, { type: 'detachResult', id, latex: '5x+1' });
     const objects = active(s).objects;
-    expect(objects).toHaveLength(2);
+    expect(objects).toHaveLength(3); // 원본 + 분리본 + 상시 빈 셀
     expect(objects[0].latex).toBe('2x+3x');
     expect(objects[0].resultDetached).toBe(true); // 원본은 결과 표시를 잃는다
     expect(objects[1].latex).toBe('5x+1');
@@ -148,13 +149,91 @@ describe('결과 분리 (detachResult)', () => {
     s = workspaceReducer(s, { type: 'detachResult', id, latex: '5x+1' });
     s = workspaceReducer(s, { type: 'undo' });
     const objects = active(s).objects;
-    expect(objects).toHaveLength(1);
+    expect(objects).toHaveLength(2); // 원본 + 상시 빈 셀
     expect(objects[0].resultDetached).toBe(false); // 결과 행 복귀
   });
 
   it('없는 id는 no-op', () => {
     const { s } = seed();
     expect(workspaceReducer(s, { type: 'detachResult', id: 'ghost', latex: 'x' })).toBe(s);
+  });
+});
+
+describe('상시 빈 셀 불변식', () => {
+  it('마지막 셀에 입력하면 새 빈 셀이 아래 생긴다', () => {
+    let s = initialWorkspace();
+    const id = active(s).objects[0].id;
+    s = workspaceReducer(s, { type: 'editInput', id, latex: '2x', cursor: 2 });
+    const objects = active(s).objects;
+    expect(objects).toHaveLength(2);
+    expect(objects[1].latex).toBe('');
+  });
+
+  it('마지막 남은 셀을 지워도 빈 셀 하나는 남는다', () => {
+    let s = initialWorkspace();
+    const id = active(s).objects[0].id;
+    s = workspaceReducer(s, { type: 'editInput', id, latex: '2x', cursor: 2 });
+    const emptyId = active(s).objects[1].id;
+    s = workspaceReducer(s, { type: 'remove', id });
+    s = workspaceReducer(s, { type: 'remove', id: emptyId });
+    expect(active(s).objects).toHaveLength(1);
+    expect(active(s).objects[0].latex).toBe('');
+  });
+
+  it('빈 셀이 이미 아래에 있으면 또 만들지 않는다', () => {
+    let s = initialWorkspace();
+    const id = active(s).objects[0].id;
+    s = workspaceReducer(s, { type: 'editInput', id, latex: '2x', cursor: 2 });
+    s = workspaceReducer(s, { type: 'editInput', id, latex: '2x+1', cursor: 4 });
+    expect(active(s).objects).toHaveLength(2);
+  });
+
+  it('저장본 복원 시에도 불변식이 맞춰진다', () => {
+    const t = hydrateTab({
+      id: 't1',
+      name: 'T',
+      objects: [{ id: 'a', latex: '2x', mode: 'scoped', resultDetached: false }],
+    });
+    expect(t.objects).toHaveLength(2);
+    expect(t.objects[1].latex).toBe('');
+  });
+});
+
+describe('드래그 재정렬 (moveObject)', () => {
+  const seed3 = () => {
+    let s = initialWorkspace();
+    const a = active(s).objects[0].id;
+    s = workspaceReducer(s, { type: 'editInput', id: a, latex: 'a=1', cursor: 3 });
+    const b = active(s).objects[1].id;
+    s = workspaceReducer(s, { type: 'editInput', id: b, latex: 'b=2', cursor: 3 });
+    return { s, a, b };
+  };
+
+  it('오브젝트를 지정 위치로 옮긴다', () => {
+    let { s, a, b } = seed3();
+    s = workspaceReducer(s, { type: 'moveObject', id: b, toIndex: 0 });
+    expect(active(s).objects.map((o) => o.id).slice(0, 2)).toEqual([b, a]);
+  });
+
+  it('같은 위치로의 이동은 no-op이다', () => {
+    const { s, a } = seed3();
+    expect(workspaceReducer(s, { type: 'moveObject', id: a, toIndex: 0 })).toBe(s);
+  });
+
+  it('재정렬은 실행취소 한 단계다', () => {
+    let { s, a, b } = seed3();
+    s = workspaceReducer(s, { type: 'moveObject', id: b, toIndex: 0 });
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects.map((o) => o.id).slice(0, 2)).toEqual([a, b]);
+  });
+
+  it('toIndex는 배열 범위로 잘린다', () => {
+    let { s, a } = seed3();
+    s = workspaceReducer(s, { type: 'moveObject', id: a, toIndex: 99 });
+    const ids = active(s).objects.map((o) => o.id);
+    // 맨 끝으로 이동하면 불변식이 새 빈 셀을 덧붙이므로 끝에서 두 번째가 된다.
+    expect(ids[ids.length - 2]).toBe(a);
+    expect(active(s).objects[ids.length - 1].latex).toBe('');
   });
 });
 
@@ -222,9 +301,10 @@ describe('전역 실행취소/다시실행', () => {
     s = workspaceReducer(s, { type: 'undo' });
     expect(active(s).objects[1].latex).toBe('');
     expect(active(s).focus).toMatchObject({ id: id2, offset: 0 });
-    // undo 2: 셀 추가 취소 → 캐럿이 원래 셀(셀1)의 편집 자리로 복귀
+    // undo 2: enter 취소 → 캐럿이 원래 셀(셀1)의 편집 자리로 복귀
+    // (상시 빈 셀 불변식 때문에 셀 수는 2가 유지된다)
     s = workspaceReducer(s, { type: 'undo' });
-    expect(active(s).objects).toHaveLength(1);
+    expect(active(s).objects).toHaveLength(2);
     expect(active(s).focus).toMatchObject({ id, offset: 3 });
   });
 

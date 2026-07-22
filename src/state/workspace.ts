@@ -56,6 +56,8 @@ type ObjectAction =
   | { type: 'enter'; id: string; latex: string }
   | { type: 'setMode'; id: string; mode: CellMode }
   | { type: 'remove'; id: string }
+  /** 드래그 재정렬. toIndex = 이동 후 위치. 표시 순서만 바뀐다(평가는 순서 무관). */
+  | { type: 'moveObject'; id: string; toIndex: number }
   | { type: 'focus'; id: string }
   /**
    * 결과 행을 편집해 독립 식으로 분리한다. 편집한 latex로 새 오브젝트를 원본
@@ -96,10 +98,11 @@ export function makeTab(name: string): Tab {
   };
 }
 
-/** 저장본에서 복원할 때 비영속 필드(focus/history 등)를 채워 넣는다. */
+/** 저장본에서 복원할 때 비영속 필드(focus/history 등)를 채우고 불변식을 맞춘다. */
 export function hydrateTab(base: { id: string; name: string; objects: FormulaObject[] }): Tab {
   return {
     ...base,
+    objects: ensureTrailingEmpty(base.objects),
     focus: null,
     history: emptyHistory(),
     syncNonce: 0,
@@ -173,10 +176,19 @@ function reduceContent(tab: Tab, action: ObjectAction): Content {
       };
     }
 
-    case 'remove': {
-      const objects = tab.objects.filter((o) => o.id !== action.id);
-      // 스택이 비지 않도록 항상 최소 한 개는 남긴다.
-      return { objects: objects.length > 0 ? objects : [makeObject()], focus: tab.focus };
+    case 'remove':
+      // 비거나 마지막이 채워지는 경우는 ensureTrailingEmpty 불변식이 채운다.
+      return { objects: tab.objects.filter((o) => o.id !== action.id), focus: tab.focus };
+
+    case 'moveObject': {
+      const from = tab.objects.findIndex((o) => o.id === action.id);
+      if (from === -1) return { objects: tab.objects, focus: tab.focus };
+      const to = Math.max(0, Math.min(action.toIndex, tab.objects.length - 1));
+      if (to === from) return { objects: tab.objects, focus: tab.focus };
+      const objects = [...tab.objects];
+      const [moved] = objects.splice(from, 1);
+      objects.splice(to, 0, moved);
+      return { objects, focus: tab.focus };
     }
 
     case 'focus':
@@ -204,6 +216,17 @@ function reduceContent(tab: Tab, action: ObjectAction): Content {
 function cappedPush(past: HistoryEntry[], entry: HistoryEntry): HistoryEntry[] {
   const next = [...past, entry];
   return next.length > HISTORY_LIMIT ? next.slice(next.length - HISTORY_LIMIT) : next;
+}
+
+/**
+ * 불변식: 맨 아래에는 항상 빈 셀이 하나 있다 — 언제든 눌러서 이어서 쓸 수 있게.
+ * 마지막 셀이 채워지면(또는 문서가 비면) 빈 셀을 덧붙인다.
+ * 변화가 없으면 같은 참조를 돌려줘 히스토리/리렌더를 건드리지 않는다.
+ */
+function ensureTrailingEmpty(objects: FormulaObject[]): FormulaObject[] {
+  const last = objects[objects.length - 1];
+  if (last !== undefined && last.latex.trim() === '') return objects;
+  return [...objects, makeObject()];
 }
 
 /** 활성 탭 하나를 변형한다. 콘텐츠 변화면 실행취소 히스토리를 기록한다. */
@@ -248,7 +271,10 @@ function tabReducer(tab: Tab, action: ObjectAction | HistoryAction): Tab {
     };
   }
 
-  const { objects, focus, cursorAfter } = reduceContent(tab, action);
+  const content = reduceContent(tab, action);
+  const objects =
+    content.objects === tab.objects ? content.objects : ensureTrailingEmpty(content.objects);
+  const { focus, cursorAfter } = content;
   const objectsChanged = objects !== tab.objects;
 
   if (!objectsChanged) {

@@ -6,6 +6,8 @@ import { transformSelection, type TransformOp } from '../engine/transform';
 type Props = {
   object: FormulaObject;
   result: EvalResult;
+  /** 이 셀이 드래그 중인지 (반투명 표시). */
+  dragging: boolean;
   focusToken: number | null;
   focusOffset: number | null;
   syncKey: number;
@@ -18,6 +20,10 @@ type Props = {
   onDetachResult: (latex: string, caret?: number) => void;
   /** 선택 변환처럼 즉시 평가돼야 하는 명시적 편집. */
   onCommitDistinct: (latex: string, caret?: number) => void;
+  /** 드래그 핸들 이벤트 (재정렬은 CellStack이 조율). */
+  onDragStart: (e: React.PointerEvent) => void;
+  onDragMove: (e: React.PointerEvent) => void;
+  onDragEnd: () => void;
 };
 
 /** 공백 차이는 MathLive 재직렬화 재량이라 "달라졌다" 판정에서 뺀다. */
@@ -132,6 +138,7 @@ function ResultRow({
 export function Cell({
   object,
   result,
+  dragging,
   focusToken,
   focusOffset,
   syncKey,
@@ -141,6 +148,9 @@ export function Cell({
   onRemove,
   onDetachResult,
   onCommitDistinct,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
 }: Props) {
   const isDefinition = result.kind === 'ok' && result.definitionName !== null;
 
@@ -176,8 +186,18 @@ export function Cell({
   };
 
   return (
-    <div className="cell">
+    <div className={dragging ? 'cell cell-dragging' : 'cell'}>
       <div className="cell-input">
+        <div
+          className="drag-handle"
+          title="Drag to reorder"
+          onPointerDown={onDragStart}
+          onPointerMove={onDragMove}
+          onPointerUp={onDragEnd}
+          onPointerCancel={onDragEnd}
+        >
+          ⠿
+        </div>
         <MathField
           ref={inputRef}
           value={object.latex}
