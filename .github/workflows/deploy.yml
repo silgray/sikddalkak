@@ -1,5 +1,5 @@
 # main에 push할 때마다: 테스트 통과 -> 빌드 -> GitHub Pages 배포.
-# 91개 회귀 테스트가 배포 게이트다 — 테스트가 깨지면 배포되지 않는다.
+# 단위 테스트 + 에디터 브라우저 회귀 스위트가 배포 게이트다 — 깨지면 배포되지 않는다.
 name: Deploy to GitHub Pages
 
 on:
@@ -34,6 +34,11 @@ jobs:
       - run: npm ci
 
       - run: npm test
+
+      # 에디터 회귀 스위트는 실제 MathLive를 헤드리스 Chromium으로 구동한다.
+      - run: npx playwright install --with-deps chromium
+
+      - run: npm run test:browser
 
       - run: npm run build
 

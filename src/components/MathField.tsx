@@ -1,25 +1,39 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type Ref } from 'react';
 import { MathfieldElement } from 'mathlive';
-import { patchMathliveDisposedBlur } from '../mathlivePatch';
+import { flushShortcutBuffer, patchMathliveDisposedBlur } from '../editor/internals';
+import { sanitizeLatex } from '../editor/sanitizeLatex';
+import {
+  expandSelectionSemantic,
+  extendSelectionSibling,
+  selectionIsSiblingRun,
+} from '../editor/selection';
 
-/** run 안에 미결(안 닫힌) 여는 괄호가 몇 개인지. `\left(`/`\right)`도 (,)를 포함해 같이 세어진다. */
-function unmatchedOpenParens(latex: string): number {
-  let depth = 0;
-  for (const ch of latex) {
-    if (ch === '(') depth += 1;
-    else if (ch === ')') depth = Math.max(0, depth - 1);
+/**
+ * run에서 마지막 미결(안 닫힌) 여는 괄호의 문자열 인덱스. 없으면 null.
+ * `\left(`/`\right)` 쌍도 (,)를 포함하므로 짝지어 상쇄된다. 남는 `(`는
+ * sanitize가 만든 평평한 미결 괄호다 — `)` 입력 시 우리가 직접 닫아줘야
+ * 한다 (MathLive 스마트펜스는 평평한 `(`와 짝을 맺지 못한다, 실측).
+ */
+function lastUnmatchedOpenIndex(latex: string): number | null {
+  const stack: number[] = [];
+  for (let i = 0; i < latex.length; i += 1) {
+    if (latex[i] === '(') stack.push(i);
+    else if (latex[i] === ')') stack.pop();
   }
-  return depth;
+  return stack.length > 0 ? stack[stack.length - 1] : null;
 }
 
 /** 부모가 명시적으로 조작할 때 쓰는 핸들 (선택 변환 등). */
 export type MathFieldHandle = {
   /**
-   * 현재 선택을 주어진 LaTeX으로 치환하고 필드의 새 전체 값과 캐럿을 돌려준다.
+   * 현재 선택을 주어진 LaTeX으로 치환하고 필드의 새 전체 값과 캐럿, 그리고
+   * 치환 **직전**의 선택 범위를 돌려준다 (undo가 선택까지 복구할 수 있게).
    * 선택이 없으면 아무것도 하지 않고 null. 치환 중에는 onEdit 보고를 억제하므로
    * 커밋은 호출자가 직접 dispatch해야 한다 (structural 편집으로 즉시 평가되게).
    */
-  replaceSelection: (latex: string) => { value: string; caret: number } | null;
+  replaceSelection: (
+    latex: string,
+  ) => { value: string; caret: number; selectionBefore: readonly [number, number] } | null;
 };
 
 type Props = {
@@ -41,6 +55,11 @@ type Props = {
    */
   onSelectionChange?: (selectedLatex: string | null) => void;
   /**
+   * 캐럿이 경계에서 더 갈 곳이 없을 때 (MathLive `move-out`).
+   * 셀 스택이 인접 셀로 포커스를 넘기는 데 쓴다.
+   */
+  onMoveOut?: (direction: 'forward' | 'backward' | 'upward' | 'downward') => void;
+  /**
    * 값이 바뀔 때마다가 아니라, 이 토큰이 바뀔 때만 포커스를 준다.
    * 리렌더마다 focus()가 불려 커서가 튀는 것을 막기 위한 장치.
    */
@@ -50,6 +69,11 @@ type Props = {
    * 자리"로 캐럿을 되돌릴 때 쓴다. 없으면 MathLive 기본 동작.
    */
   focusOffset?: number | null;
+  /**
+   * focusToken 발화 시 복구할 선택 범위. 있으면 focusOffset보다 우선한다 —
+   * 선택 변환의 실행취소가 "조작 직전의 선택"을 되살릴 때 쓴다.
+   */
+  focusSelection?: readonly [number, number] | null;
   /**
    * 이 값이 바뀌면 편집 중(focused)이어도 `value`를 강제로 반영한다.
    * 실행취소/다시실행이 포커스된 필드의 내용을 되돌리기 위한 유일한 경로.
@@ -77,16 +101,18 @@ export function MathField({
   onEnter,
   onFocus,
   onSelectionChange,
+  onMoveOut,
   focusToken,
   focusOffset,
+  focusSelection,
   syncKey,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const mfRef = useRef<MathfieldElement | null>(null);
 
   // 핸들러는 ref로 들고 있어야 prop이 바뀌어도 엘리먼트를 다시 만들지 않는다.
-  const handlers = useRef({ onEdit, onEnter, onFocus, onSelectionChange });
-  handlers.current = { onEdit, onEnter, onFocus, onSelectionChange };
+  const handlers = useRef({ onEdit, onEnter, onFocus, onSelectionChange, onMoveOut });
+  handlers.current = { onEdit, onEnter, onFocus, onSelectionChange, onMoveOut };
   const initialValue = useRef(value);
 
   // 편집 중인지 추적한다. 편집 중에는 외부 value 동기화가 입력을 덮지 않도록 막는다.
@@ -111,13 +137,35 @@ export function MathField({
 
     mf.addEventListener('input', () => {
       if (suppressReport.current) return;
+      // MathLive 직렬화 quirk 교정 (고아 fence 등 — sanitizeLatex.ts).
+      // 오염된 형태가 문서·화면에 한 키 입력 이상 살아남지 못하게, 교정본을
+      // 캐럿 보존으로 필드에 되써넣고 문서에도 교정본을 보고한다.
+      const fix = sanitizeLatex(mf.value);
+      if (fix.changed) {
+        const caret = mf.position;
+        suppressReport.current = true;
+        try {
+          mf.setValue(fix.latex, { silenceNotifications: true });
+        } finally {
+          suppressReport.current = false;
+        }
+        // 실측 규칙: 살아남은 fence가 왼쪽이면 캐럿 유지, 오른쪽이면 -1.
+        const target = fix.survivor === 'right' ? caret - 1 : caret;
+        mf.position = Math.max(0, Math.min(target, mf.lastOffset));
+        flushShortcutBuffer(mf);
+      }
       handlers.current.onEdit?.(mf.value, mf.position);
     });
 
     const reportSelection = () => {
       const notify = handlers.current.onSelectionChange;
       if (notify === undefined) return;
-      notify(mf.selectionIsCollapsed ? null : mf.getValue(mf.selection, 'latex'));
+      // 행렬 셀 경계를 가로지르는 선택은 변환 대상이 아니므로 "선택 없음"으로 보고.
+      notify(
+        mf.selectionIsCollapsed || !selectionIsSiblingRun(mf)
+          ? null
+          : mf.getValue(mf.selection, 'latex'),
+      );
     };
     reportRef.current = reportSelection;
 
@@ -135,6 +183,18 @@ export function MathField({
       // 조작 버튼이 사라지면 안 된다. 선택 해제는 selection-change가 알린다.
     });
     mf.addEventListener('selection-change', reportSelection);
+    // 캐럿이 경계를 넘으려 할 때 — 셀 간 이동의 신호.
+    mf.addEventListener('move-out', (ev) => {
+      const direction = (ev as CustomEvent<{ direction: string }>).detail?.direction;
+      if (
+        direction === 'forward' ||
+        direction === 'backward' ||
+        direction === 'upward' ||
+        direction === 'downward'
+      ) {
+        handlers.current.onMoveOut?.(direction);
+      }
+    });
     mf.addEventListener('keydown', (ev) => {
       // MathLive의 'change'는 blur 시에도 발사되므로 Enter만 직접 잡는다.
       if (ev.key === 'Enter') {
@@ -143,9 +203,48 @@ export function MathField({
       }
     });
 
-    // `)` 왼쪽 감싸기: smartFence의 `(`(오른쪽 같은 레벨 전부 감싸기)의 거울상.
-    // 같은 레벨에 미결 `(`가 없을 때 `)`를 치면 캐럿 왼쪽의 같은 레벨 run을
-    // \left(...\right)로 감싼다. 미결 `(`가 있으면 기본 동작(닫기)에 맡긴다.
+    // 선택 조작 단축키. capture 단계여야 MathLive 기본 처리보다 먼저 가로챈다.
+    mf.addEventListener(
+      'keydown',
+      (ev) => {
+        if (mf.readOnly) return;
+        // Ctrl/Cmd+D: 의미 단위 선택 확장 (브라우저 북마크를 가로챈다).
+        if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey && ev.key.toLowerCase() === 'd') {
+          ev.preventDefault();
+          ev.stopImmediatePropagation();
+          try {
+            expandSelectionSemantic(mf);
+          } catch {
+            // 내부 API 실패 — 아무것도 안 한다 (기본 동작도 없음).
+          }
+          return;
+        }
+        // shift+←/→: 같은 레벨(형제) 단위 선택 확장.
+        if (
+          ev.shiftKey &&
+          !ev.ctrlKey &&
+          !ev.metaKey &&
+          !ev.altKey &&
+          (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')
+        ) {
+          try {
+            if (extendSelectionSibling(mf, ev.key === 'ArrowLeft' ? 'left' : 'right')) {
+              ev.preventDefault();
+              ev.stopImmediatePropagation();
+            }
+          } catch {
+            // 내부 API 실패 — MathLive 기본 확장으로 폴백.
+          }
+        }
+      },
+      { capture: true },
+    );
+
+    // `)` 처리: smartFence의 `(`(오른쪽 같은 레벨 전부 감싸기)의 거울상 + 보완.
+    // - run에 미결 평평한 `(`가 있으면(fence 한쪽 삭제 후 sanitize된 상태),
+    //   거기부터 캐럿까지를 \left(...\right)로 묶어 닫는다 — MathLive 스마트펜스는
+    //   평평한 `(`와 짝을 맺지 못해 기본 동작이 식을 망가뜨린다 (실측).
+    // - 미결 `(`가 없으면 캐럿 왼쪽의 같은 레벨 run 전체를 감싼다 (기존 동작).
     // capture 단계여야 MathLive의 자체 처리보다 먼저 가로챌 수 있다.
     mf.addEventListener(
       'keydown',
@@ -158,11 +257,16 @@ export function MathField({
         mf.executeCommand('extendToGroupStart');
         const run = mf.getValue(mf.selection, 'latex');
         mf.position = pos; // 분석 후 복원
-        if (run.trim() === '' || unmatchedOpenParens(run) > 0) return; // 기본 동작
+        if (run.trim() === '') return; // 기본 동작
+        const openIdx = lastUnmatchedOpenIndex(run);
         ev.preventDefault();
         ev.stopImmediatePropagation();
         mf.executeCommand('extendToGroupStart');
-        mf.insert(`\\left(${run}\\right)`, {
+        const replacement =
+          openIdx === null
+            ? `\\left(${run}\\right)` // 왼쪽 전체 감싸기
+            : `${run.slice(0, openIdx)}\\left(${run.slice(openIdx + 1)}\\right)`; // 미결 ( 닫기
+        mf.insert(replacement, {
           insertionMode: 'replaceSelection',
           selectionMode: 'after',
         });
@@ -194,6 +298,7 @@ export function MathField({
     const mf = mfRef.current;
     if (mf !== null && !isEditing.current && mf.value !== value) {
       mf.setValue(value, { silenceNotifications: true });
+      flushShortcutBuffer(mf);
     }
   }, [value]);
 
@@ -208,18 +313,26 @@ export function MathField({
     const mf = mfRef.current;
     if (mf !== null && mf.value !== value) {
       mf.setValue(value, { silenceNotifications: true });
+      // 실행취소로 내용이 바뀌었다 — 숏컷 버퍼에 남은 옛 타이핑을 반드시 비운다.
+      flushShortcutBuffer(mf);
     }
   }, [syncKey]);
 
-  // 포커스 지시. focusOffset이 있으면 캐럿까지 그 위치로 (실행취소 복원).
+  // 포커스 지시. focusSelection이 있으면 선택 복구, 아니면 focusOffset으로 캐럿.
   // syncKey 이펙트가 먼저 선언돼 있어 값 반영 → 포커스/캐럿 순서가 보장된다.
   useEffect(() => {
     if (focusToken === null || focusToken === undefined) return;
     const mf = mfRef.current;
     if (mf === null) return;
     mf.focus();
-    if (focusOffset !== null && focusOffset !== undefined) {
-      // focus()가 선택/캐럿을 임의로 옮길 수 있으므로 그 뒤에 명시적으로 놓는다.
+    // focus()가 선택/캐럿을 임의로 옮길 수 있으므로 그 뒤에 명시적으로 놓는다.
+    if (focusSelection !== null && focusSelection !== undefined) {
+      const clamp = (v: number) => Math.max(0, Math.min(v, mf.lastOffset));
+      mf.selection = {
+        ranges: [[clamp(focusSelection[0]), clamp(focusSelection[1])]],
+        direction: 'forward',
+      };
+    } else if (focusOffset !== null && focusOffset !== undefined) {
       mf.position = Math.max(0, Math.min(focusOffset, mf.lastOffset));
     }
   }, [focusToken]);
@@ -227,9 +340,10 @@ export function MathField({
   useImperativeHandle(
     ref,
     () => ({
-      replaceSelection(latex: string): { value: string; caret: number } | null {
+      replaceSelection(latex: string) {
         const mf = mfRef.current;
         if (mf === null || mf.selectionIsCollapsed) return null;
+        const [from, to] = mf.selection.ranges[0];
         suppressReport.current = true;
         try {
           mf.insert(latex, { insertionMode: 'replaceSelection', selectionMode: 'item' });
@@ -239,7 +353,7 @@ export function MathField({
         // 삽입물이 새로 선택된 상태다(selectionMode:'item'). 그 선택을 재보고해
         // 버튼 상태를 갱신한다 — expand ↔ factor 왕복이 자연스럽게 된다.
         reportRef.current?.();
-        return { value: mf.value, caret: mf.position };
+        return { value: mf.value, caret: mf.position, selectionBefore: [from, to] as const };
       },
     }),
     [],
