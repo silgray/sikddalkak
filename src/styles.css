@@ -295,6 +295,52 @@ body {
   --selection-background-color: color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
+/* 가상 키보드는 안 쓴다 — 토글 버튼 숨김 (part 이름 실측: virtual-keyboard-toggle) */
+math-field::part(virtual-keyboard-toggle) {
+  display: none;
+}
+
+/* --- 선택 위 플로팅 툴바 (행렬 구분 기호) --- */
+
+.cell-input {
+  position: relative;
+}
+
+.selection-toolbar {
+  position: absolute;
+  top: -1.35rem;
+  left: 2rem; /* 드래그 핸들 폭만큼 들여서 필드 시작점 근처에 */
+  z-index: 5;
+  display: flex;
+  gap: 2px;
+  padding: 0.1rem 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--fg) 15%, transparent);
+}
+
+.delim-btn {
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.8rem;
+  padding: 0.1rem 0.4rem;
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.delim-btn:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+.delim-btn-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
 /* 결과 행의 수식은 살짝 작게 — 편집 가능하지만 시각적으로 입력과 구분 */
 .mf-readonly math-field,
 .result .mf math-field {

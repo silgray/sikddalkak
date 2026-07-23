@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
-import type { FormulaObject, CellMode, EvalResult } from '../types';
+import type { FormulaObject, EvalResult } from '../types';
 import { MathField, type MathFieldHandle } from './MathField';
 import { transformSelection, type TransformOp } from '../engine/transform';
+import { SelectionToolbar } from './SelectionToolbar';
 
 type Props = {
   object: FormulaObject;
@@ -15,7 +16,6 @@ type Props = {
   /** 입력 필드의 키 입력 1회 (latex 전체값 + 캐럿). */
   onEdit: (latex: string, caret: number) => void;
   onEnter: (latex: string) => void;
-  onModeChange: (mode: CellMode) => void;
   onRemove: () => void;
   /** 결과 행을 편집해 독립 식으로 분리할 때 (편집된 latex + 캐럿). */
   onDetachResult: (latex: string, caret?: number) => void;
@@ -31,6 +31,8 @@ type Props = {
   onDragEnd: () => void;
   /** 캐럿이 셀 경계를 넘으려 할 때 (셀 간 이동은 CellStack이 조율). */
   onMoveOut?: (direction: 'forward' | 'backward' | 'upward' | 'downward') => void;
+  /** 빈 셀에서 backspace (셀 삭제/위 셀 이동은 CellStack이 조율). */
+  onDeleteEmpty?: () => void;
 };
 
 /** 공백 차이는 MathLive 재직렬화 재량이라 "달라졌다" 판정에서 뺀다. */
@@ -38,22 +40,20 @@ const norm = (s: string) => s.replace(/\s+/g, '');
 
 const TRANSFORM_OPS: readonly TransformOp[] = ['expand', 'simplify', 'factor'];
 
-/** 어느 필드에 어떤 변환이 가능한지. 실질 변화가 있는 것만 값이 있다. */
-type SelectionTransforms = {
+/** 현재 선택 상태: 어느 필드에서, 무엇이 선택됐고, 어떤 변환이 가능한지. */
+type SelectionInfo = {
   field: 'input' | 'result';
+  latex: string;
   replacements: Partial<Record<TransformOp, string>>;
 };
 
-function availableTransforms(
-  field: 'input' | 'result',
-  selected: string,
-): SelectionTransforms | null {
+function readSelection(field: 'input' | 'result', selected: string): SelectionInfo {
   const replacements: Partial<Record<TransformOp, string>> = {};
   for (const op of TRANSFORM_OPS) {
     const out = transformSelection(selected, op);
     if (out !== null) replacements[op] = out;
   }
-  return Object.keys(replacements).length > 0 ? { field, replacements } : null;
+  return { field, latex: selected, replacements };
 }
 
 /**
@@ -61,15 +61,15 @@ function availableTransforms(
  * mousedown preventDefault로 포커스(=선택)를 뺏지 않는다.
  */
 function TransformButtons({
-  transforms,
+  selection,
   onApply,
 }: {
-  transforms: SelectionTransforms;
+  selection: SelectionInfo;
   onApply: (op: TransformOp) => void;
 }) {
   return (
     <>
-      {TRANSFORM_OPS.filter((op) => transforms.replacements[op] !== undefined).map((op) => (
+      {TRANSFORM_OPS.filter((op) => selection.replacements[op] !== undefined).map((op) => (
         <button
           key={op}
           type="button"
@@ -89,18 +89,20 @@ function ResultRow({
   result,
   syncKey,
   fieldRef,
-  transforms,
+  selection,
   onApply,
   onDetach,
   onSelectionChange,
+  onTransformShortcut,
 }: {
   result: EvalResult;
   syncKey: number;
   fieldRef: React.Ref<MathFieldHandle>;
-  transforms: SelectionTransforms | null;
+  selection: SelectionInfo | null;
   onApply: (op: TransformOp) => void;
   onDetach: (latex: string, caret?: number) => void;
   onSelectionChange: (selectedLatex: string | null) => void;
+  onTransformShortcut: (op: TransformOp) => void;
 }) {
   if (result.kind === 'empty') return null;
   if (result.kind === 'error') {
@@ -131,11 +133,12 @@ function ResultRow({
         onEdit={detachIfChanged}
         onEnter={(latex) => detachIfChanged(latex)}
         onSelectionChange={onSelectionChange}
+        onTransformShortcut={onTransformShortcut}
       />
       {/* 결과 필드의 선택 변환 버튼은 결과 행에 뜬다 — 조작 대상 옆에. */}
-      {transforms !== null && transforms.field === 'result' && (
+      {selection !== null && selection.field === 'result' && (
         <div className="result-actions">
-          <TransformButtons transforms={transforms} onApply={onApply} />
+          <TransformButtons selection={selection} onApply={onApply} />
         </div>
       )}
     </div>
@@ -152,7 +155,6 @@ export function Cell({
   syncKey,
   onEdit,
   onEnter,
-  onModeChange,
   onRemove,
   onDetachResult,
   onCommitDistinct,
@@ -160,39 +162,42 @@ export function Cell({
   onDragMove,
   onDragEnd,
   onMoveOut,
+  onDeleteEmpty,
 }: Props) {
-  const isDefinition = result.kind === 'ok' && result.definitionName !== null;
-
   const inputRef = useRef<MathFieldHandle>(null);
   const resultRef = useRef<MathFieldHandle>(null);
-  const [transforms, setTransforms] = useState<SelectionTransforms | null>(null);
+  const [selection, setSelection] = useState<SelectionInfo | null>(null);
 
   const trackSelection = (field: 'input' | 'result') => (selected: string | null) => {
-    setTransforms((current) => {
-      const next = selected === null ? null : availableTransforms(field, selected);
+    setSelection((current) => {
+      const next = selected === null ? null : readSelection(field, selected);
       // 다른 필드의 선택 상태를 지우지 않도록, null 갱신은 같은 필드일 때만.
       if (next === null && current !== null && current.field !== field) return current;
       return next;
     });
   };
 
-  const applyTransform = (op: TransformOp) => {
-    if (transforms === null) return;
-    const replacement = transforms.replacements[op];
-    if (replacement === undefined) return;
-    const handle = transforms.field === 'input' ? inputRef.current : resultRef.current;
+  /** 선택을 replacement로 치환하고 적절한 커밋 경로로 보낸다 (변환·구분 기호 공용). */
+  const replaceCurrentSelection = (field: 'input' | 'result', replacement: string) => {
+    const handle = field === 'input' ? inputRef.current : resultRef.current;
     const applied = handle?.replaceSelection(replacement) ?? null;
     if (applied === null) return;
-    if (transforms.field === 'input') {
-      // 명시적 조작 — structural 편집으로 즉시 평가된다.
-      // 조작 직전 선택을 함께 넘겨 undo가 선택 범위까지 복구하게 한다.
+    if (field === 'input') {
+      // 명시적 조작 — structural 편집으로 즉시 평가되고, undo가 선택까지 복구한다.
       onCommitDistinct(applied.value, applied.caret, applied.selectionBefore);
     } else if (result.kind === 'ok' && norm(applied.value) !== norm(result.latex)) {
-      // 결과 필드의 변환은 곧 결과 편집 — 분리 규칙을 그대로 따른다.
+      // 결과 필드의 조작은 곧 결과 편집 — 분리 규칙을 그대로 따른다.
       onDetachResult(applied.value, applied.caret);
     }
-    // setTransforms(null)를 부르지 않는다 — replaceSelection이 삽입물의 새 선택을
+    // setSelection(null)을 부르지 않는다 — replaceSelection이 삽입물의 새 선택을
     // 재보고해서 상태가 이미 갱신됐다 (expand 직후 factor로 되돌리기 등).
+  };
+
+  const applyTransform = (op: TransformOp) => {
+    if (selection === null) return;
+    const replacement = selection.replacements[op];
+    if (replacement === undefined) return;
+    replaceCurrentSelection(selection.field, replacement);
   };
 
   return (
@@ -208,6 +213,13 @@ export function Cell({
         >
           ⠿
         </div>
+        {/* 선택 위 플로팅 툴바 (행렬 구분 기호). 입력 필드 선택에만. */}
+        {selection !== null && selection.field === 'input' && (
+          <SelectionToolbar
+            selectedLatex={selection.latex}
+            onReplace={(latex) => replaceCurrentSelection('input', latex)}
+          />
+        )}
         <MathField
           ref={inputRef}
           value={object.latex}
@@ -219,26 +231,13 @@ export function Cell({
           onEnter={onEnter}
           onSelectionChange={trackSelection('input')}
           onMoveOut={onMoveOut}
+          onTransformShortcut={applyTransform}
+          onDeleteEmpty={onDeleteEmpty}
         />
         <div className="cell-actions">
           {/* 입력 필드의 선택 변환 버튼 — 조작 대상 옆에. */}
-          {transforms !== null && transforms.field === 'input' && (
-            <TransformButtons transforms={transforms} onApply={applyTransform} />
-          )}
-          {/* 정의 오브젝트는 항상 바인딩을 만들므로 모드 토글이 의미가 없다. */}
-          {!isDefinition && (
-            <button
-              type="button"
-              className="mode-toggle"
-              title={
-                object.mode === 'scoped'
-                  ? 'Substitutes variables defined elsewhere'
-                  : 'Leaves variables as unknowns'
-              }
-              onClick={() => onModeChange(object.mode === 'scoped' ? 'symbolic' : 'scoped')}
-            >
-              {object.mode === 'scoped' ? 'scoped' : 'symbolic'}
-            </button>
+          {selection !== null && selection.field === 'input' && (
+            <TransformButtons selection={selection} onApply={applyTransform} />
           )}
           <button type="button" className="remove" title="Delete cell" onClick={onRemove}>
             ×
@@ -249,10 +248,11 @@ export function Cell({
         result={result}
         syncKey={syncKey}
         fieldRef={resultRef}
-        transforms={transforms}
+        selection={selection}
         onApply={applyTransform}
         onDetach={onDetachResult}
         onSelectionChange={trackSelection('result')}
+        onTransformShortcut={applyTransform}
       />
     </div>
   );

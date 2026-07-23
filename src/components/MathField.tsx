@@ -8,6 +8,44 @@ import {
   selectionIsSiblingRun,
 } from '../editor/selection';
 
+/** 변환 단축키 (임시 키바인딩 — 추후 사용자 지정 예정). Ctrl/Cmd+Shift+키. */
+export const TRANSFORM_SHORTCUTS: Record<string, 'expand' | 'simplify' | 'factor'> = {
+  e: 'expand',
+  s: 'simplify',
+  f: 'factor',
+};
+
+/**
+ * ☰ 메뉴에서 쓰지 않는 항목을 걷어낸다.
+ * - mode(수식/text/LaTeX)·variant(글꼴)·color·background-color: 안 씀
+ * - 행렬 구분 기호 서브메뉴(environment-*): 선택 위 플로팅 툴바로 이전
+ * 항목 id는 실측 덤프 기준 (mathlive 0.110). 남는 연속 구분선도 정리한다.
+ */
+function pruneMenu(mf: MathfieldElement): void {
+  try {
+    const REMOVE = new Set(['mode', 'variant', 'color', 'background-color']);
+    type Item = { id?: string; type?: string; submenu?: Item[] };
+    const items = (mf.menuItems as Item[]).filter((item) => {
+      if (item.id !== undefined && REMOVE.has(item.id)) return false;
+      // 구분 기호 서브메뉴는 부모에 id가 없다 — 자식 id로 식별한다.
+      if (item.submenu?.some((s) => s.id?.startsWith('environment-'))) return false;
+      return true;
+    });
+    // 제거로 생긴 연속 구분선(divider)을 하나로.
+    const cleaned: Item[] = [];
+    for (const item of items) {
+      const isDivider = item.id === undefined && item.submenu === undefined;
+      const prev = cleaned[cleaned.length - 1];
+      const prevDivider = prev !== undefined && prev.id === undefined && prev.submenu === undefined;
+      if (isDivider && (cleaned.length === 0 || prevDivider)) continue;
+      cleaned.push(item);
+    }
+    mf.menuItems = cleaned as typeof mf.menuItems;
+  } catch {
+    // 메뉴 구조가 바뀌면(버전 업) 기본 메뉴 그대로 둔다.
+  }
+}
+
 /**
  * run에서 마지막 미결(안 닫힌) 여는 괄호의 문자열 인덱스. 없으면 null.
  * `\left(`/`\right)` 쌍도 (,)를 포함하므로 짝지어 상쇄된다. 남는 `(`는
@@ -59,6 +97,10 @@ type Props = {
    * 셀 스택이 인접 셀로 포커스를 넘기는 데 쓴다.
    */
   onMoveOut?: (direction: 'forward' | 'backward' | 'upward' | 'downward') => void;
+  /** 변환 단축키 (Ctrl+Shift+E/S/F). 선택이 있을 때 Cell의 applyTransform으로. */
+  onTransformShortcut?: (op: 'expand' | 'simplify' | 'factor') => void;
+  /** 빈 필드에서 backspace — 셀 삭제/위 셀 이동은 CellStack이 조율. */
+  onDeleteEmpty?: () => void;
   /**
    * 값이 바뀔 때마다가 아니라, 이 토큰이 바뀔 때만 포커스를 준다.
    * 리렌더마다 focus()가 불려 커서가 튀는 것을 막기 위한 장치.
@@ -102,6 +144,8 @@ export function MathField({
   onFocus,
   onSelectionChange,
   onMoveOut,
+  onTransformShortcut,
+  onDeleteEmpty,
   focusToken,
   focusOffset,
   focusSelection,
@@ -111,8 +155,24 @@ export function MathField({
   const mfRef = useRef<MathfieldElement | null>(null);
 
   // 핸들러는 ref로 들고 있어야 prop이 바뀌어도 엘리먼트를 다시 만들지 않는다.
-  const handlers = useRef({ onEdit, onEnter, onFocus, onSelectionChange, onMoveOut });
-  handlers.current = { onEdit, onEnter, onFocus, onSelectionChange, onMoveOut };
+  const handlers = useRef({
+    onEdit,
+    onEnter,
+    onFocus,
+    onSelectionChange,
+    onMoveOut,
+    onTransformShortcut,
+    onDeleteEmpty,
+  });
+  handlers.current = {
+    onEdit,
+    onEnter,
+    onFocus,
+    onSelectionChange,
+    onMoveOut,
+    onTransformShortcut,
+    onDeleteEmpty,
+  };
   const initialValue = useRef(value);
 
   // 편집 중인지 추적한다. 편집 중에는 외부 value 동기화가 입력을 덮지 않도록 막는다.
@@ -208,6 +268,23 @@ export function MathField({
       'keydown',
       (ev) => {
         if (mf.readOnly) return;
+        // Ctrl/Cmd+Shift+E/S/F: 선택 변환 단축키 (임시 키바인딩).
+        if ((ev.ctrlKey || ev.metaKey) && ev.shiftKey && !ev.altKey) {
+          const op = TRANSFORM_SHORTCUTS[ev.key.toLowerCase()];
+          if (op !== undefined) {
+            ev.preventDefault();
+            ev.stopImmediatePropagation();
+            handlers.current.onTransformShortcut?.(op);
+            return;
+          }
+        }
+        // 빈 필드에서 backspace: 셀 삭제 + 위 셀 이동 신호.
+        if (ev.key === 'Backspace' && mf.value.trim() === '' && mf.selectionIsCollapsed) {
+          ev.preventDefault();
+          ev.stopImmediatePropagation();
+          handlers.current.onDeleteEmpty?.();
+          return;
+        }
         // Ctrl/Cmd+D: 의미 단위 선택 확장 (브라우저 북마크를 가로챈다).
         if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey && ev.key.toLowerCase() === 'd') {
           ev.preventDefault();
@@ -276,7 +353,9 @@ export function MathField({
     );
 
     host.append(mf);
-    // 포커스된 필드가 언마운트될 때의 MathLive 크래시 우회 (mathlivePatch.ts 참고).
+    // ☰ 메뉴에서 안 쓰는 항목 제거 (append 후여야 기본 메뉴가 구성돼 있다).
+    pruneMenu(mf);
+    // 포커스된 필드가 언마운트될 때의 MathLive 크래시 우회 (editor/internals.ts 참고).
     // 내부 프로토타입에 접근해야 해서 살아있는 인스턴스가 필요하다. 최초 1회만 적용됨.
     patchMathliveDisposedBlur(mf);
     mfRef.current = mf;

@@ -9,6 +9,9 @@ import './styles.css';
 MathfieldElement.fontsDirectory = `${import.meta.env.BASE_URL}mathlive/fonts`;
 // 계산기에 타이핑 효과음은 필요 없다.
 MathfieldElement.soundsDirectory = null;
+// UI는 영어로 통일 (MathLive 폰트가 한글 글리프를 렌더하지 못하는 제약과 일치).
+// 브라우저 로케일을 따라가면 ☰ 메뉴가 한국어로 나온다.
+MathfieldElement.locale = 'en';
 
 // MathLive 자체 CAS를 끈다. 이걸 null로 두지 않으면 MathLive가 자기 번들의
 // compute-engine 0.58 인스턴스를 몰래 만들고, ☰ 메뉴의 Evaluate/Simplify/Solve가

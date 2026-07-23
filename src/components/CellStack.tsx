@@ -89,8 +89,17 @@ export function CellStack({ tab, dispatch }: Props) {
             syncKey={tab.syncNonce}
             onEdit={(latex, caret) => dispatch({ type: 'editInput', id: object.id, latex, cursor: caret })}
             onEnter={(latex) => dispatch({ type: 'enter', id: object.id, latex })}
-            onModeChange={(mode) => dispatch({ type: 'setMode', id: object.id, mode })}
             onRemove={() => dispatch({ type: 'remove', id: object.id })}
+            onDeleteEmpty={() => {
+              // 빈 셀 backspace: 셀을 지우고 바로 위 셀 끝으로. 맨 아래 상시 빈
+              // 셀은 지워도 불변식이 재추가하므로(히스토리 노이즈) 이동만 한다.
+              if (index === 0) return;
+              const prev = tab.objects[index - 1];
+              if (index !== tab.objects.length - 1) {
+                dispatch({ type: 'remove', id: object.id });
+              }
+              dispatch({ type: 'focus', id: prev.id, offset: Number.MAX_SAFE_INTEGER });
+            }}
             onDetachResult={(latex, caret) =>
               dispatch({ type: 'detachResult', id: object.id, latex, cursor: caret })
             }

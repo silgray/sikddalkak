@@ -58,6 +58,18 @@ export function HelpPanel() {
               </div>
               <div>
                 <dt>
+                  <kbd>Backspace</kbd>
+                </dt>
+                <dd>In an empty cell, deletes it and moves to the end of the cell above</dd>
+              </div>
+              <div>
+                <dt>
+                  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd>/<kbd>S</kbd>/<kbd>F</kbd>
+                </dt>
+                <dd>Apply expand / simplify / factor to the selection</dd>
+              </div>
+              <div>
+                <dt>
                   <kbd>)</kbd>
                 </dt>
                 <dd>With no open paren, wraps everything to the left at the same level</dd>
@@ -90,7 +102,8 @@ export function HelpPanel() {
             </dl>
             <p>
               Selections that cut across matrix cells can’t be transformed — select whole
-              matrices instead.
+              matrices instead. Selecting a whole matrix also shows a floating toolbar for
+              changing its delimiters.
             </p>
           </section>
           <section>
@@ -99,12 +112,6 @@ export function HelpPanel() {
               <div>
                 <dt>a = 3</dt>
                 <dd>Defines a variable other cells can use (order doesn’t matter)</dd>
-              </div>
-              <div>
-                <dt>scoped / symbolic</dt>
-                <dd>
-                  scoped substitutes variables defined elsewhere; symbolic leaves them as unknowns
-                </dd>
               </div>
               <div>
                 <dt>Result rows</dt>
