@@ -40,6 +40,13 @@ export type Tab = {
    * structural(셀 추가/삭제/변환/실행취소 등)이면 즉시 평가한다.
    */
   lastChange: 'typing' | 'structural';
+  /**
+   * 진행 중인 토큰 run — 실행취소를 키워드 단위로 만드는 장치.
+   * 같은 종류(글자/숫자)의 연속 입력은 히스토리에 새 entry를 만들지 않고
+   * run의 첫 글자가 만든 entry에 합쳐진다 (cos → undo 한 번).
+   * 비영속. 다른 액션/undo/redo/캐럿 점프가 끊는다.
+   */
+  run: { cellId: string; kind: 'alpha' | 'digit' } | null;
 };
 
 export type WorkspaceState = {
@@ -95,6 +102,7 @@ export function makeTab(name: string): Tab {
     syncNonce: 0,
     lastCursor: null,
     lastChange: 'structural',
+    run: null,
   };
 }
 
@@ -108,6 +116,7 @@ export function hydrateTab(base: { id: string; name: string; objects: FormulaObj
     syncNonce: 0,
     lastCursor: null,
     lastChange: 'structural',
+    run: null,
   };
 }
 
@@ -219,6 +228,47 @@ function cappedPush(past: HistoryEntry[], entry: HistoryEntry): HistoryEntry[] {
 }
 
 /**
+ * 편집 한 번이 어떤 종류인지 diff로 판정한다 (키워드 단위 실행취소의 심장).
+ *
+ * - tokenKind: 순수하게 글자/숫자 1개가 삽입된 편집 — 토큰 run을 잇거나 시작한다.
+ * - shortcut: 글자 run이 그것을 확장하는 `\command`로 치환된 편집
+ *   (예: `co` + s → `\cos `). 현재 MathLive 설정에선 발생하지 않지만(실측),
+ *   inlineShortcuts를 켜는 순간에도 undo 단위가 유지되도록 방어적으로 둔다.
+ * - 그 외(연산자, 괄호/지수 구조 삽입, 삭제, 다중 문자)는 둘 다 아니어서
+ *   자기만의 실행취소 단계가 된다.
+ */
+export function classifyEdit(
+  prevLatex: string,
+  nextLatex: string,
+): { tokenKind: 'alpha' | 'digit' | null; shortcut: boolean } {
+  // 공통 접두사/접미사를 걷어내 실제 바뀐 조각만 남긴다.
+  const minLen = Math.min(prevLatex.length, nextLatex.length);
+  let prefix = 0;
+  while (prefix < minLen && prevLatex[prefix] === nextLatex[prefix]) prefix += 1;
+  let suffix = 0;
+  while (
+    suffix < minLen - prefix &&
+    prevLatex[prevLatex.length - 1 - suffix] === nextLatex[nextLatex.length - 1 - suffix]
+  ) {
+    suffix += 1;
+  }
+  const removed = prevLatex.slice(prefix, prevLatex.length - suffix);
+  const added = nextLatex.slice(prefix, nextLatex.length - suffix);
+
+  if (removed === '') {
+    if (/^[a-zA-Z]$/.test(added)) return { tokenKind: 'alpha', shortcut: false };
+    if (/^[0-9]$/.test(added)) return { tokenKind: 'digit', shortcut: false };
+  }
+  if (removed !== '' && /^[a-zA-Z]+$/.test(removed)) {
+    const command = added.match(/^\\([a-zA-Z]+) ?$/);
+    if (command !== null && command[1].startsWith(removed)) {
+      return { tokenKind: null, shortcut: true };
+    }
+  }
+  return { tokenKind: null, shortcut: false };
+}
+
+/**
  * 불변식: 맨 아래에는 항상 빈 셀이 하나 있다 — 언제든 눌러서 이어서 쓸 수 있게.
  * 마지막 셀이 채워지면(또는 문서가 비면) 빈 셀을 덧붙인다.
  * 변화가 없으면 같은 참조를 돌려줘 히스토리/리렌더를 건드리지 않는다.
@@ -249,6 +299,7 @@ function tabReducer(tab: Tab, action: ObjectAction | HistoryAction): Tab {
       lastCursor: entry.cursor,
       syncNonce: tab.syncNonce + 1,
       lastChange: 'structural',
+      run: null, // 실행취소 뒤의 입력은 새 단계에서 시작한다
     };
   }
   if (action.type === 'redo') {
@@ -268,6 +319,7 @@ function tabReducer(tab: Tab, action: ObjectAction | HistoryAction): Tab {
       lastCursor: entry.cursor,
       syncNonce: tab.syncNonce + 1,
       lastChange: 'structural',
+      run: null,
     };
   }
 
@@ -278,13 +330,52 @@ function tabReducer(tab: Tab, action: ObjectAction | HistoryAction): Tab {
   const objectsChanged = objects !== tab.objects;
 
   if (!objectsChanged) {
-    // 콘텐츠 변화 없음. 포커스만 바뀌면 반영한다.
+    // 콘텐츠 변화 없음. 포커스만 바뀌면 반영한다 (다른 셀로 이동 = run 종료).
     if (focus === tab.focus) return tab;
-    return { ...tab, focus };
+    return { ...tab, focus, run: null };
   }
 
-  // 변경 직전 상태를 히스토리에 남긴다. 키 입력(editInput)마다 1 entry —
-  // 실행취소 단위가 곧 키 입력 단위다.
+  // --- 키워드 단위 병합 판정 ---
+  // 같은 종류의 토큰 문자(글자/숫자)가 캐럿 연속으로 이어지면 히스토리에 새
+  // entry를 만들지 않는다. run의 첫 글자가 만든 entry가 단위의 시작점이 되어
+  // undo 한 번에 키워드 전체(cos, 변수명, 숫자)가 사라진다.
+  let merge = false;
+  let nextRun: Tab['run'] = null;
+  if (action.type === 'editInput') {
+    const target = tab.objects.find((o) => o.id === action.id);
+    const edit = classifyEdit(target?.latex ?? '', action.latex);
+    const caretContinuous =
+      tab.lastCursor !== null &&
+      tab.lastCursor.id === action.id &&
+      action.cursor === tab.lastCursor.offset + 1;
+    const runActive = tab.run !== null && tab.run.cellId === action.id;
+    merge =
+      runActive &&
+      ((edit.tokenKind !== null && edit.tokenKind === tab.run?.kind && caretContinuous) ||
+        // 숏컷 완성은 오프셋이 줄어들 수 있어 캐럿 연속성 검사를 생략한다.
+        (edit.shortcut && tab.run?.kind === 'alpha'));
+    nextRun = merge
+      ? tab.run
+      : edit.tokenKind !== null
+        ? { cellId: action.id, kind: edit.tokenKind }
+        : null;
+  }
+
+  if (merge) {
+    return {
+      ...tab,
+      objects,
+      focus,
+      // entry를 쌓지 않는다. 편집이므로 redo 분기는 끊는다(방어적 — run 상태상
+      // future가 남아있는 조합은 나오지 않지만).
+      history: { past: tab.history.past, future: [] },
+      lastCursor: cursorAfter ?? tab.lastCursor,
+      lastChange: 'typing',
+      run: nextRun,
+    };
+  }
+
+  // 변경 직전 상태를 히스토리에 남긴다.
   const entry: HistoryEntry = { objects: tab.objects, cursor: tab.lastCursor };
   return {
     ...tab,
@@ -293,6 +384,7 @@ function tabReducer(tab: Tab, action: ObjectAction | HistoryAction): Tab {
     history: { past: cappedPush(tab.history.past, entry), future: [] },
     lastCursor: cursorAfter ?? tab.lastCursor,
     lastChange: action.type === 'editInput' ? 'typing' : 'structural',
+    run: nextRun,
   };
 }
 

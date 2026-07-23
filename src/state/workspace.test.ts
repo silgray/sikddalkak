@@ -4,6 +4,7 @@ import {
   initialWorkspace,
   makeTab,
   hydrateTab,
+  classifyEdit,
   type WorkspaceState,
 } from './workspace';
 
@@ -234,6 +235,100 @@ describe('드래그 재정렬 (moveObject)', () => {
     // 맨 끝으로 이동하면 불변식이 새 빈 셀을 덧붙이므로 끝에서 두 번째가 된다.
     expect(ids[ids.length - 2]).toBe(a);
     expect(active(s).objects[ids.length - 1].latex).toBe('');
+  });
+});
+
+describe('키워드 단위 실행취소 (토큰 run 병합)', () => {
+  const seed = () => {
+    const s = initialWorkspace();
+    return { s, id: active(s).objects[0].id };
+  };
+  const type = (s: WorkspaceState, id: string, latex: string, cursor: number) =>
+    workspaceReducer(s, { type: 'editInput', id, latex, cursor });
+
+  it('연속 글자는 한 단계로 합쳐진다 (cos → undo 한 번)', () => {
+    let { s, id } = seed();
+    s = type(s, id, 'c', 1);
+    s = type(s, id, 'co', 2);
+    s = type(s, id, 'cos', 3);
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('');
+  });
+
+  it('연속 숫자도 한 단계다', () => {
+    let { s, id } = seed();
+    s = type(s, id, '1', 1);
+    s = type(s, id, '12', 2);
+    s = type(s, id, '123', 3);
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('');
+  });
+
+  it('글자↔숫자 경계는 run을 나눈다 (12x → [12][x])', () => {
+    let { s, id } = seed();
+    s = type(s, id, '1', 1);
+    s = type(s, id, '12', 2);
+    s = type(s, id, '12x', 3);
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('12');
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('');
+  });
+
+  it('연산자가 경계다 (x+y → 세 단계)', () => {
+    let { s, id } = seed();
+    s = type(s, id, 'x', 1);
+    s = type(s, id, 'x+', 2);
+    s = type(s, id, 'x+y', 3);
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('x+');
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('x');
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('');
+  });
+
+  it('캐럿 점프는 run을 끊는다', () => {
+    let { s, id } = seed();
+    s = type(s, id, 'a', 1);
+    s = type(s, id, 'ab', 2);
+    // 캐럿을 맨 앞으로 옮겨 글자 삽입 (오프셋 불연속: 2+1 ≠ 1)
+    s = type(s, id, 'cab', 1);
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('ab'); // 'c'만 취소
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe(''); // 'ab' run 통째로
+  });
+
+  it('undo 직후의 입력은 새 run에서 시작한다', () => {
+    let { s, id } = seed();
+    s = type(s, id, 'a', 1);
+    s = type(s, id, 'ab', 2);
+    s = workspaceReducer(s, { type: 'undo' }); // ''
+    s = type(s, id, 'x', 1);
+    s = type(s, id, 'xy', 2);
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('');
+  });
+
+  it('숏컷 완성 diff는 run에 합쳐진다 (co + s → \\cos)', () => {
+    // 현재 MathLive 설정에선 발생하지 않지만(실측), inlineShortcuts를 켜도
+    // undo 단위가 유지되도록 하는 방어 규칙.
+    let { s, id } = seed();
+    s = type(s, id, 'c', 1);
+    s = type(s, id, 'co', 2);
+    s = type(s, id, '\\cos ', 1); // 글자 run이 \command로 치환 (오프셋 감소)
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('');
+  });
+
+  it('classifyEdit: 구조 삽입·삭제·다중 문자는 토큰이 아니다', () => {
+    expect(classifyEdit('sin', String.raw`sin\left(\right)`)).toEqual({ tokenKind: null, shortcut: false });
+    expect(classifyEdit('x', 'x^2')).toEqual({ tokenKind: null, shortcut: false });
+    expect(classifyEdit('ab', 'a')).toEqual({ tokenKind: null, shortcut: false });
+    expect(classifyEdit('a', 'ab')).toEqual({ tokenKind: 'alpha', shortcut: false });
+    expect(classifyEdit('12', '123')).toEqual({ tokenKind: 'digit', shortcut: false });
+    expect(classifyEdit('aco', String.raw`a\cos `)).toEqual({ tokenKind: null, shortcut: true });
   });
 });
 
