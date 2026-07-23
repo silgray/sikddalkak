@@ -339,25 +339,84 @@ describe('키워드 단위 실행취소 (undo 시점 그룹핑)', () => {
   it('classifyEdit: 구조 삽입·삭제·다중 문자는 토큰이 아니다', () => {
     expect(classifyEdit('sin', String.raw`sin\left(\right)`).tokenKind).toBeNull();
     expect(classifyEdit('ab', 'a').tokenKind).toBeNull();
-    expect(classifyEdit('a', 'ab')).toEqual({ tokenKind: 'alpha', char: 'b', shortcut: false });
-    expect(classifyEdit('12', '123')).toEqual({ tokenKind: 'digit', char: '3', shortcut: false });
-    expect(classifyEdit('aco', String.raw`a\cos `).shortcut).toBe(true);
+    expect(classifyEdit('a', 'ab')).toEqual({ tokenKind: 'alpha', char: 'b', shortcutRemoved: null });
+    expect(classifyEdit('12', '123')).toEqual({ tokenKind: 'digit', char: '3', shortcutRemoved: null });
+    // 인라인 숏컷 치환 — 사라진 글자 run이 보고된다
+    expect(classifyEdit('aco', String.raw`a\cos `).shortcutRemoved).toBe('co');
+    expect(classifyEdit('co', String.raw`\cos`).shortcutRemoved).toBe('co');
+    expect(classifyEdit('p', String.raw`\pi`).shortcutRemoved).toBe('p');
   });
 
-  it('classifyEdit: placeholder 치환과 지수 진입+첫 글자는 토큰이다', () => {
+  it('classifyEdit: placeholder 치환·지수 진입·명령어 뒤 공백 글자는 토큰이다', () => {
     // 실측 시퀀스 — 빈 구조의 placeholder를 첫 글자가 치환
     expect(
       classifyEdit(String.raw`\frac{1}{\placeholder{}}`, String.raw`\frac{1}{c}`),
-    ).toEqual({ tokenKind: 'alpha', char: 'c', shortcut: false });
+    ).toEqual({ tokenKind: 'alpha', char: 'c', shortcutRemoved: null });
     expect(
       classifyEdit(String.raw`\frac{\placeholder{}}{\placeholder{}}`, String.raw`\frac{2}{\placeholder{}}`),
-    ).toEqual({ tokenKind: 'digit', char: '2', shortcut: false });
+    ).toEqual({ tokenKind: 'digit', char: '2', shortcutRemoved: null });
     // 실측 시퀀스 — `^` 단독은 이벤트가 없어 첫 글자와 합쳐져 온다
-    expect(classifyEdit('e', 'e^{s}')).toEqual({ tokenKind: 'alpha', char: 's', shortcut: false });
-    expect(classifyEdit('x', 'x^2')).toEqual({ tokenKind: 'digit', char: '2', shortcut: false });
-    expect(classifyEdit('a', 'a_1')).toEqual({ tokenKind: 'digit', char: '1', shortcut: false });
+    expect(classifyEdit('e', 'e^{s}')).toEqual({ tokenKind: 'alpha', char: 's', shortcutRemoved: null });
+    expect(classifyEdit('x', 'x^2')).toEqual({ tokenKind: 'digit', char: '2', shortcutRemoved: null });
+    expect(classifyEdit('a', 'a_1')).toEqual({ tokenKind: 'digit', char: '1', shortcutRemoved: null });
+    // 실측 시퀀스 — `\cos` 뒤 글자는 구분 공백과 함께 온다
+    expect(classifyEdit(String.raw`\cos`, String.raw`\cos x`)).toEqual({
+      tokenKind: 'alpha',
+      char: 'x',
+      shortcutRemoved: null,
+    });
     // 여러 글자면 토큰이 아니다 (붙여넣기 등)
     expect(classifyEdit('e', 'e^{si}').tokenKind).toBeNull();
+  });
+
+  it('인라인 숏컷 치환은 키워드 한 단위다 (실타이핑 cosx)', () => {
+    // 실측 이벤트 시퀀스: c → co → \cos(숏컷 치환, 캐럿 1) → \cos x
+    let { s, id } = seed();
+    s = type(s, id, 'c', 1);
+    s = type(s, id, 'co', 2);
+    s = type(s, id, String.raw`\cos`, 1);
+    s = type(s, id, String.raw`\cos x`, 2);
+    s = undo(s);
+    expect(active(s).objects[0].latex).toBe(String.raw`\cos`); // x만
+    s = undo(s);
+    expect(active(s).objects[0].latex).toBe(''); // c+o+치환이 한 단위
+    // redo도 같은 단위로
+    s = redo(s);
+    expect(active(s).objects[0].latex).toBe(String.raw`\cos`);
+    s = redo(s);
+    expect(active(s).objects[0].latex).toBe(String.raw`\cos x`);
+  });
+
+  it('선택 변환의 undo는 당시 선택 범위를 복구한다', () => {
+    let { s, id } = seed();
+    s = type(s, id, 'x', 1);
+    s = type(s, id, 'x^2+2x', 6); // 구조 편집 (한 번에)
+    // 전체 선택([0,6]) 후 factor 적용 (commitInput + selectionBefore)
+    s = workspaceReducer(s, {
+      type: 'commitInput',
+      id,
+      latex: 'x(x+2)',
+      cursor: 6,
+      selectionBefore: [0, 6],
+    });
+    expect(active(s).objects[0].latex).toBe('x(x+2)');
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('x^2+2x');
+    expect(active(s).focus?.id).toBe(id);
+    expect(active(s).focus?.selection).toEqual([0, 6]); // 선택까지 복구
+    // 일반 편집의 undo는 selection 없이 캐럿만 (기존 동작)
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).focus?.selection).toBeUndefined();
+  });
+
+  it('한 글자 숏컷도 묶인다 (p+i → \\pi)', () => {
+    let { s, id } = seed();
+    s = type(s, id, 'p', 1);
+    s = type(s, id, String.raw`\pi`, 1);
+    s = undo(s);
+    expect(active(s).objects[0].latex).toBe('');
+    s = redo(s);
+    expect(active(s).objects[0].latex).toBe(String.raw`\pi`);
   });
 
   it('tokenizeRun: 키워드 최장 일치 + 숫자 묶음 + 변수 낱개', () => {

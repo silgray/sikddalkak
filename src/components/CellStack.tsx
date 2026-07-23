@@ -85,6 +85,7 @@ export function CellStack({ tab, dispatch }: Props) {
             result={object.resultDetached ? { kind: 'empty' } : (results.get(object.id) ?? { kind: 'empty' })}
             focusToken={tab.focus?.id === object.id ? tab.focus.token : null}
             focusOffset={tab.focus?.id === object.id ? (tab.focus.offset ?? null) : null}
+            focusSelection={tab.focus?.id === object.id ? (tab.focus.selection ?? null) : null}
             syncKey={tab.syncNonce}
             onEdit={(latex, caret) => dispatch({ type: 'editInput', id: object.id, latex, cursor: caret })}
             onEnter={(latex) => dispatch({ type: 'enter', id: object.id, latex })}
@@ -93,12 +94,24 @@ export function CellStack({ tab, dispatch }: Props) {
             onDetachResult={(latex, caret) =>
               dispatch({ type: 'detachResult', id: object.id, latex, cursor: caret })
             }
-            onCommitDistinct={(latex, caret) =>
-              dispatch({ type: 'commitInput', id: object.id, latex, cursor: caret })
+            onCommitDistinct={(latex, caret, selectionBefore) =>
+              dispatch({ type: 'commitInput', id: object.id, latex, cursor: caret, selectionBefore })
             }
             onDragStart={dragStart(object.id)}
             onDragMove={dragMove}
             onDragEnd={dragEnd}
+            onMoveOut={(direction) => {
+              // 경계에서 화살표가 막히면 인접 셀로 — 아래/앞이면 다음 셀 처음,
+              // 위/뒤면 이전 셀 끝. (끝 = 큰 오프셋을 주면 필드가 알아서 클램프)
+              const delta = direction === 'forward' || direction === 'downward' ? 1 : -1;
+              const target = tab.objects[index + delta];
+              if (target === undefined) return;
+              dispatch({
+                type: 'focus',
+                id: target.id,
+                offset: delta === 1 ? 0 : Number.MAX_SAFE_INTEGER,
+              });
+            }}
           />
         </Fragment>
       ))}

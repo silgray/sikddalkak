@@ -10,6 +10,7 @@ type Props = {
   dragging: boolean;
   focusToken: number | null;
   focusOffset: number | null;
+  focusSelection: readonly [number, number] | null;
   syncKey: number;
   /** 입력 필드의 키 입력 1회 (latex 전체값 + 캐럿). */
   onEdit: (latex: string, caret: number) => void;
@@ -18,12 +19,18 @@ type Props = {
   onRemove: () => void;
   /** 결과 행을 편집해 독립 식으로 분리할 때 (편집된 latex + 캐럿). */
   onDetachResult: (latex: string, caret?: number) => void;
-  /** 선택 변환처럼 즉시 평가돼야 하는 명시적 편집. */
-  onCommitDistinct: (latex: string, caret?: number) => void;
+  /** 선택 변환처럼 즉시 평가돼야 하는 명시적 편집. selectionBefore = 조작 직전 선택. */
+  onCommitDistinct: (
+    latex: string,
+    caret?: number,
+    selectionBefore?: readonly [number, number],
+  ) => void;
   /** 드래그 핸들 이벤트 (재정렬은 CellStack이 조율). */
   onDragStart: (e: React.PointerEvent) => void;
   onDragMove: (e: React.PointerEvent) => void;
   onDragEnd: () => void;
+  /** 캐럿이 셀 경계를 넘으려 할 때 (셀 간 이동은 CellStack이 조율). */
+  onMoveOut?: (direction: 'forward' | 'backward' | 'upward' | 'downward') => void;
 };
 
 /** 공백 차이는 MathLive 재직렬화 재량이라 "달라졌다" 판정에서 뺀다. */
@@ -141,6 +148,7 @@ export function Cell({
   dragging,
   focusToken,
   focusOffset,
+  focusSelection,
   syncKey,
   onEdit,
   onEnter,
@@ -151,6 +159,7 @@ export function Cell({
   onDragStart,
   onDragMove,
   onDragEnd,
+  onMoveOut,
 }: Props) {
   const isDefinition = result.kind === 'ok' && result.definitionName !== null;
 
@@ -176,7 +185,8 @@ export function Cell({
     if (applied === null) return;
     if (transforms.field === 'input') {
       // 명시적 조작 — structural 편집으로 즉시 평가된다.
-      onCommitDistinct(applied.value, applied.caret);
+      // 조작 직전 선택을 함께 넘겨 undo가 선택 범위까지 복구하게 한다.
+      onCommitDistinct(applied.value, applied.caret, applied.selectionBefore);
     } else if (result.kind === 'ok' && norm(applied.value) !== norm(result.latex)) {
       // 결과 필드의 변환은 곧 결과 편집 — 분리 규칙을 그대로 따른다.
       onDetachResult(applied.value, applied.caret);
@@ -203,10 +213,12 @@ export function Cell({
           value={object.latex}
           focusToken={focusToken}
           focusOffset={focusOffset}
+          focusSelection={focusSelection}
           syncKey={syncKey}
           onEdit={onEdit}
           onEnter={onEnter}
           onSelectionChange={trackSelection('input')}
+          onMoveOut={onMoveOut}
         />
         <div className="cell-actions">
           {/* 입력 필드의 선택 변환 버튼 — 조작 대상 옆에. */}

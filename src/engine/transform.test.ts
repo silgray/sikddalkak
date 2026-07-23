@@ -42,8 +42,8 @@ describe('선택 변환', () => {
   });
 
   it('선행 -는 부호가 결과에 흡수되고, 필요하면 +를 붙인다', () => {
-    // -3x^2+3x = 3x-3x^2 -> factor -> -3x(x-1): 이미 -로 시작 -> 그대로
-    expect(norm(transformSelection('-3x^2+3x', 'factor'))).toBe('-3x(x-1)');
+    // -3x^2+3x = 3x(1-x): 공통인자 3x 추출. 부호 없이 시작 -> + 합류
+    expect(norm(transformSelection('-3x^2+3x', 'factor'))).toBe('+3x(1-x)');
     // -x^2+2x^2 -> x^2: 부호 없이 시작 -> +x^2 로 합류
     expect(norm(transformSelection('-x^2+2x^2', 'simplify'))).toBe('+x^2');
   });
@@ -57,6 +57,43 @@ describe('선택 변환', () => {
   it('평가하지 않는다 — 상수는 기호로 유지', () => {
     // 2\pi 를 6.28... 로 수치화하면 안 된다. 변화 없음 -> null.
     expect(transformSelection(String.raw`2\pi`, 'simplify')).toBeNull();
+  });
+
+  it('공통인자 추출: 다변수·비다항 인수도 뽑는다 (CE factor 보강)', () => {
+    // CE factor는 단일 변수 다항 지향 — tx^2+tx 같은 다변수 공통인자를 못 뽑는다(실측).
+    expect(norm(transformSelection('tx^2+tx', 'factor'))).toBe('tx(x+1)');
+    // 글자 그대로 친 cosx(c·o·s·x 곱)의 공통인자
+    expect(norm(transformSelection('cosxe^{x}+cosx', 'factor'))).toBe(
+      norm(String.raw`cosx(\exponentialE^{x}+1)`),
+    );
+    // \cos(x) 함수 적용 공통인자 (비다항)
+    expect(norm(transformSelection(String.raw`\cos\left(x\right)e^{x}+\cos\left(x\right)`, 'factor'))).toBe(
+      norm(String.raw`(\exponentialE^{x}+1)\cos(x)`), // CE 정렬상 몫이 앞에 온다
+    );
+    // 전부 음수면 부호까지: -3x^2-3x -> -3x(x+1)
+    expect(norm(transformSelection('-3x^2-3x', 'factor'))).toBe('-3x(x+1)');
+    // 몫에는 CE factor가 이어진다: 2x^2+4x+2 -> 2(x+1)^2
+    expect(norm(transformSelection('2x^2+4x+2', 'factor'))).toBe('2(x+1)^2');
+  });
+
+  it('행렬 선택: 곱·거듭제곱을 계산해 정리한다 (expand/simplify)', () => {
+    const raw = String.raw`\begin{pmatrix}1 & y\\ x & 1\end{pmatrix}\begin{pmatrix}-1 & z\\ 0 & z\end{pmatrix}^2`;
+    const out = transformSelection(raw, 'expand');
+    expect(out).not.toBeNull();
+    // A·B^2, B^2=[[1, z^2-z],[0, z^2]] → [[1, z^2-z+yz^2],[x, xz^2-xz+z^2]]
+    expect(norm(out)).toContain(String.raw`\begin{pmatrix}`);
+    expect(norm(out)).toBe(
+      norm(String.raw`\begin{pmatrix}1 & yz^2+z^2-z\\ x & xz^2+z^2-xz\end{pmatrix}`),
+    );
+    // simplify도 같은 계산 경로
+    expect(norm(transformSelection(raw, 'simplify'))).toBe(norm(out));
+  });
+
+  it('행렬 선택: factor는 없음, 변화 없는 단일 행렬은 null', () => {
+    const single = String.raw`\begin{pmatrix}1 & x\\ x^2 & -1\end{pmatrix}`;
+    expect(transformSelection(single, 'factor')).toBeNull();
+    expect(transformSelection(single, 'expand')).toBeNull();
+    expect(transformSelection(single, 'simplify')).toBeNull();
   });
 
   it('복소 계수 전개에 부동소수점 부스러기가 남지 않는다', () => {
