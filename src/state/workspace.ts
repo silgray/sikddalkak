@@ -40,13 +40,6 @@ export type Tab = {
    * structural(셀 추가/삭제/변환/실행취소 등)이면 즉시 평가한다.
    */
   lastChange: 'typing' | 'structural';
-  /**
-   * 진행 중인 토큰 run — 실행취소를 키워드 단위로 만드는 장치.
-   * 같은 종류(글자/숫자)의 연속 입력은 히스토리에 새 entry를 만들지 않고
-   * run의 첫 글자가 만든 entry에 합쳐진다 (cos → undo 한 번).
-   * 비영속. 다른 액션/undo/redo/캐럿 점프가 끊는다.
-   */
-  run: { cellId: string; kind: 'alpha' | 'digit' } | null;
 };
 
 export type WorkspaceState = {
@@ -102,7 +95,6 @@ export function makeTab(name: string): Tab {
     syncNonce: 0,
     lastCursor: null,
     lastChange: 'structural',
-    run: null,
   };
 }
 
@@ -116,7 +108,6 @@ export function hydrateTab(base: { id: string; name: string; objects: FormulaObj
     syncNonce: 0,
     lastCursor: null,
     lastChange: 'structural',
-    run: null,
   };
 }
 
@@ -230,17 +221,18 @@ function cappedPush(past: HistoryEntry[], entry: HistoryEntry): HistoryEntry[] {
 /**
  * 편집 한 번이 어떤 종류인지 diff로 판정한다 (키워드 단위 실행취소의 심장).
  *
- * - tokenKind: 순수하게 글자/숫자 1개가 삽입된 편집 — 토큰 run을 잇거나 시작한다.
+ * - tokenKind: 순수하게 글자/숫자 1개가 삽입된 편집. char = 그 문자 —
+ *   undo 시점 그룹핑이 run 텍스트를 복원해 키워드 사전과 대조할 재료다.
  * - shortcut: 글자 run이 그것을 확장하는 `\command`로 치환된 편집
  *   (예: `co` + s → `\cos `). 현재 MathLive 설정에선 발생하지 않지만(실측),
- *   inlineShortcuts를 켜는 순간에도 undo 단위가 유지되도록 방어적으로 둔다.
+ *   inlineShortcuts를 켜는 순간을 대비해 판정만 남겨둔다.
  * - 그 외(연산자, 괄호/지수 구조 삽입, 삭제, 다중 문자)는 둘 다 아니어서
  *   자기만의 실행취소 단계가 된다.
  */
 export function classifyEdit(
   prevLatex: string,
   nextLatex: string,
-): { tokenKind: 'alpha' | 'digit' | null; shortcut: boolean } {
+): { tokenKind: 'alpha' | 'digit' | null; char: string | null; shortcut: boolean } {
   // 공통 접두사/접미사를 걷어내 실제 바뀐 조각만 남긴다.
   const minLen = Math.min(prevLatex.length, nextLatex.length);
   let prefix = 0;
@@ -260,28 +252,139 @@ export function classifyEdit(
 
   if (removed === '') {
     const plain = kindOf(added);
-    if (plain !== null) return { tokenKind: plain, shortcut: false };
+    if (plain !== null) return { tokenKind: plain, char: added, shortcut: false };
     // 지수/아래첨자 진입이 첫 글자와 한 이벤트로 합쳐져 온다 (실측: `e`→`e^{s}`,
-    // `x`→`x^2` — `^` 단독은 input 이벤트가 없다). 그 글자를 run 시작으로 삼아야
-    // 이어지는 글자들이 합쳐지고, undo가 `e^{s}` 같은 첫 글자 잔재를 남기지 않는다.
+    // `x`→`x^2` — `^` 단독은 input 이벤트가 없다). 그 글자를 run의 일부로 삼아야
+    // undo가 `e^{s}` 같은 첫 글자 잔재를 남기지 않는다.
     const sup = added.match(/^[\^_](?:\{([a-zA-Z0-9])\}|([a-zA-Z0-9]))$/);
     if (sup !== null) {
-      return { tokenKind: kindOf(sup[1] ?? sup[2]), shortcut: false };
+      const ch = sup[1] ?? sup[2];
+      return { tokenKind: kindOf(ch), char: ch, shortcut: false };
     }
   }
   // 빈 구조의 placeholder를 첫 글자가 치환하는 경우 (실측: `\frac{1}{\placeholder{}}`
-  // → `\frac{1}{c}`). 이 글자가 run을 시작해야 undo가 첫 글자를 남기지 않는다.
+  // → `\frac{1}{c}`). 이 글자도 run의 일부여야 undo가 첫 글자를 남기지 않는다.
   if (removed === '\\placeholder{}') {
     const fill = kindOf(added);
-    if (fill !== null) return { tokenKind: fill, shortcut: false };
+    if (fill !== null) return { tokenKind: fill, char: added, shortcut: false };
   }
   if (removed !== '' && /^[a-zA-Z]+$/.test(removed)) {
     const command = added.match(/^\\([a-zA-Z]+) ?$/);
     if (command !== null && command[1].startsWith(removed)) {
-      return { tokenKind: null, shortcut: true };
+      return { tokenKind: null, char: null, shortcut: true };
     }
   }
-  return { tokenKind: null, shortcut: false };
+  return { tokenKind: null, char: null, shortcut: false };
+}
+
+/**
+ * undo 그룹핑이 "한 단위"로 취급하는 함수형 키워드. 최장 일치 우선으로 쓰인다.
+ * 그리스 문자명(pi 등)은 p·i 곱과 구분할 수 없어 넣지 않는다. 추가는 자유.
+ */
+export const KEYWORDS: readonly string[] = [
+  'arcsin', 'arccos', 'arctan',
+  'sinh', 'cosh', 'tanh', 'sqrt', 'prod',
+  'sin', 'cos', 'tan', 'cot', 'sec', 'csc',
+  'log', 'exp', 'lim', 'sum', 'int', 'det',
+  'ln',
+];
+const KEYWORDS_LONGEST_FIRST = [...KEYWORDS].sort((a, b) => b.length - a.length);
+
+/**
+ * 글자/숫자 run을 실행취소 단위 토큰들로 나눈다. 반환은 앞에서부터 각 토큰의
+ * 글자 수. 숫자 구간은 통째 한 토큰(수 하나), 글자 구간은 키워드 사전과
+ * 왼쪽부터 최장 일치 — 사전에 없으면 글자 1개(=변수 하나)가 토큰이다.
+ * (`cosx` → [3,1], `asdf` → [1,1,1,1], `12` → [2], `si` → [1,1])
+ */
+export function tokenizeRun(
+  run: readonly { char: string; kind: 'alpha' | 'digit' }[],
+): number[] {
+  const sizes: number[] = [];
+  let i = 0;
+  while (i < run.length) {
+    let j = i;
+    while (j < run.length && run[j].kind === run[i].kind) j += 1;
+    if (run[i].kind === 'digit') {
+      sizes.push(j - i);
+    } else {
+      const seg = run.slice(i, j).map((c) => c.char).join('');
+      let p = 0;
+      while (p < seg.length) {
+        const kw = KEYWORDS_LONGEST_FIRST.find((k) => seg.startsWith(k, p));
+        const len = kw?.length ?? 1;
+        sizes.push(len);
+        p += len;
+      }
+    }
+    i = j;
+  }
+  return sizes;
+}
+
+type TokenChar = { char: string; kind: 'alpha' | 'digit' };
+
+/**
+ * 인접 스냅샷 쌍이 "한 셀에 토큰 문자 1개 삽입"인지 판정한다.
+ * 상시 빈 셀 불변식 때문에 빈 셀의 첫 입력은 목록 끝에 새 빈 셀을 덧붙인다 —
+ * 그 경우(prev보다 딱 하나 많고 마지막이 빈 셀)도 같은 편집으로 인정한다.
+ */
+function tokenStep(
+  prev: readonly FormulaObject[],
+  next: readonly FormulaObject[],
+): { cellId: string; char: string; kind: 'alpha' | 'digit' } | null {
+  let core = next;
+  if (next.length === prev.length + 1) {
+    if (next[next.length - 1].latex.trim() !== '') return null;
+    core = next.slice(0, -1);
+  }
+  if (core.length !== prev.length) return null;
+  let step: { cellId: string; char: string; kind: 'alpha' | 'digit' } | null = null;
+  for (let i = 0; i < prev.length; i += 1) {
+    if (prev[i].id !== core[i].id) return null;
+    if (prev[i].latex === core[i].latex) continue;
+    if (step !== null) return null; // 두 셀 이상 바뀜 — 토큰 편집이 아니다
+    const edit = classifyEdit(prev[i].latex, core[i].latex);
+    if (edit.tokenKind === null || edit.char === null) return null;
+    step = { cellId: prev[i].id, char: edit.char, kind: edit.tokenKind };
+  }
+  return step;
+}
+
+/**
+ * 시간 순 스냅샷 열의 끝(가장 최근 편집)에서 뒤로, 같은 셀에 캐럿 연속으로
+ * 이어진 토큰 삽입들을 모아 run 텍스트를 복원한다 (undo 그룹핑용).
+ * states[j].cursor는 그 상태의 캐럿 — past entry가 "변경 직전 문서+캐럿"이라
+ * past 열과 현재 상태를 이어 붙이면 정확히 이 모양이 된다.
+ */
+function trailingTokenRun(states: readonly HistoryEntry[]): TokenChar[] {
+  const run: TokenChar[] = [];
+  for (let i = states.length - 1; i >= 1; i -= 1) {
+    const step = tokenStep(states[i - 1].objects, states[i].objects);
+    const after = states[i].cursor;
+    if (step === null || after === null || after.id !== step.cellId) break;
+    if (run.length > 0) {
+      const newer = states[i + 1].cursor; // run이 비어있지 않으면 i+1은 수집됐다
+      if (newer === null || newer.id !== after.id || newer.offset !== after.offset + 1) break;
+    }
+    run.unshift({ char: step.char, kind: step.kind });
+  }
+  return run;
+}
+
+/** trailingTokenRun의 거울상 — 열의 처음에서 앞으로 (redo 그룹핑용). */
+function leadingTokenRun(states: readonly HistoryEntry[]): TokenChar[] {
+  const run: TokenChar[] = [];
+  for (let i = 1; i < states.length; i += 1) {
+    const step = tokenStep(states[i - 1].objects, states[i].objects);
+    const after = states[i].cursor;
+    if (step === null || after === null || after.id !== step.cellId) break;
+    if (run.length > 0) {
+      const older = states[i - 1].cursor;
+      if (older === null || older.id !== after.id || after.offset !== older.offset + 1) break;
+    }
+    run.push({ char: step.char, kind: step.kind });
+  }
+  return run;
 }
 
 /**
@@ -300,13 +403,21 @@ function tabReducer(tab: Tab, action: ObjectAction | HistoryAction): Tab {
   if (action.type === 'undo') {
     const { past, future } = tab.history;
     if (past.length === 0) return tab;
-    const entry = past[past.length - 1];
+    // 키워드 단위 그룹핑: 최근 편집들이 이어 친 글자/숫자 run이면 마지막 토큰
+    // (키워드·변수·수) 크기만큼 entry를 한 번에 되돌린다. run이 아니면 1개.
+    const states = [...past, { objects: tab.objects, cursor: tab.lastCursor }];
+    const sizes = tokenizeRun(trailingTokenRun(states));
+    const k = sizes.length > 0 ? sizes[sizes.length - 1] : 1;
+    const idx = past.length - k;
+    const entry = past[idx];
     return {
       ...tab,
       objects: entry.objects as FormulaObject[],
       history: {
-        past: past.slice(0, -1),
-        future: [{ objects: tab.objects, cursor: tab.lastCursor }, ...future],
+        past: past.slice(0, idx),
+        // pop된 상태들은 가까운 순으로 future 앞에 붙는다 — redo가 같은
+        // 토큰화를 앞으로 적용하면 정확히 역연산이 된다.
+        future: [...states.slice(idx + 1), ...future],
       },
       // 캐럿을 그 편집이 일어났던 자리로 되돌린다 (포커스 + 오프셋).
       focus: entry.cursor
@@ -315,19 +426,21 @@ function tabReducer(tab: Tab, action: ObjectAction | HistoryAction): Tab {
       lastCursor: entry.cursor,
       syncNonce: tab.syncNonce + 1,
       lastChange: 'structural',
-      run: null, // 실행취소 뒤의 입력은 새 단계에서 시작한다
     };
   }
   if (action.type === 'redo') {
     const { past, future } = tab.history;
     if (future.length === 0) return tab;
-    const entry = future[0];
+    const states = [{ objects: tab.objects, cursor: tab.lastCursor }, ...future];
+    const sizes = tokenizeRun(leadingTokenRun(states));
+    const k = sizes.length > 0 ? sizes[0] : 1;
+    const entry = future[k - 1];
     return {
       ...tab,
       objects: entry.objects as FormulaObject[],
       history: {
-        past: [...past, { objects: tab.objects, cursor: tab.lastCursor }],
-        future: future.slice(1),
+        past: [...past, ...states.slice(0, k)],
+        future: future.slice(k),
       },
       focus: entry.cursor
         ? { id: entry.cursor.id, token: nextToken(tab), offset: entry.cursor.offset }
@@ -335,7 +448,6 @@ function tabReducer(tab: Tab, action: ObjectAction | HistoryAction): Tab {
       lastCursor: entry.cursor,
       syncNonce: tab.syncNonce + 1,
       lastChange: 'structural',
-      run: null,
     };
   }
 
@@ -346,52 +458,13 @@ function tabReducer(tab: Tab, action: ObjectAction | HistoryAction): Tab {
   const objectsChanged = objects !== tab.objects;
 
   if (!objectsChanged) {
-    // 콘텐츠 변화 없음. 포커스만 바뀌면 반영한다 (다른 셀로 이동 = run 종료).
+    // 콘텐츠 변화 없음. 포커스만 바뀌면 반영한다.
     if (focus === tab.focus) return tab;
-    return { ...tab, focus, run: null };
+    return { ...tab, focus };
   }
 
-  // --- 키워드 단위 병합 판정 ---
-  // 같은 종류의 토큰 문자(글자/숫자)가 캐럿 연속으로 이어지면 히스토리에 새
-  // entry를 만들지 않는다. run의 첫 글자가 만든 entry가 단위의 시작점이 되어
-  // undo 한 번에 키워드 전체(cos, 변수명, 숫자)가 사라진다.
-  let merge = false;
-  let nextRun: Tab['run'] = null;
-  if (action.type === 'editInput') {
-    const target = tab.objects.find((o) => o.id === action.id);
-    const edit = classifyEdit(target?.latex ?? '', action.latex);
-    const caretContinuous =
-      tab.lastCursor !== null &&
-      tab.lastCursor.id === action.id &&
-      action.cursor === tab.lastCursor.offset + 1;
-    const runActive = tab.run !== null && tab.run.cellId === action.id;
-    merge =
-      runActive &&
-      ((edit.tokenKind !== null && edit.tokenKind === tab.run?.kind && caretContinuous) ||
-        // 숏컷 완성은 오프셋이 줄어들 수 있어 캐럿 연속성 검사를 생략한다.
-        (edit.shortcut && tab.run?.kind === 'alpha'));
-    nextRun = merge
-      ? tab.run
-      : edit.tokenKind !== null
-        ? { cellId: action.id, kind: edit.tokenKind }
-        : null;
-  }
-
-  if (merge) {
-    return {
-      ...tab,
-      objects,
-      focus,
-      // entry를 쌓지 않는다. 편집이므로 redo 분기는 끊는다(방어적 — run 상태상
-      // future가 남아있는 조합은 나오지 않지만).
-      history: { past: tab.history.past, future: [] },
-      lastCursor: cursorAfter ?? tab.lastCursor,
-      lastChange: 'typing',
-      run: nextRun,
-    };
-  }
-
-  // 변경 직전 상태를 히스토리에 남긴다.
+  // 변경 직전 상태를 히스토리에 남긴다. 키 입력마다 entry 하나 — 키워드 단위
+  // 묶음은 여기가 아니라 undo/redo 시점의 그룹핑이 맡는다 (위 trailingTokenRun).
   const entry: HistoryEntry = { objects: tab.objects, cursor: tab.lastCursor };
   return {
     ...tab,
@@ -400,7 +473,6 @@ function tabReducer(tab: Tab, action: ObjectAction | HistoryAction): Tab {
     history: { past: cappedPush(tab.history.past, entry), future: [] },
     lastCursor: cursorAfter ?? tab.lastCursor,
     lastChange: action.type === 'editInput' ? 'typing' : 'structural',
-    run: nextRun,
   };
 }
 

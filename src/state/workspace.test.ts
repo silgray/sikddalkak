@@ -5,6 +5,7 @@ import {
   makeTab,
   hydrateTab,
   classifyEdit,
+  tokenizeRun,
   type WorkspaceState,
 } from './workspace';
 
@@ -238,40 +239,57 @@ describe('드래그 재정렬 (moveObject)', () => {
   });
 });
 
-describe('키워드 단위 실행취소 (토큰 run 병합)', () => {
+describe('키워드 단위 실행취소 (undo 시점 그룹핑)', () => {
   const seed = () => {
     const s = initialWorkspace();
     return { s, id: active(s).objects[0].id };
   };
   const type = (s: WorkspaceState, id: string, latex: string, cursor: number) =>
     workspaceReducer(s, { type: 'editInput', id, latex, cursor });
+  const undo = (s: WorkspaceState) => workspaceReducer(s, { type: 'undo' });
+  const redo = (s: WorkspaceState) => workspaceReducer(s, { type: 'redo' });
 
-  it('연속 글자는 한 단계로 합쳐진다 (cos → undo 한 번)', () => {
+  it('키워드는 통째, 뒤따르는 변수는 따로 (cosx → [x][cos])', () => {
     let { s, id } = seed();
     s = type(s, id, 'c', 1);
     s = type(s, id, 'co', 2);
     s = type(s, id, 'cos', 3);
-    s = workspaceReducer(s, { type: 'undo' });
+    s = type(s, id, 'cosx', 4);
+    s = undo(s);
+    expect(active(s).objects[0].latex).toBe('cos');
+    s = undo(s);
     expect(active(s).objects[0].latex).toBe('');
   });
 
-  it('연속 숫자도 한 단계다', () => {
+  it('키워드가 아닌 글자 나열은 글자별이다 (asdf)', () => {
+    let { s, id } = seed();
+    s = type(s, id, 'a', 1);
+    s = type(s, id, 'as', 2);
+    s = type(s, id, 'asd', 3);
+    s = type(s, id, 'asdf', 4);
+    for (const remain of ['asd', 'as', 'a', '']) {
+      s = undo(s);
+      expect(active(s).objects[0].latex).toBe(remain);
+    }
+  });
+
+  it('연속 숫자는 수 하나로 한 단계다', () => {
     let { s, id } = seed();
     s = type(s, id, '1', 1);
     s = type(s, id, '12', 2);
     s = type(s, id, '123', 3);
-    s = workspaceReducer(s, { type: 'undo' });
+    s = undo(s);
     expect(active(s).objects[0].latex).toBe('');
   });
 
-  it('글자↔숫자 경계는 run을 나눈다 (12x → [12][x])', () => {
+  it('글자↔숫자 경계는 run을 나눈다 (12x → [x][12])', () => {
     let { s, id } = seed();
     s = type(s, id, '1', 1);
     s = type(s, id, '12', 2);
     s = type(s, id, '12x', 3);
-    s = workspaceReducer(s, { type: 'undo' });
+    s = undo(s);
     expect(active(s).objects[0].latex).toBe('12');
-    s = workspaceReducer(s, { type: 'undo' });
+    s = undo(s);
     expect(active(s).objects[0].latex).toBe('');
   });
 
@@ -280,73 +298,81 @@ describe('키워드 단위 실행취소 (토큰 run 병합)', () => {
     s = type(s, id, 'x', 1);
     s = type(s, id, 'x+', 2);
     s = type(s, id, 'x+y', 3);
-    s = workspaceReducer(s, { type: 'undo' });
+    s = undo(s);
     expect(active(s).objects[0].latex).toBe('x+');
-    s = workspaceReducer(s, { type: 'undo' });
+    s = undo(s);
     expect(active(s).objects[0].latex).toBe('x');
-    s = workspaceReducer(s, { type: 'undo' });
+    s = undo(s);
     expect(active(s).objects[0].latex).toBe('');
   });
 
-  it('캐럿 점프는 run을 끊는다', () => {
-    let { s, id } = seed();
-    s = type(s, id, 'a', 1);
-    s = type(s, id, 'ab', 2);
-    // 캐럿을 맨 앞으로 옮겨 글자 삽입 (오프셋 불연속: 2+1 ≠ 1)
-    s = type(s, id, 'cab', 1);
-    s = workspaceReducer(s, { type: 'undo' });
-    expect(active(s).objects[0].latex).toBe('ab'); // 'c'만 취소
-    s = workspaceReducer(s, { type: 'undo' });
-    expect(active(s).objects[0].latex).toBe(''); // 'ab' run 통째로
-  });
-
-  it('undo 직후의 입력은 새 run에서 시작한다', () => {
-    let { s, id } = seed();
-    s = type(s, id, 'a', 1);
-    s = type(s, id, 'ab', 2);
-    s = workspaceReducer(s, { type: 'undo' }); // ''
-    s = type(s, id, 'x', 1);
-    s = type(s, id, 'xy', 2);
-    s = workspaceReducer(s, { type: 'undo' });
-    expect(active(s).objects[0].latex).toBe('');
-  });
-
-  it('숏컷 완성 diff는 run에 합쳐진다 (co + s → \\cos)', () => {
-    // 현재 MathLive 설정에선 발생하지 않지만(실측), inlineShortcuts를 켜도
-    // undo 단위가 유지되도록 하는 방어 규칙.
+  it('캐럿 점프는 run을 끊는다 (키워드 도중 끼어든 글자)', () => {
     let { s, id } = seed();
     s = type(s, id, 'c', 1);
     s = type(s, id, 'co', 2);
-    s = type(s, id, '\\cos ', 1); // 글자 run이 \command로 치환 (오프셋 감소)
-    s = workspaceReducer(s, { type: 'undo' });
-    expect(active(s).objects[0].latex).toBe('');
+    s = type(s, id, 'cos', 3);
+    // 캐럿을 맨 앞으로 옮겨 글자 삽입 (오프셋 불연속: 3+1 ≠ 1)
+    s = type(s, id, 'xcos', 1);
+    s = undo(s);
+    expect(active(s).objects[0].latex).toBe('cos'); // 'x'만 취소
+    s = undo(s);
+    expect(active(s).objects[0].latex).toBe(''); // 'cos' 통째
+  });
+
+  it('redo는 undo의 정확한 역연산이다 (같은 토큰 단위)', () => {
+    let { s, id } = seed();
+    s = type(s, id, 'c', 1);
+    s = type(s, id, 'co', 2);
+    s = type(s, id, 'cos', 3);
+    s = type(s, id, 'cosx', 4);
+    s = undo(s); // → 'cos'
+    s = undo(s); // → ''
+    s = redo(s);
+    expect(active(s).objects[0].latex).toBe('cos'); // cos 통째 복원
+    s = redo(s);
+    expect(active(s).objects[0].latex).toBe('cosx');
+    // 다시 undo도 같은 단위로
+    s = undo(s);
+    expect(active(s).objects[0].latex).toBe('cos');
   });
 
   it('classifyEdit: 구조 삽입·삭제·다중 문자는 토큰이 아니다', () => {
-    expect(classifyEdit('sin', String.raw`sin\left(\right)`)).toEqual({ tokenKind: null, shortcut: false });
-    expect(classifyEdit('ab', 'a')).toEqual({ tokenKind: null, shortcut: false });
-    expect(classifyEdit('a', 'ab')).toEqual({ tokenKind: 'alpha', shortcut: false });
-    expect(classifyEdit('12', '123')).toEqual({ tokenKind: 'digit', shortcut: false });
-    expect(classifyEdit('aco', String.raw`a\cos `)).toEqual({ tokenKind: null, shortcut: true });
+    expect(classifyEdit('sin', String.raw`sin\left(\right)`).tokenKind).toBeNull();
+    expect(classifyEdit('ab', 'a').tokenKind).toBeNull();
+    expect(classifyEdit('a', 'ab')).toEqual({ tokenKind: 'alpha', char: 'b', shortcut: false });
+    expect(classifyEdit('12', '123')).toEqual({ tokenKind: 'digit', char: '3', shortcut: false });
+    expect(classifyEdit('aco', String.raw`a\cos `).shortcut).toBe(true);
   });
 
   it('classifyEdit: placeholder 치환과 지수 진입+첫 글자는 토큰이다', () => {
     // 실측 시퀀스 — 빈 구조의 placeholder를 첫 글자가 치환
     expect(
       classifyEdit(String.raw`\frac{1}{\placeholder{}}`, String.raw`\frac{1}{c}`),
-    ).toEqual({ tokenKind: 'alpha', shortcut: false });
+    ).toEqual({ tokenKind: 'alpha', char: 'c', shortcut: false });
     expect(
       classifyEdit(String.raw`\frac{\placeholder{}}{\placeholder{}}`, String.raw`\frac{2}{\placeholder{}}`),
-    ).toEqual({ tokenKind: 'digit', shortcut: false });
+    ).toEqual({ tokenKind: 'digit', char: '2', shortcut: false });
     // 실측 시퀀스 — `^` 단독은 이벤트가 없어 첫 글자와 합쳐져 온다
-    expect(classifyEdit('e', 'e^{s}')).toEqual({ tokenKind: 'alpha', shortcut: false });
-    expect(classifyEdit('x', 'x^2')).toEqual({ tokenKind: 'digit', shortcut: false });
-    expect(classifyEdit('a', 'a_1')).toEqual({ tokenKind: 'digit', shortcut: false });
+    expect(classifyEdit('e', 'e^{s}')).toEqual({ tokenKind: 'alpha', char: 's', shortcut: false });
+    expect(classifyEdit('x', 'x^2')).toEqual({ tokenKind: 'digit', char: '2', shortcut: false });
+    expect(classifyEdit('a', 'a_1')).toEqual({ tokenKind: 'digit', char: '1', shortcut: false });
     // 여러 글자면 토큰이 아니다 (붙여넣기 등)
-    expect(classifyEdit('e', 'e^{si}')).toEqual({ tokenKind: null, shortcut: false });
+    expect(classifyEdit('e', 'e^{si}').tokenKind).toBeNull();
   });
 
-  it('분수 안에서 친 키워드도 통째로 취소된다 (1/cosy)', () => {
+  it('tokenizeRun: 키워드 최장 일치 + 숫자 묶음 + 변수 낱개', () => {
+    const alpha = (text: string) => [...text].map((char) => ({ char, kind: 'alpha' as const }));
+    const digit = (text: string) => [...text].map((char) => ({ char, kind: 'digit' as const }));
+    expect(tokenizeRun(alpha('cosx'))).toEqual([3, 1]);
+    expect(tokenizeRun(alpha('asdf'))).toEqual([1, 1, 1, 1]);
+    expect(tokenizeRun(alpha('cosh'))).toEqual([4]); // cos보다 cosh가 먼저
+    expect(tokenizeRun(alpha('si'))).toEqual([1, 1]); // 키워드 미완은 낱개
+    expect(tokenizeRun(alpha('arcsin'))).toEqual([6]);
+    expect(tokenizeRun([...digit('12'), ...alpha('x')])).toEqual([2, 1]);
+    expect(tokenizeRun([])).toEqual([]);
+  });
+
+  it('분수 안에서 친 키워드 (1/cosy → [y][cos][구조][1])', () => {
     // 실측 이벤트 시퀀스: 1 → 구조 → c(placeholder 치환, 캐럿 유지) → o → s → y
     let { s, id } = seed();
     s = type(s, id, '1', 1);
@@ -355,15 +381,17 @@ describe('키워드 단위 실행취소 (토큰 run 병합)', () => {
     s = type(s, id, String.raw`\frac{1}{co}`, 5);
     s = type(s, id, String.raw`\frac{1}{cos}`, 6);
     s = type(s, id, String.raw`\frac{1}{cosy}`, 7);
-    s = workspaceReducer(s, { type: 'undo' });
-    expect(active(s).objects[0].latex).toBe(String.raw`\frac{1}{\placeholder{}}`); // cosy 통째
-    s = workspaceReducer(s, { type: 'undo' });
+    s = undo(s);
+    expect(active(s).objects[0].latex).toBe(String.raw`\frac{1}{cos}`); // y
+    s = undo(s);
+    expect(active(s).objects[0].latex).toBe(String.raw`\frac{1}{\placeholder{}}`); // cos 통째
+    s = undo(s);
     expect(active(s).objects[0].latex).toBe('1'); // 분수 구조
-    s = workspaceReducer(s, { type: 'undo' });
+    s = undo(s);
     expect(active(s).objects[0].latex).toBe('');
   });
 
-  it('지수 안에서 친 키워드도 통째로 취소된다 (e^siny)', () => {
+  it('지수 안에서 친 키워드 (e^siny → [y][sin+^][e])', () => {
     // 실측 이벤트 시퀀스: e → e^{s}(진입+첫 글자 결합) → i → n → y
     let { s, id } = seed();
     s = type(s, id, 'e', 1);
@@ -371,9 +399,12 @@ describe('키워드 단위 실행취소 (토큰 run 병합)', () => {
     s = type(s, id, 'e^{si}', 4);
     s = type(s, id, 'e^{sin}', 5);
     s = type(s, id, 'e^{siny}', 6);
-    s = workspaceReducer(s, { type: 'undo' });
-    expect(active(s).objects[0].latex).toBe('e'); // ^siny 통째 (진입이 첫 글자와 한 이벤트라 나뉠 수 없다)
-    s = workspaceReducer(s, { type: 'undo' });
+    s = undo(s);
+    expect(active(s).objects[0].latex).toBe('e^{sin}'); // y
+    s = undo(s);
+    // sin 통째 — 진입(^)이 첫 글자와 한 이벤트라 함께 사라진다
+    expect(active(s).objects[0].latex).toBe('e');
+    s = undo(s);
     expect(active(s).objects[0].latex).toBe('');
   });
 });
