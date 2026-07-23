@@ -255,9 +255,25 @@ export function classifyEdit(
   const removed = prevLatex.slice(prefix, prevLatex.length - suffix);
   const added = nextLatex.slice(prefix, nextLatex.length - suffix);
 
+  const kindOf = (ch: string): 'alpha' | 'digit' | null =>
+    /^[a-zA-Z]$/.test(ch) ? 'alpha' : /^[0-9]$/.test(ch) ? 'digit' : null;
+
   if (removed === '') {
-    if (/^[a-zA-Z]$/.test(added)) return { tokenKind: 'alpha', shortcut: false };
-    if (/^[0-9]$/.test(added)) return { tokenKind: 'digit', shortcut: false };
+    const plain = kindOf(added);
+    if (plain !== null) return { tokenKind: plain, shortcut: false };
+    // 지수/아래첨자 진입이 첫 글자와 한 이벤트로 합쳐져 온다 (실측: `e`→`e^{s}`,
+    // `x`→`x^2` — `^` 단독은 input 이벤트가 없다). 그 글자를 run 시작으로 삼아야
+    // 이어지는 글자들이 합쳐지고, undo가 `e^{s}` 같은 첫 글자 잔재를 남기지 않는다.
+    const sup = added.match(/^[\^_](?:\{([a-zA-Z0-9])\}|([a-zA-Z0-9]))$/);
+    if (sup !== null) {
+      return { tokenKind: kindOf(sup[1] ?? sup[2]), shortcut: false };
+    }
+  }
+  // 빈 구조의 placeholder를 첫 글자가 치환하는 경우 (실측: `\frac{1}{\placeholder{}}`
+  // → `\frac{1}{c}`). 이 글자가 run을 시작해야 undo가 첫 글자를 남기지 않는다.
+  if (removed === '\\placeholder{}') {
+    const fill = kindOf(added);
+    if (fill !== null) return { tokenKind: fill, shortcut: false };
   }
   if (removed !== '' && /^[a-zA-Z]+$/.test(removed)) {
     const command = added.match(/^\\([a-zA-Z]+) ?$/);

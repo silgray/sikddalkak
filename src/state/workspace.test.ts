@@ -324,11 +324,57 @@ describe('키워드 단위 실행취소 (토큰 run 병합)', () => {
 
   it('classifyEdit: 구조 삽입·삭제·다중 문자는 토큰이 아니다', () => {
     expect(classifyEdit('sin', String.raw`sin\left(\right)`)).toEqual({ tokenKind: null, shortcut: false });
-    expect(classifyEdit('x', 'x^2')).toEqual({ tokenKind: null, shortcut: false });
     expect(classifyEdit('ab', 'a')).toEqual({ tokenKind: null, shortcut: false });
     expect(classifyEdit('a', 'ab')).toEqual({ tokenKind: 'alpha', shortcut: false });
     expect(classifyEdit('12', '123')).toEqual({ tokenKind: 'digit', shortcut: false });
     expect(classifyEdit('aco', String.raw`a\cos `)).toEqual({ tokenKind: null, shortcut: true });
+  });
+
+  it('classifyEdit: placeholder 치환과 지수 진입+첫 글자는 토큰이다', () => {
+    // 실측 시퀀스 — 빈 구조의 placeholder를 첫 글자가 치환
+    expect(
+      classifyEdit(String.raw`\frac{1}{\placeholder{}}`, String.raw`\frac{1}{c}`),
+    ).toEqual({ tokenKind: 'alpha', shortcut: false });
+    expect(
+      classifyEdit(String.raw`\frac{\placeholder{}}{\placeholder{}}`, String.raw`\frac{2}{\placeholder{}}`),
+    ).toEqual({ tokenKind: 'digit', shortcut: false });
+    // 실측 시퀀스 — `^` 단독은 이벤트가 없어 첫 글자와 합쳐져 온다
+    expect(classifyEdit('e', 'e^{s}')).toEqual({ tokenKind: 'alpha', shortcut: false });
+    expect(classifyEdit('x', 'x^2')).toEqual({ tokenKind: 'digit', shortcut: false });
+    expect(classifyEdit('a', 'a_1')).toEqual({ tokenKind: 'digit', shortcut: false });
+    // 여러 글자면 토큰이 아니다 (붙여넣기 등)
+    expect(classifyEdit('e', 'e^{si}')).toEqual({ tokenKind: null, shortcut: false });
+  });
+
+  it('분수 안에서 친 키워드도 통째로 취소된다 (1/cosy)', () => {
+    // 실측 이벤트 시퀀스: 1 → 구조 → c(placeholder 치환, 캐럿 유지) → o → s → y
+    let { s, id } = seed();
+    s = type(s, id, '1', 1);
+    s = type(s, id, String.raw`\frac{1}{\placeholder{}}`, 4);
+    s = type(s, id, String.raw`\frac{1}{c}`, 4);
+    s = type(s, id, String.raw`\frac{1}{co}`, 5);
+    s = type(s, id, String.raw`\frac{1}{cos}`, 6);
+    s = type(s, id, String.raw`\frac{1}{cosy}`, 7);
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe(String.raw`\frac{1}{\placeholder{}}`); // cosy 통째
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('1'); // 분수 구조
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('');
+  });
+
+  it('지수 안에서 친 키워드도 통째로 취소된다 (e^siny)', () => {
+    // 실측 이벤트 시퀀스: e → e^{s}(진입+첫 글자 결합) → i → n → y
+    let { s, id } = seed();
+    s = type(s, id, 'e', 1);
+    s = type(s, id, 'e^{s}', 3);
+    s = type(s, id, 'e^{si}', 4);
+    s = type(s, id, 'e^{sin}', 5);
+    s = type(s, id, 'e^{siny}', 6);
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('e'); // ^siny 통째 (진입이 첫 글자와 한 이벤트라 나뉠 수 없다)
+    s = workspaceReducer(s, { type: 'undo' });
+    expect(active(s).objects[0].latex).toBe('');
   });
 });
 
