@@ -70,8 +70,11 @@ function owningAtom(ctx: EditContext): InternalAtom | undefined {
  *
  * 명령어 내비게이션(moveToPreviousChar 등) 대신 **모델 오프셋을 직접 계산**한다 —
  * 명령어는 구조 경계에서 엉뚱한 atom을 잡는다(실측).
+ *
+ * caret='before'면 치환된 내용 **맨 앞**에 캐럿을 둔다 (첨자 강등 시 커서가
+ * "지수였던 자리"에 머물게). 'after'면 내용 뒤 (괄호 벗기기 등 기본).
  */
-function replaceOwnerWithBranchContent(ctx: EditContext): boolean {
+function replaceOwnerWithBranchContent(ctx: EditContext, caret: 'before' | 'after' = 'after'): boolean {
   const owner = owningAtom(ctx);
   if (owner === undefined) return false;
   const bounds = atomBounds(ctx.model, owner);
@@ -80,6 +83,10 @@ function replaceOwnerWithBranchContent(ctx: EditContext): boolean {
   const content = ctx.mf.getValue({ ranges: [branch] }, 'latex');
   ctx.mf.selection = { ranges: [bounds], direction: 'forward' };
   ctx.mf.insert(content, { insertionMode: 'replaceSelection', selectionMode: 'after' });
+  if (caret === 'before') {
+    // 치환된 내용은 bounds[0]에서 시작한다 (owner 자리) — 그 앞으로 캐럿을 옮긴다.
+    ctx.mf.position = Math.max(0, Math.min(bounds[0], ctx.mf.lastOffset));
+  }
   return true;
 }
 
@@ -256,7 +263,8 @@ const demoteScriptContent: KeyOp = {
   },
   run: (ctx) => {
     // 첨자 atom을 통째로 그 내용으로 치환 → 내용이 밑 레벨로 내려온다.
-    replaceOwnerWithBranchContent(ctx);
+    // 커서는 "지수였던 자리"(내용 맨 앞, 밑 바로 뒤)에 머문다.
+    replaceOwnerWithBranchContent(ctx, 'before');
   },
   scenarios: [
     { start: 'e^1', caret: 2, key: 'Backspace', expect: 'e1' },

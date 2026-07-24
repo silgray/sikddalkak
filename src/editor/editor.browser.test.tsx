@@ -200,7 +200,7 @@ describe('사용자 보고 파손 경로 — 실제 편집으로 재현', () => 
   /** 앱과 같은 파이프라인: 편집 후 교정본이 문서가 된다. */
   const docOf = (latex: string) => repairLatex(latex).latex;
 
-  it('e^1: 지수 안 맨 앞 backspace → 1이 내려온다 (^도 함께 제거)', async () => {
+  it('e^1: 지수 안 맨 앞 backspace → 1이 내려오고 커서는 지수였던 자리(밑 뒤)', async () => {
     const f = await createField('e^1');
     cleanups.push(f.dispose);
     f.mf.position = 2; // 지수 내용 맨 앞
@@ -208,9 +208,11 @@ describe('사용자 보고 파손 경로 — 실제 편집으로 재현', () => 
     expect(dispatchKeyOp(f.mf, 'Backspace')).toBe(true);
     await f.settle();
     expect(f.value()).toBe('e1');
+    // 밑 e는 그대로, 커서는 내려온 1의 맨 앞 (e와 1 사이) — offset 1.
+    expect(f.mf.position).toBe(1);
   });
 
-  it('a_1: 아래첨자도 같다', async () => {
+  it('a_1: 아래첨자도 같다 (커서도 밑 뒤)', async () => {
     const f = await createField('a_1');
     cleanups.push(f.dispose);
     f.mf.position = 2;
@@ -218,6 +220,7 @@ describe('사용자 보고 파손 경로 — 실제 편집으로 재현', () => 
     expect(dispatchKeyOp(f.mf, 'Backspace')).toBe(true);
     await f.settle();
     expect(f.value()).toBe('a1');
+    expect(f.mf.position).toBe(1);
   });
 
   it('밑이 사라져 첨자만 남으면 교정이 벗겨낸다', async () => {
