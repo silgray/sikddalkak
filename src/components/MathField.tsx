@@ -280,6 +280,14 @@ export function MathField({
     mf.addEventListener(
       'keydown',
       (ev) => {
+        // Escape 비활성화. MathLive 기본 ESC(선택 확장 → 원본 LaTeX 모드 노출)가
+        // 혼란스러워 통째로 막는다. 추후 단축키로 재지정 예정. readOnly 체크보다
+        // 앞에 둬서 입력·결과 필드 모두에서 중화한다.
+        if (ev.key === 'Escape') {
+          ev.preventDefault();
+          ev.stopImmediatePropagation();
+          return;
+        }
         if (mf.readOnly) return;
         // Ctrl/Cmd+Shift+E/S/F: 선택 변환 단축키 (임시 키바인딩).
         if ((ev.ctrlKey || ev.metaKey) && ev.shiftKey && !ev.altKey) {

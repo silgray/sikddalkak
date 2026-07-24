@@ -423,4 +423,20 @@ describe('MathField 통합 — 고아 fence 교정 파이프라인', () => {
     await settle();
     expect(b.mf.value).toBe(String.raw`\left(a+b\right)`);
   });
+
+  it('Escape는 비활성화 — 선택 확장도, 원본 LaTeX 모드 전환도 없다', async () => {
+    // MathLive 기본 ESC는 선택을 확장하다가 끝에서 원본 LaTeX 모드로 넘어가
+    // 렌더가 깨진다. capture 가드가 이를 통째로 막는다.
+    const { mf } = await mountMathField('a+b+c');
+    mf.position = 2; // 식 중간
+    for (let i = 0; i < 4; i += 1) {
+      mf.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    }
+    await settle();
+    expect(mf.value).toBe('a+b+c'); // 값 불변
+    expect(mf.mode).toBe('math'); // 원본 LaTeX 모드로 안 넘어감
+    expect(mf.selectionIsCollapsed).toBe(true); // 선택도 확장 안 됨
+  });
 });

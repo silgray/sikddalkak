@@ -219,6 +219,81 @@ describe('행렬', () => {
   it('스칼라 전용 \\cdot 은 영향 없다 (행렬 경로 밖)', () => {
     expect(latexOf(one(String.raw`2\cdot 3`))).toBe('6');
   });
+
+  // 원소가 심볼인 벡터/행렬 연산. CE는 심볼이어도 정확히 계산하는데(실측),
+  // 예전엔 리터럴 게이트가 심볼 벡터를 거부해 마커가 벗겨지거나 전치가 안 접혀
+  // 쓰레기가 나왔다. 게이트를 구조 기반으로 완화해 바로잡는다.
+  const SYMCOL = (x: string, y: string, z: string) =>
+    String.raw`\begin{pmatrix}${x}\\${y}\\${z}\end{pmatrix}`;
+
+  it('심볼 벡터 \\cdot 은 내적이다', () => {
+    const [, , r] = run([
+      `u=${SYMCOL('x_1', 'y_1', 'z_1')}`,
+      `v=${SYMCOL('x_2', 'y_2', 'z_2')}`,
+      String.raw`u\cdot v`,
+    ]);
+    expect(latexOf(r)).toBe(norm('x_1x_2+y_1y_2+z_1z_2'));
+  });
+
+  it('심볼 벡터 \\times 는 외적이다', () => {
+    // (1,0,x) × (1,1,0) = (0·0-x·1, x·1-1·0, 1·1-0·1) = (-x, x, 1)
+    const [, , r] = run([
+      `u=${SYMCOL('1', '0', 'x')}`,
+      `v=${SYMCOL('1', '1', '0')}`,
+      String.raw`u\times v`,
+    ]);
+    expect(latexOf(r)).toBe(norm(String.raw`\begin{pmatrix}-x\\x\\1\end{pmatrix}`));
+  });
+
+  it('심볼 벡터 u^Tv 는 스칼라 내적이다 (전치 곱 → 1×1 접기)', () => {
+    const [, , r] = run([
+      `u=${SYMCOL('x_1', 'y_1', 'z_1')}`,
+      `v=${SYMCOL('x_2', 'y_2', 'z_2')}`,
+      'u^Tv',
+    ]);
+    expect(latexOf(r)).toBe(norm('x_1x_2+y_1y_2+z_1z_2'));
+  });
+
+  // 차원이 안 맞으면 쓰레기가 아니라 에러다. CE는 곱은 미평가로(에러 없이) 남기고
+  // 덧셈/내적/외적은 incompatible-dimensions Error를 낸다 — 둘 다 잡아낸다.
+  it('차원 불일치 행렬곱은 에러다', () => {
+    const [r] = run([
+      String.raw`\begin{pmatrix}1 & 2\\3 & 2\end{pmatrix}\begin{pmatrix}1 & 2 & 3\\4 & 5 & 6\\7 & 7 & 8\end{pmatrix}`,
+    ]);
+    expect(r.kind).toBe('error');
+  });
+
+  it('차원 불일치 행렬 덧셈은 에러다', () => {
+    const [r] = run([
+      String.raw`\begin{pmatrix}1 & 2\\3 & 2\end{pmatrix}+\begin{pmatrix}1 & 2 & 3\\4 & 5 & 6\\7 & 7 & 8\end{pmatrix}`,
+    ]);
+    expect(r.kind).toBe('error');
+  });
+
+  it('길이가 다른 벡터 내적은 에러다', () => {
+    const [, , r] = run([
+      `u=${String.raw`\begin{pmatrix}1\\2\end{pmatrix}`}`,
+      `v=${COLVEC}`,
+      String.raw`u\cdot v`,
+    ]);
+    expect(r.kind).toBe('error');
+  });
+
+  // 불일치 곱이 상위 연산 안에 묻혀도 잡아야 한다. CE는 미평가 곱을 스칼라 취급해
+  // broadcast하므로 최상위는 valid List가 된다 — 재귀 스캔이라야 걸린다.
+  it('불일치 곱이 덧셈 안에 묻혀도 에러다', () => {
+    const [r] = run([
+      String.raw`\begin{pmatrix}1 & 2 & 3\\y & x & 54\end{pmatrix}\begin{pmatrix}1 & 2\\y & x\end{pmatrix}+\begin{pmatrix}1 & 2\\y & x\end{pmatrix}`,
+    ]);
+    expect(r.kind).toBe('error');
+  });
+
+  it('불일치 덧셈이 곱 안에 묻혀도 에러다', () => {
+    const [r] = run([
+      String.raw`2\left(\begin{pmatrix}1 & 2 & 3\\4 & 5 & 6\end{pmatrix}+\begin{pmatrix}1 & 2\\3 & 4\\5 & 6\end{pmatrix}\right)`,
+    ]);
+    expect(r.kind).toBe('error');
+  });
 });
 
 describe('정의와 변수 바인딩', () => {
