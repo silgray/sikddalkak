@@ -5,6 +5,7 @@ import { sanitizeLatex } from '../editor/sanitizeLatex';
 import {
   expandSelectionSemantic,
   extendSelectionSibling,
+  normalizeSelection,
   selectionIsSiblingRun,
 } from '../editor/selection';
 
@@ -217,15 +218,27 @@ export function MathField({
       handlers.current.onEdit?.(mf.value, mf.position);
     });
 
+    // 선택 불변식의 단일 게이트. 모든 선택 경로(드래그·shift+화살표·Ctrl+D·
+    // 더블클릭·Ctrl+A·실행취소 복구)가 selection-change를 지나가므로, 여기서
+    // 한 번 교정하면 "선택은 항상 한 레벨의 연속 형제 열"이 보장된다.
+    // (핸들러 안에서 selection을 재설정해도 재귀 발화하지 않는다 — 실측)
     const reportSelection = () => {
+      normalizeSelection(mf);
       const notify = handlers.current.onSelectionChange;
       if (notify === undefined) return;
-      // 행렬 셀 경계를 가로지르는 선택은 변환 대상이 아니므로 "선택 없음"으로 보고.
-      notify(
-        mf.selectionIsCollapsed || !selectionIsSiblingRun(mf)
-          ? null
-          : mf.getValue(mf.selection, 'latex'),
-      );
+      if (mf.selectionIsCollapsed) {
+        notify(null);
+        return;
+      }
+      // 정규화 뒤에도 형제 열이 아니면 불변식이 깨진 것 — 조작 대상에서 뺀다.
+      if (!selectionIsSiblingRun(mf)) {
+        if (import.meta.env.DEV) {
+          console.warn('[selection] 정규화 후에도 형제 열이 아님', mf.selection.ranges);
+        }
+        notify(null);
+        return;
+      }
+      notify(mf.getValue(mf.selection, 'latex'));
     };
     reportRef.current = reportSelection;
 

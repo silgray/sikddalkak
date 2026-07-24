@@ -294,7 +294,11 @@ body {
   font-size: 1.15rem;
   padding: 0.2rem 0;
   --caret-color: var(--accent);
-  --selection-background-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  /* 반드시 불투명이어야 한다. MathLive는 선택 서브트리의 **모든 후손**과 별도
+     오버레이 rect에 각각 이 색을 칠하는데(실측: 3×3 행렬 선택 시 54개 + 2개),
+     알파가 있으면 층마다 누적돼 중첩 박스처럼 보인다. --bg와 섞어 라이트/다크
+     모두 자동 대응. */
+  --selection-background-color: color-mix(in srgb, var(--accent) 22%, var(--bg));
 }
 
 /* 가상 키보드는 안 쓴다 — 토글 버튼 숨김 (part 이름 실측: virtual-keyboard-toggle) */

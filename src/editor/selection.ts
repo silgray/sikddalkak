@@ -39,6 +39,19 @@ function nextSiblingBoundary(model: InternalModel, ctx: SiblingCtx, offset: numb
   return null;
 }
 
+/** offset이 속한 형제 문맥부터 바깥으로 올라가는 사슬 (안 → 밖). */
+function chainOf(model: InternalModel, offset: number): SiblingCtx[] {
+  const chain: SiblingCtx[] = [];
+  let ctx = ctxAt(model, offset);
+  while (ctx !== null) {
+    chain.push(ctx);
+    const owner = ctx.parent;
+    if (owner === null || owner === undefined) break;
+    ctx = { parent: owner.parent ?? null, branch: JSON.stringify(owner.parentBranch ?? null) };
+  }
+  return chain;
+}
+
 /** ctx branch 전체의 [시작, 끝] 오프셋 (내용 전부). 빈 branch면 null. */
 function branchRange(model: InternalModel, ctx: SiblingCtx): [number, number] | null {
   let lo: number | null = null;
@@ -50,6 +63,94 @@ function branchRange(model: InternalModel, ctx: SiblingCtx): [number, number] | 
     }
   }
   return lo === null ? null : [lo, hi];
+}
+
+/** 범위 안의 실제 atom들 (MathLive가 각 branch 앞에 두는 'first' 센티널 제외). */
+function meaningfulAtoms(model: InternalModel, range: [number, number]): InternalAtom[] {
+  return model.getAtoms(range).filter((atom) => atom.type !== 'first');
+}
+
+/**
+ * **선택 불변식의 핵심**: [a,b]를 포함하는 최소한의 "한 문맥 연속 형제 열"을 구한다.
+ *
+ * MathLive의 선택은 atom 트리를 평탄하게 훑은 정수 오프셋이라, 서로 다른 부모의
+ * atom을 걸치는 구간도 표현할 수 있다. 그런 구간은 부분식이 아니고(LaTeX로 뽑으면
+ * 행렬 셀 구분이 사라진다), 렌더도 층층이 겹친 박스로 어긋난다. 그래서 양 끝의
+ * 문맥 사슬에서 최초 공통 문맥을 찾아 그 레벨의 형제 경계로 넓힌다.
+ *
+ * 성질: 멱등(이미 정규형이면 그대로) · 포함(원래 범위를 잃지 않음) · 결정적.
+ */
+export function siblingRunRange(
+  model: InternalModel,
+  a0: number,
+  b0: number,
+): [number, number] | null {
+  const a = Math.min(a0, b0);
+  const b = Math.max(a0, b0);
+  const chainA = chainOf(model, a);
+  const common = chainOf(model, b).find((cb) =>
+    chainA.some((ca) => ca.parent === cb.parent && ca.branch === cb.branch),
+  );
+  if (common === undefined) return null;
+  const whole = branchRange(model, common);
+  if (whole === null) return null;
+
+  // 왼쪽: a 이하의 가장 가까운 형제 경계 (a가 어떤 형제의 내부면 그 형제 앞).
+  let left: number | null = null;
+  for (let q = a; q >= 0; q -= 1) {
+    if (inCtx(model.at(q), common)) {
+      left = q;
+      break;
+    }
+  }
+  // 오른쪽: b 이상의 가장 가까운 형제 경계 (b가 내부면 그 형제 끝).
+  let right: number | null = null;
+  for (let q = b; q <= model.lastOffset; q += 1) {
+    if (inCtx(model.at(q), common)) {
+      right = q;
+      break;
+    }
+  }
+  let lo = left ?? whole[0];
+  const hi = right ?? whole[1];
+
+  // 첨자(subsup)는 밑에 붙는 조각이라 혼자 떼면 `^{2y}`처럼 파싱 불가한 LaTeX가
+  // 된다(실측). 앞 형제(밑)를 포함할 때까지 왼쪽으로 넓힌다.
+  for (let guard = 0; guard < 4; guard += 1) {
+    const first = meaningfulAtoms(model, [lo, hi])[0];
+    if (first === undefined || first.type !== 'subsup') break;
+    const prev = prevSiblingBoundary(model, common, lo);
+    if (prev === null) break;
+    lo = prev;
+  }
+  return [lo, hi];
+}
+
+/**
+ * 현재 선택을 형제 열 불변식에 맞게 교정한다. 바꿨으면 true.
+ * 선택이 만들어지는 **모든 경로**(드래그·shift+화살표·Ctrl+D·더블클릭·Ctrl+A·
+ * 실행취소 복구)가 selection-change를 거치므로, 거기서 이 함수만 부르면 된다.
+ */
+export function normalizeSelection(mf: MathfieldElement): boolean {
+  try {
+    if (mf.selectionIsCollapsed) return false;
+    const model = modelOf(mf);
+    if (model === null) return false;
+    const { ranges, direction } = mf.selection;
+    if (ranges.length === 0) return false;
+    // 행렬 셀별 다중 선택도 전체를 감싸는 한 구간으로 접는다.
+    const lo = Math.min(...ranges.map((r) => r[0]));
+    const hi = Math.max(...ranges.map((r) => r[1]));
+    const snapped = siblingRunRange(model, lo, hi);
+    if (snapped === null) return false;
+    const [a, b] = snapped;
+    if (ranges.length === 1 && ranges[0][0] === a && ranges[0][1] === b) return false;
+    mf.selection = { ranges: [[a, b]], direction: direction === 'backward' ? 'backward' : 'forward' };
+    return true;
+  } catch {
+    // 내부 API 실패 — 선택을 건드리지 않는다 (기존 동작).
+    return false;
+  }
 }
 
 function setSelectionRange(mf: MathfieldElement, anchor: number, extent: number): void {
@@ -101,19 +202,8 @@ export function expandSelectionSemantic(mf: MathfieldElement): void {
   const [a, b] = mf.selection.ranges[0];
 
   // a, b 각각의 branch 사슬(안→밖)에서 처음 만나는 공통 branch.
-  const chainOf = (offset: number): SiblingCtx[] => {
-    const chain: SiblingCtx[] = [];
-    let ctx = ctxAt(model, offset);
-    while (ctx !== null) {
-      chain.push(ctx);
-      const owner = ctx.parent;
-      if (owner === null || owner === undefined) break;
-      ctx = { parent: owner.parent ?? null, branch: JSON.stringify(owner.parentBranch ?? null) };
-    }
-    return chain;
-  };
-  const chainA = chainOf(a);
-  const common = chainOf(b).find((cb) =>
+  const chainA = chainOf(model, a);
+  const common = chainOf(model, b).find((cb) =>
     chainA.some((ca) => ca.parent === cb.parent && ca.branch === cb.branch),
   );
   if (common === undefined) return;
