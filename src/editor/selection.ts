@@ -126,6 +126,68 @@ export function siblingRunRange(
   return [lo, hi];
 }
 
+/** 덧셈 경계가 되는 연산자인지 (`+`/`-`만; `\cdot`·`\times`는 곱셈이라 항 안에 남는다). */
+export function isAdditiveOp(atom: InternalAtom | undefined): boolean {
+  return atom?.type === 'mbin' && (atom.command === '+' || atom.command === '-');
+}
+
+/**
+ * [a,b]를 포함하는 최소 "곱셈 항" 형제 run. `siblingRunRange`와 같은 문맥에서 돌되
+ * `+`/`-` 형제를 **경계로** 삼아 넘지 않는다 (`1+xy`의 `xy`, `1` 처럼).
+ *
+ * ⚠ `siblingRunRange`(선택 정규화 게이트)와 별개다 — 드래그 선택까지 항 경계로
+ * 강제하면 안 되므로, 이건 Ctrl+D 확장·괄호 감싸기에서만 쓴다. 항 run도 유효한
+ * 형제 run이라 이후 `normalizeSelection`을 멱등하게 통과한다.
+ */
+export function termRunRange(
+  model: InternalModel,
+  a0: number,
+  b0: number,
+): [number, number] | null {
+  const a = Math.min(a0, b0);
+  const b = Math.max(a0, b0);
+  const chainA = chainOf(model, a);
+  const common = chainOf(model, b).find((cb) =>
+    chainA.some((ca) => ca.parent === cb.parent && ca.branch === cb.branch),
+  );
+  if (common === undefined) return null;
+
+  // 왼쪽: a 이하 가장 가까운 형제 경계에서 시작해, 왼쪽 atom이 덧셈 연산자가
+  // 아닌 동안 계속 왼쪽으로 넓힌다 (덧셈 연산자를 만나면 그 앞에서 멈춘다).
+  let lo: number | null = null;
+  for (let q = a; q >= 0; q -= 1) {
+    if (inCtx(model.at(q), common)) {
+      lo = q;
+      break;
+    }
+  }
+  if (lo === null) return null;
+  for (;;) {
+    if (isAdditiveOp(model.at(lo))) break; // lo 왼쪽 atom이 덧셈 연산자 — 포함 안 함
+    const prev = prevSiblingBoundary(model, common, lo);
+    if (prev === null) break;
+    lo = prev;
+  }
+
+  // 오른쪽: b 이상 가장 가까운 형제 경계에서, 오른쪽 atom이 덧셈 연산자가 아닌
+  // 동안 계속 오른쪽으로 넓힌다.
+  let hi: number | null = null;
+  for (let q = b; q <= model.lastOffset; q += 1) {
+    if (inCtx(model.at(q), common)) {
+      hi = q;
+      break;
+    }
+  }
+  if (hi === null) return null;
+  for (;;) {
+    const next = nextSiblingBoundary(model, common, hi);
+    if (next === null) break;
+    if (isAdditiveOp(model.at(next))) break; // hi 오른쪽 atom이 덧셈 연산자
+    hi = next;
+  }
+  return [lo, hi];
+}
+
 /**
  * 현재 선택을 형제 열 불변식에 맞게 교정한다. 바꿨으면 true.
  * 선택이 만들어지는 **모든 경로**(드래그·shift+화살표·Ctrl+D·더블클릭·Ctrl+A·
@@ -222,23 +284,45 @@ export function extendSelectionSibling(mf: MathfieldElement, dir: 'left' | 'righ
   return true;
 }
 
+/** 캐럿 옆(왼쪽 우선, 없으면 오른쪽)의 atom 하나가 차지하는 범위. 없으면 null. */
+function caretUnitRange(model: InternalModel, pos: number): [number, number] | null {
+  const left = model.at(pos);
+  if (left !== undefined && left.type !== 'first') {
+    const b = atomBounds(model, left);
+    if (b !== null) return b;
+  }
+  const right = model.at(pos + 1);
+  if (right !== undefined && right.type !== 'first') {
+    const b = atomBounds(model, right);
+    if (b !== null) return b;
+  }
+  return null;
+}
+
 /**
- * Ctrl+D: 의미 단위 선택 확장.
- * - 선택 없음 → 캐럿이 속한 branch 내용 전체 (분모 안이면 분모 내용)
- * - 선택이 branch 내용 전체와 일치 → 그 branch를 가진 atom 통째 (분모 → 분수)
- * - 그 외 → 선택을 모두 포함하는 가장 낮은 branch 내용으로 스냅
- * 반복해서 누르면 한 레벨씩 올라간다.
+ * Ctrl+D: 의미 단위 선택 확장. 한 번 누를 때 사다리를 한 칸 올라간다:
+ *   원자 → 곱셈 항(`+`/`-` 앞에서 멈춤) → branch 내용 전체 → 소유 atom(한 레벨 위) → …
+ * 각 단계는 "현재보다 큰 가장 작은 후보"라 오름차순·멱등이다. `+`가 없는 식은
+ * 항 == branch라 항 단계가 자연히 접혀(추가 누름 없음) 회귀가 없다.
+ * 예: `1+xy`에서 `y`(또는 캐럿) → `xy` → `1+xy` → (root면 끝).
  */
 export function expandSelectionSemantic(mf: MathfieldElement): void {
   const model = modelOf(mf);
   if (model === null) return;
+
   if (mf.selectionIsCollapsed) {
+    // 가장 작은 단위(캐럿 옆 원자)부터. 원자가 없으면 branch 내용으로 폴백.
+    const unit = caretUnitRange(model, model.position);
+    if (unit !== null) {
+      setSelectionRange(mf, unit[0], unit[1]);
+      return;
+    }
     const ctx = ctxAt(model, model.position);
-    if (ctx === null) return;
-    const range = branchRange(model, ctx);
+    const range = ctx === null ? null : branchRange(model, ctx);
     if (range !== null) setSelectionRange(mf, range[0], range[1]);
     return;
   }
+
   const [a, b] = mf.selection.ranges[0];
 
   // a, b 각각의 branch 사슬(안→밖)에서 처음 만나는 공통 branch.
@@ -261,6 +345,17 @@ export function expandSelectionSemantic(mf: MathfieldElement): void {
     };
     const start = prevSiblingBoundary(model, ownerCtx, end);
     setSelectionRange(mf, start ?? 0, end);
+    return;
+  }
+
+  // 항 단계: 선택보다 크고 branch보다 작은 곱셈 항이 있으면 거기로 먼저.
+  const term = termRunRange(model, a, b);
+  if (
+    term !== null &&
+    (term[0] < a || term[1] > b) &&
+    !(term[0] === range[0] && term[1] === range[1])
+  ) {
+    setSelectionRange(mf, term[0], term[1]);
     return;
   }
   setSelectionRange(mf, range[0], range[1]);

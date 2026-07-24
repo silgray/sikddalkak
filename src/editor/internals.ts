@@ -12,6 +12,10 @@ export type InternalAtom = {
   parent?: InternalAtom | null;
   parentBranch?: unknown;
   type?: string;
+  /** leftright(fence)의 여는 구분자. ghost 여부와 무관하게 항상 실제 문자. */
+  leftDelim?: string;
+  /** atom의 LaTeX 커맨드/문자 (`+`, `-`, `\cdot`, `x` 등). 연산자 판별에 쓴다. */
+  command?: string;
 };
 export type InternalModel = {
   getAtoms: (range: [number, number]) => InternalAtom[];

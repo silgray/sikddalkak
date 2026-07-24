@@ -6,7 +6,7 @@ import { createField } from './harness';
 import { MathField } from '../components/MathField';
 import { ce } from '../engine/ce';
 import { modelOf } from './internals';
-import { siblingRunRange } from './selection';
+import { expandSelectionSemantic, siblingRunRange } from './selection';
 import { KEY_OPS, dispatchKeyOp } from './keyOps';
 import { findViolations, repairLatex } from './wellformed';
 
@@ -438,5 +438,82 @@ describe('MathField 통합 — 고아 fence 교정 파이프라인', () => {
     expect(mf.value).toBe('a+b+c'); // 값 불변
     expect(mf.mode).toBe('math'); // 원본 LaTeX 모드로 안 넘어감
     expect(mf.selectionIsCollapsed).toBe(true); // 선택도 확장 안 됨
+  });
+});
+
+describe('괄호 로직 — 선택 감싸기 / ghost 승격 / 항 단위 (dispatchKeyOp 직접)', () => {
+  // Fix A: 선택 위에 닫는 괄호를 쳐도 dangling이 아니라 감싼다.
+  it('선택 + ) → 감쌈 (dangling 아님)', async () => {
+    const f = await createField('a+b');
+    cleanups.push(f.dispose);
+    f.mf.selection = { ranges: [[0, 3]], direction: 'forward' };
+    await f.settle();
+    expect(dispatchKeyOp(f.mf, ')')).toBe(true);
+    await f.settle();
+    expect(f.value()).toBe(String.raw`\left(a+b\right)`);
+  });
+
+  // Fix C: 빈 쌍 안에서 )는 새 쌍을 중첩하지 않고 네이티브 smartFence에 위임돼 승격한다.
+  it('빈 쌍 안에서 ) → 중첩 없이 네이티브 승격 (위임)', async () => {
+    const f = await createField('');
+    cleanups.push(f.dispose);
+    expect(dispatchKeyOp(f.mf, ')')).toBe(true); // 빈 쌍 생성
+    await f.settle();
+    expect(f.value()).toBe(String.raw`\left(\right)`);
+    const posInside = f.mf.position;
+    // 두 번째 )는 fence 본문 끝이라 우리가 손을 뗀다 (위임).
+    expect(dispatchKeyOp(f.mf, ')')).toBe(false);
+    // 앱에서는 이때 네이티브 기본 처리가 이어진다 — 캐럿을 밖으로 빼며 승격.
+    f.mf.executeCommand(['typedText', ')', { simulateKeystroke: true }]);
+    await f.settle();
+    expect(f.value()).toBe(String.raw`\left(\right)`); // 중첩되지 않음
+    expect(f.mf.position).toBeGreaterThan(posInside); // 캐럿이 밖으로
+  });
+
+  // Fix C: 구간 맨 앞에서는 (커서) 빈 쌍을 넣는다 (감싸기 아님).
+  it('분수 분자 맨 앞에서 ) → 맨 앞에 빈 쌍', async () => {
+    const f = await createField(String.raw`\frac{1}{x}`);
+    cleanups.push(f.dispose);
+    await f.settle();
+    f.mf.position = 1; // 분자 내용 맨 앞 (settle이 캐럿을 밀지 않게 dispatch 직전에 설정)
+    expect(f.mf.position).toBe(1);
+    expect(dispatchKeyOp(f.mf, ')')).toBe(true);
+    await f.settle();
+    expect(f.value()).toBe(String.raw`\frac{\left(\right)1}{x}`);
+  });
+
+  // Fix C: 감싸는 fence 본문 끝은 우리가 잡지 않고 위임한다.
+  it('fence 본문 끝에서 ) → 위임 (dispatchKeyOp false)', async () => {
+    const f = await createField(String.raw`\left(x\right)`);
+    cleanups.push(f.dispose);
+    f.mf.position = f.mf.lastOffset;
+    f.mf.executeCommand('moveToPreviousChar'); // \right) 앞(본문 끝)으로
+    await f.settle();
+    expect(dispatchKeyOp(f.mf, ')')).toBe(false);
+  });
+
+  // Fix B: Ctrl+D는 원자 → 곱셈 항 → 덧셈식 순으로 오른다.
+  it('Ctrl+D: 1+xy → y → xy → 1+xy', async () => {
+    const f = await createField('1+xy');
+    cleanups.push(f.dispose);
+    f.mf.position = f.mf.lastOffset;
+    const step = () => {
+      expandSelectionSemantic(f.mf);
+      return f.mf.getValue(f.mf.selection, 'latex');
+    };
+    expect(step()).toBe('y');
+    expect(step()).toBe('xy');
+    expect(step()).toBe('1+xy');
+  });
+
+  // Fix B: 캐럿이 + 뒤일 때 )는 반쪽 (1+)이 아니라 식 전체를 감싼다.
+  it(') after + → 반쪽 없이 1+xy 전체 감쌈', async () => {
+    const f = await createField('1+xy');
+    cleanups.push(f.dispose);
+    f.mf.position = 2; // + 바로 뒤
+    await f.settle();
+    expect(dispatchKeyOp(f.mf, ')')).toBe(true);
+    await f.settle();
+    expect(f.value()).toBe(String.raw`\left(1+xy\right)`);
   });
 });

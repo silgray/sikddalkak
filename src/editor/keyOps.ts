@@ -1,7 +1,7 @@
 import type { MathfieldElement } from 'mathlive';
 import { modelOf, type InternalAtom, type InternalModel } from './internals';
 import { matchingClose } from './latexScan';
-import { atomBounds, branchRangeAt, suspendNormalization } from './selection';
+import { atomBounds, branchRangeAt, isAdditiveOp, suspendNormalization, termRunRange } from './selection';
 
 /**
  * 키 연산 레지스트리 — "파손을 애초에 만들지 않는" 편집 연산들.
@@ -43,6 +43,10 @@ export type KeyOp = {
 
 const OPEN_KEYS = new Set(['(', '[']);
 const CLOSE_KEYS = new Set([')', ']']);
+/** 닫는 구분자 → 여는 짝. 닫는 키로 감쌀 때 여는 짝을 찾는다. */
+const OPEN_FOR: Record<string, string> = { ')': '(', ']': '[' };
+/** 눌린 키(여는·닫는 무관)에 대응하는 여는 구분자. */
+const openDelimOf = (key: string): string => (OPEN_KEYS.has(key) ? key : OPEN_FOR[key]);
 
 /** 캐럿 왼쪽/오른쪽에 맞닿은 atom. */
 function atomBefore(ctx: EditContext): InternalAtom | undefined {
@@ -62,6 +66,29 @@ function atBranchStart(ctx: EditContext): boolean {
 /** 캐럿이 속한 branch를 소유한 atom (분수·첨자 등). 최상위면 undefined. */
 function owningAtom(ctx: EditContext): InternalAtom | undefined {
   return ctx.model.at(ctx.model.position)?.parent ?? undefined;
+}
+
+/** fence의 여는 구분자가 눌린 닫는 키의 짝과 맞는지 (`)`↔`(`, `]`↔`[`/`\lbrack`). */
+function fenceMatchesKey(owner: InternalAtom, key: string): boolean {
+  const want = openDelimOf(key);
+  const delim = owner.leftDelim ?? '';
+  if (want === '(') return delim === '(';
+  if (want === '[') return delim === '[' || delim === '\\lbrack';
+  return false;
+}
+
+/**
+ * 캐럿이 **감싸는 fence(leftright) 본문의 끝**(닫는 구분자 바로 앞)이고, 그 fence가
+ * 눌린 닫는 키와 짝이 맞는지. 이때 닫는 키는 네이티브 smartFence에 맡기는 게 옳다 —
+ * ghost면 승격하고(캐럿을 밖으로), 진짜면 캐럿만 밖으로 뺀다(실측). 우리가 가로채면
+ * 빈 쌍에서 `)`가 새 쌍을 중첩하는 등 부작용이 난다.
+ */
+function atMatchingFenceEnd(ctx: EditContext): boolean {
+  const owner = owningAtom(ctx);
+  if (owner === undefined || atomType(owner) !== 'leftright') return false;
+  if (!fenceMatchesKey(owner, ctx.key)) return false;
+  const range = branchRangeAt(ctx.model, ctx.model.position);
+  return range !== null && range[1] === ctx.model.position;
 }
 
 /**
@@ -106,12 +133,15 @@ function lastUnmatchedOpenIndex(latex: string): number | null {
  */
 const wrapSelection: KeyOp = {
   id: 'wrap-selection',
-  summary: '선택 상태에서 여는 구분자를 치면 선택을 감싼다',
-  when: (ctx) => OPEN_KEYS.has(ctx.key) && !ctx.collapsed,
+  summary: '선택 상태에서 여는/닫는 구분자를 치면 선택을 감싼다',
+  // 여는 키뿐 아니라 닫는 키(`)`,`]`)도 선택이 있으면 감싼다. 안 그러면 선택 위에
+  // 닫는 키를 쳤을 때 MathLive 기본이 dangling `)`를 남긴다(실측).
+  when: (ctx) => (OPEN_KEYS.has(ctx.key) || CLOSE_KEYS.has(ctx.key)) && !ctx.collapsed,
   run: (ctx) => {
     const inner = ctx.mf.getValue(ctx.mf.selection, 'latex');
-    const close = matchingClose(ctx.key);
-    ctx.mf.insert(`\\left${ctx.key}${inner}\\right${close}`, {
+    const open = openDelimOf(ctx.key);
+    const close = matchingClose(open);
+    ctx.mf.insert(`\\left${open}${inner}\\right${close}`, {
       insertionMode: 'replaceSelection',
       selectionMode: 'after',
     });
@@ -119,6 +149,9 @@ const wrapSelection: KeyOp = {
   scenarios: [
     { start: 'a+b', selection: [0, 3], key: '(', expect: String.raw`\left(a+b\right)` },
     { start: 'x^2', selection: [0, 3], key: '[', expect: String.raw`\left[x^2\right]` },
+    // 닫는 키로도 감싼다 (dangling 방지)
+    { start: 'a+b', selection: [0, 3], key: ')', expect: String.raw`\left(a+b\right)` },
+    { start: 'x^2', selection: [0, 3], key: ']', expect: String.raw`\left[x^2\right]` },
   ],
 };
 
@@ -130,27 +163,41 @@ const wrapSelection: KeyOp = {
 const closeDelim: KeyOp = {
   id: 'close-delim',
   summary: '닫는 구분자 입력은 항상 쌍을 만든다 (미결 닫기 / 왼쪽 감싸기 / 빈 쌍)',
-  when: (ctx) => CLOSE_KEYS.has(ctx.key) && ctx.collapsed,
+  // 감싸는 fence 본문 끝에서는 손을 떼 네이티브 smartFence에 위임한다 (ghost 승격/닫기).
+  when: (ctx) => CLOSE_KEYS.has(ctx.key) && ctx.collapsed && !atMatchingFenceEnd(ctx),
   run: (ctx) => {
-    const { mf } = ctx;
+    const { mf, model } = ctx;
     const pos = mf.position;
     mf.executeCommand('extendToGroupStart');
+    const groupStart = mf.selection.ranges[0][0];
     const run = mf.getValue(mf.selection, 'latex');
     mf.position = pos; // 분석 후 복원
     const open = ctx.key === ')' ? '(' : '[';
     const close = ctx.key;
     if (run.trim() === '') {
-      // 감쌀 것이 없다 — 여는 구분자를 치면 스마트펜스가 쌍을 만들고 캐럿을
-      // 안쪽에 둔다 (실측). 우리가 latex를 직접 넣는 것보다 캐럿이 자연스럽다.
-      mf.executeCommand(['typedText', open, { simulateKeystroke: true }]);
+      // 구간 맨 앞 — 빈 쌍 `(<커서>)`를 넣는다. 스마트펜스(typedText)는 뒤 내용을
+      // 감싸버리므로(`\frac{|1}{x}` → `\frac{(1)}{x}`) 직접 삽입하고 캐럿을 안으로.
+      mf.insert(`\\left${open}\\right${close}`, {
+        insertionMode: 'replaceSelection',
+        selectionMode: 'after',
+      });
+      mf.executeCommand('moveToPreviousChar'); // 빈 쌍 안으로
       return;
     }
-    const openIdx = lastUnmatchedOpenIndex(run);
-    mf.executeCommand('extendToGroupStart');
+    // 왼쪽 run이 덧셈 연산자로 끝나면(`1+|xy`) 반쪽 `\left(1+\right)`이 되지 않게
+    // 오른쪽 항까지 확장해 완전한 식(`1+xy`)을 감싼다.
+    let wrapEnd = pos;
+    if (isAdditiveOp(model.at(pos))) {
+      const term = termRunRange(model, pos, pos);
+      if (term !== null) wrapEnd = Math.max(wrapEnd, term[1]);
+    }
+    mf.selection = { ranges: [[groupStart, wrapEnd]], direction: 'forward' };
+    const inner = mf.getValue(mf.selection, 'latex');
+    const openIdx = lastUnmatchedOpenIndex(inner);
     const replacement =
       openIdx === null
-        ? `\\left${open}${run}\\right${close}` // 왼쪽 run 전체 감싸기
-        : `${run.slice(0, openIdx)}\\left${open}${run.slice(openIdx + 1)}\\right${close}`;
+        ? `\\left${open}${inner}\\right${close}` // 왼쪽 run 전체 감싸기
+        : `${inner.slice(0, openIdx)}\\left${open}${inner.slice(openIdx + 1)}\\right${close}`;
     mf.insert(replacement, { insertionMode: 'replaceSelection', selectionMode: 'after' });
   },
   scenarios: [
