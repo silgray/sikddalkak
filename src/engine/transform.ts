@@ -7,7 +7,7 @@ import {
   preprocessVectorOps,
   reduceMatrixExpr,
 } from './matrixPipeline';
-import { sanitizeLatex } from '../editor/sanitizeLatex';
+import { repairLatex } from '../editor/wellformed';
 
 export type TransformOp = 'expand' | 'simplify' | 'factor';
 
@@ -247,8 +247,8 @@ function transformMatrixSelection(raw: string, op: TransformOp): string | null {
  * expand/factor는 CE 0.90에서 free function이다 ([[compute-engine-docs-unreliable]]).
  */
 export function transformSelection(selectedLatex: string, op: TransformOp): string | null {
-  // 방어선 2: 선택 조각에 고아 fence가 섞여 있어도 파싱은 되게.
-  const raw = sanitizeLatex(selectedLatex.trim()).latex;
+  // 방어선 2: 선택 조각에 파손된 구조가 섞여 있어도 파싱은 되게.
+  const raw = repairLatex(selectedLatex.trim()).latex;
   if (raw === '') return null;
   const needsJoin = raw.startsWith('+') || raw.startsWith('-');
 

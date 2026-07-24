@@ -131,8 +131,24 @@ export function siblingRunRange(
  * 선택이 만들어지는 **모든 경로**(드래그·shift+화살표·Ctrl+D·더블클릭·Ctrl+A·
  * 실행취소 복구)가 selection-change를 거치므로, 거기서 이 함수만 부르면 된다.
  */
+/**
+ * 정규화를 잠시 멈춘다. 구조 편집 연산(keyOps)은 자기가 원하는 범위를 정확히
+ * 알고 선택하므로, 게이트가 그 선택을 다시 넓히면 안 된다 — 실제로 첨자 보정
+ * 규칙이 `e^1`의 첨자 치환 범위를 밑까지 넓혀 `e`를 삼킨 적이 있다.
+ */
+let normalizationSuspended = 0;
+export function suspendNormalization<T>(fn: () => T): T {
+  normalizationSuspended += 1;
+  try {
+    return fn();
+  } finally {
+    normalizationSuspended -= 1;
+  }
+}
+
 export function normalizeSelection(mf: MathfieldElement): boolean {
   try {
+    if (normalizationSuspended > 0) return false;
     if (mf.selectionIsCollapsed) return false;
     const model = modelOf(mf);
     if (model === null) return false;
@@ -151,6 +167,30 @@ export function normalizeSelection(mf: MathfieldElement): boolean {
     // 내부 API 실패 — 선택을 건드리지 않는다 (기존 동작).
     return false;
   }
+}
+
+/** offset이 속한 branch 내용 전체의 [시작, 끝]. (첨자 내용, 분모 내용 등) */
+export function branchRangeAt(model: InternalModel, offset: number): [number, number] | null {
+  const ctx = ctxAt(model, offset);
+  return ctx === null ? null : branchRange(model, ctx);
+}
+
+/**
+ * atom 하나가 차지하는 [시작, 끝] 오프셋. 끝은 `offsetOf`, 시작은 같은 문맥의
+ * 이전 형제 경계다 (첫 형제면 branch 시작). 편집 연산이 "이 atom을 통째로
+ * 다른 내용으로 치환"할 때 쓴다.
+ */
+export function atomBounds(model: InternalModel, atom: InternalAtom): [number, number] | null {
+  const end = model.offsetOf(atom);
+  if (end < 0) return null;
+  const ctx: SiblingCtx = {
+    parent: atom.parent ?? null,
+    branch: JSON.stringify(atom.parentBranch ?? null),
+  };
+  const prev = prevSiblingBoundary(model, ctx, end);
+  if (prev !== null) return [prev, end];
+  const whole = branchRange(model, ctx);
+  return whole === null ? null : [whole[0], end];
 }
 
 function setSelectionRange(mf: MathfieldElement, anchor: number, extent: number): void {

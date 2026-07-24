@@ -11,7 +11,7 @@ import {
   preprocessVectorOps,
   reduceMatrixExpr,
 } from './matrixPipeline';
-import { sanitizeLatex } from '../editor/sanitizeLatex';
+import { repairLatex } from '../editor/wellformed';
 
 type Bindings = Record<string, Expression>;
 
@@ -156,8 +156,8 @@ function pushTo<T>(map: Map<string, T[]>, key: string, value: T): void {
  * 정의 이름과 자유 변수는 곱셈 피연산자 순서와 무관하므로 안전하다.
  */
 function readStructure(input: EvalInput): Structure {
-  // sanitize는 방어선 2 — 입력 경로가 교정하지 못한 저장본(옛 문서)도 계산되게.
-  const latex = sanitizeLatex(input.latex.trim()).latex;
+  // 방어선 2 — 입력 경로가 교정하지 못한 저장본(옛 문서)도 계산되게.
+  const latex = repairLatex(input.latex.trim()).latex;
   if (latex === '') return { kind: 'empty' };
 
   let expr: Expression;
@@ -195,7 +195,7 @@ function computeNode(
     // 행렬 심볼의 곱셈 피연산자 순서가 보존된다. 구조 파악 때의 파싱을
     // 재사용하면 `(2x2) a` 가 `a (2x2)` 로 뒤집힌다 — 행렬곱은 교환법칙이
     // 없으므로 오답이다.
-    const latex = sanitizeLatex(node.input.latex.trim()).latex;
+    const latex = repairLatex(node.input.latex.trim()).latex;
     const parsed = ce.parse(latex);
 
     // 행렬 관여 감지: 행렬 심볼 참조 / 행렬 리터럴 / 표현식 타입.

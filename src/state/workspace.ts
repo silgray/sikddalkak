@@ -1,4 +1,5 @@
 import type { CellMode, FormulaObject } from '../types';
+import { repairLatex } from '../editor/wellformed';
 
 /**
  * 셀 안 캐럿 위치. id는 오브젝트, offset은 MathLive 오프셋.
@@ -124,9 +125,14 @@ export function makeTab(name: string): Tab {
 
 /** 저장본에서 복원할 때 비영속 필드(focus/history 등)를 채우고 불변식을 맞춘다. */
 export function hydrateTab(base: { id: string; name: string; objects: FormulaObject[] }): Tab {
+  // 옛 저장본이 구조 파손 상태일 수 있다 — 로드 시 1회 교정한다 (구출).
+  const repaired = base.objects.map((o) => {
+    const fix = repairLatex(o.latex);
+    return fix.changed ? { ...o, latex: fix.latex } : o;
+  });
   return {
     ...base,
-    objects: ensureTrailingEmpty(base.objects),
+    objects: ensureTrailingEmpty(repaired),
     focus: null,
     history: emptyHistory(),
     syncNonce: 0,

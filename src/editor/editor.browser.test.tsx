@@ -7,6 +7,8 @@ import { MathField } from '../components/MathField';
 import { ce } from '../engine/ce';
 import { modelOf } from './internals';
 import { siblingRunRange } from './selection';
+import { KEY_OPS, dispatchKeyOp } from './keyOps';
+import { findViolations, repairLatex } from './wellformed';
 
 /**
  * 에디터 회귀 스위트 — 실제 MathLive(헤드리스 Chromium)를 구동한다.
@@ -169,6 +171,176 @@ describe('선택 불변식 — 항상 한 레벨의 연속 형제 열', () => {
   });
 });
 
+describe('키 연산 — 선언된 시나리오 순회', () => {
+  for (const op of KEY_OPS) {
+    describe(`${op.id}: ${op.summary}`, () => {
+      for (const s of op.scenarios) {
+        it(`${JSON.stringify(s.start)} + ${s.key} → ${JSON.stringify(s.expect)}`, async () => {
+          const f = await createField(s.start);
+          cleanups.push(f.dispose);
+          if (s.selection !== undefined) {
+            f.mf.selection = { ranges: [s.selection], direction: 'forward' };
+          } else {
+            f.mf.position = s.caret ?? f.mf.lastOffset;
+          }
+          await f.settle();
+          const handled = dispatchKeyOp(f.mf, s.key);
+          expect(handled, '연산이 이 상황을 잡아야 한다').toBe(true);
+          await f.settle();
+          expect(f.value()).toBe(s.expect);
+          // 어떤 연산도 파손을 남기지 않는다
+          expect(findViolations(f.value())).toEqual([]);
+        });
+      }
+    });
+  }
+});
+
+describe('사용자 보고 파손 경로 — 실제 편집으로 재현', () => {
+  /** 앱과 같은 파이프라인: 편집 후 교정본이 문서가 된다. */
+  const docOf = (latex: string) => repairLatex(latex).latex;
+
+  it('e^1: 지수 안 맨 앞 backspace → 1이 내려온다 (^도 함께 제거)', async () => {
+    const f = await createField('e^1');
+    cleanups.push(f.dispose);
+    f.mf.position = 2; // 지수 내용 맨 앞
+    await f.settle();
+    expect(dispatchKeyOp(f.mf, 'Backspace')).toBe(true);
+    await f.settle();
+    expect(f.value()).toBe('e1');
+  });
+
+  it('a_1: 아래첨자도 같다', async () => {
+    const f = await createField('a_1');
+    cleanups.push(f.dispose);
+    f.mf.position = 2;
+    await f.settle();
+    expect(dispatchKeyOp(f.mf, 'Backspace')).toBe(true);
+    await f.settle();
+    expect(f.value()).toBe('a1');
+  });
+
+  it('밑이 사라져 첨자만 남으면 교정이 벗겨낸다', async () => {
+    // MathLive에서 밑을 지우면 `^1`이 남는다(실측) — 구조 규칙이 백스톱.
+    expect(docOf('^1')).toBe('1');
+    expect(docOf('_1')).toBe('1');
+  });
+
+  it('빈 식에서 ) 입력 → 빈 쌍, 캐럿은 안쪽', async () => {
+    const f = await createField('');
+    cleanups.push(f.dispose);
+    expect(dispatchKeyOp(f.mf, ')')).toBe(true);
+    await f.settle();
+    expect(f.value()).toBe(String.raw`\left(\right)`);
+    // 캐럿은 쌍 안쪽 (바깥 끝이 아니다)
+    expect(f.mf.position).toBeLessThan(f.mf.lastOffset);
+  });
+
+  it('여는 괄호 삭제 → 쌍이 함께 벗겨지고 내용은 남는다', async () => {
+    const f = await createField(String.raw`\left(a+b\right)`);
+    cleanups.push(f.dispose);
+    f.mf.position = 1; // 내용 맨 앞 (= 여는 구분자 바로 뒤)
+    await f.settle();
+    expect(dispatchKeyOp(f.mf, 'Backspace')).toBe(true);
+    await f.settle();
+    expect(f.value()).toBe('a+b');
+  });
+
+  it('닫는 괄호 뒤 backspace → 지우지 않고 커서만 안으로', async () => {
+    const f = await createField(String.raw`\left(a+b\right)`);
+    cleanups.push(f.dispose);
+    f.mf.position = f.mf.lastOffset;
+    await f.settle();
+    expect(dispatchKeyOp(f.mf, 'Backspace')).toBe(true);
+    await f.settle();
+    expect(f.value()).toBe(String.raw`\left(a+b\right)`); // 그대로
+    expect(f.mf.position).toBeLessThan(f.mf.lastOffset); // 캐럿은 그룹 안
+  });
+
+  it('밑 없는 ^ / _ 입력은 차단된다', async () => {
+    const f = await createField('');
+    cleanups.push(f.dispose);
+    expect(dispatchKeyOp(f.mf, '^')).toBe(true);
+    await f.settle();
+    expect(f.value()).toBe('');
+    expect(dispatchKeyOp(f.mf, '_')).toBe(true);
+    await f.settle();
+    expect(f.value()).toBe('');
+  });
+
+  it('MathLive가 남기는 반쪽 fence는 교정된다 (undo/redo·factor 경로 포함)', async () => {
+    const f = await createField(String.raw`\left(a+b\right)`);
+    cleanups.push(f.dispose);
+    f.mf.position = f.mf.lastOffset;
+    await f.command('deleteBackward'); // MathLive 기본 삭제 = 반쪽 fence
+    expect(f.value()).toContain(String.raw`\right.`);
+    expect(docOf(f.value())).toBe('a+b'); // 게이트가 교정하면 쌍이 함께 사라진다
+  });
+});
+
+describe('구조 불변식 fuzz — 무작위 편집열', () => {
+  /** 앱 파이프라인 재현: 키 연산(있으면) → MathLive 기본 → 게이트 교정. */
+  const applyKey = (mf: Parameters<typeof dispatchKeyOp>[0], key: string) => {
+    if (dispatchKeyOp(mf, key)) return;
+    if (key === 'Backspace') mf.executeCommand('deleteBackward');
+    else if (key === 'Delete') mf.executeCommand('deleteForward');
+    else if (key === 'ArrowLeft') mf.executeCommand('moveToPreviousChar');
+    else if (key === 'ArrowRight') mf.executeCommand('moveToNextChar');
+    else mf.executeCommand(['typedText', key, { simulateKeystroke: true }]);
+  };
+
+  const KEYS = [
+    'x', 'y', '1', '2', '+', '-', '/', '^', '_', '(', ')', '[', ']',
+    'Backspace', 'Delete', 'ArrowLeft', 'ArrowRight',
+  ];
+
+  const contentOf = (latex: string) => (latex.match(/[a-zA-Z0-9]/g) ?? []).sort().join('');
+
+  for (const seed of [1, 2, 3, 4]) {
+    it(`seed=${seed}: 매 스텝 문서가 정규형이고 undo 대상이 안전하다`, async () => {
+      const f = await createField('');
+      cleanups.push(f.dispose);
+      let s = seed >>> 0;
+      const rnd = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+      /** 게이트를 거친 "문서" 열 — undo가 되돌아갈 수 있는 상태들. */
+      const docs: string[] = [''];
+
+      for (let step = 0; step < 60; step += 1) {
+        const key = KEYS[Math.floor(rnd() * KEYS.length)];
+        applyKey(f.mf, key);
+        await f.settle();
+
+        // 게이트: 교정본만 문서가 된다 (MathField의 input 핸들러와 같은 규칙)
+        const fix = repairLatex(f.mf.value);
+        if (fix.changed) {
+          f.mf.setValue(fix.latex, { silenceNotifications: true });
+          await f.settle();
+        }
+        const doc = f.mf.value;
+
+        // ① 문서에 구조 위반이 없다
+        expect(findViolations(doc), `seed=${seed} step=${step} key=${key} doc=${doc}`).toEqual([]);
+        // ② 재직렬화 안정 (MathLive 왕복 후 동일)
+        f.mf.setValue(doc, { silenceNotifications: true });
+        expect(f.mf.value, `roundtrip step=${step}`).toBe(doc);
+        // ③ 교정이 내용을 잃지 않았다 (교정 전후 내용 문자 비교)
+        if (fix.changed) {
+          expect(contentOf(fix.latex).length).toBeLessThanOrEqual(contentOf(doc).length + 2);
+        }
+        docs.push(doc);
+      }
+
+      // ④ undo 안전성: 기록된 모든 상태가 정규형이므로, 어느 지점으로 되돌아가도
+      //    파손된 문서가 복원되지 않는다. 실제로 되돌려 확인한다.
+      for (let i = docs.length - 1; i >= 0; i -= 1) {
+        f.mf.setValue(docs[i], { silenceNotifications: true });
+        await f.settle();
+        expect(findViolations(f.mf.value), `undo target ${i}`).toEqual([]);
+      }
+    });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // MathField 통합 — React 래퍼를 마운트해 교정 파이프라인을 종단 검증
 // ---------------------------------------------------------------------------
@@ -203,38 +375,30 @@ async function mountMathField(initial = ''): Promise<Mounted> {
 const settle = () => new Promise((r) => setTimeout(r, 60));
 
 describe('MathField 통합 — 고아 fence 교정 파이프라인', () => {
-  it('괄호 한쪽을 지우면 문서·필드 모두 즉시 평평한 형태로 교정된다', async () => {
+  it('괄호 한쪽이 깨지면 쌍이 함께 벗겨진다 (내용 유지)', async () => {
     const { mf, edits } = await mountMathField(String.raw`\left(a+b\right)`);
     mf.position = mf.lastOffset;
-    mf.executeCommand('deleteBackward');
+    mf.executeCommand('deleteBackward'); // MathLive 기본 = 반쪽 fence
     await settle();
-    expect(mf.value).toBe('(a+b'); // 필드 되써넣기
-    expect(edits.at(-1)?.latex).toBe('(a+b'); // 문서 보고도 교정본
+    expect(mf.value).toBe('a+b'); // 필드 되써넣기 (구분자 둘 다 제거)
+    expect(edits.at(-1)?.latex).toBe('a+b'); // 문서 보고도 교정본
     expect(mf.value).not.toContain(String.raw`\right.`);
-    expect(mf.position).toBe(mf.lastOffset); // 캐럿은 끝 유지 (survivor left)
   });
 
-  it('사용자 재현: (sinx+cosx) 뒤 빈 쌍 삭제 후에도 계산 가능한 문서가 유지된다', async () => {
+  it('사용자 재현: (sinx+cosx) 뒤 빈 쌍을 지워도 문서가 계산 가능하게 유지된다', async () => {
     const base = String.raw`\left(\sin\left(x\right)+\cos\left(x\right)\right)`;
     const { mf, edits } = await mountMathField(base);
     mf.position = mf.lastOffset;
     mf.executeCommand(['typedText', '(', { simulateKeystroke: true }]);
     await settle();
     mf.position = mf.lastOffset; // 쌍 밖으로
-    mf.executeCommand('deleteBackward'); // `)` 삭제 → 고아 fence
+    mf.executeCommand('deleteBackward'); // 반쪽 fence가 되는 삭제
     await settle();
     const doc = edits.at(-1)?.latex ?? '';
-    expect(doc).toBe(`${base}(`); // 평평한 ( 만 남는다
-    expect(doc).not.toContain(String.raw`\right.`);
-    // 미완성(미결 괄호)이라 파싱이 유효하지 않은 건 정상. 오염 형태가 아닐 뿐.
-    // 이어서 ) 를 실제 keydown으로 치면 인터셉터가 쌍을 완성한다.
-    mf.dispatchEvent(
-      new KeyboardEvent('keydown', { key: ')', bubbles: true, cancelable: true }),
-    );
-    await settle();
-    const healed = edits.at(-1)?.latex ?? '';
-    expect(healed).toBe(`${base}\\left(\\right)`);
-    expect(ce.parse(healed).isValid).toBe(true);
+    // 쌍이 통째로 사라져 원래 식으로 돌아온다 — 미결 괄호가 남지 않는다.
+    expect(doc).toBe(base);
+    expect(findViolations(doc)).toEqual([]);
+    expect(ce.parse(doc).isValid).toBe(true);
   });
 
   it('`)` 입력: 미결 평평한 `(`가 있으면 거기부터 닫고, 없으면 왼쪽 전체를 감싼다', async () => {

@@ -1,7 +1,8 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type Ref } from 'react';
 import { MathfieldElement } from 'mathlive';
 import { flushShortcutBuffer, patchMathliveDisposedBlur } from '../editor/internals';
-import { sanitizeLatex } from '../editor/sanitizeLatex';
+import { contentCount, findViolations, repairLatex } from '../editor/wellformed';
+import { dispatchKeyOp } from '../editor/keyOps';
 import {
   expandSelectionSemantic,
   extendSelectionSibling,
@@ -45,21 +46,6 @@ function pruneMenu(mf: MathfieldElement): void {
   } catch {
     // 메뉴 구조가 바뀌면(버전 업) 기본 메뉴 그대로 둔다.
   }
-}
-
-/**
- * run에서 마지막 미결(안 닫힌) 여는 괄호의 문자열 인덱스. 없으면 null.
- * `\left(`/`\right)` 쌍도 (,)를 포함하므로 짝지어 상쇄된다. 남는 `(`는
- * sanitize가 만든 평평한 미결 괄호다 — `)` 입력 시 우리가 직접 닫아줘야
- * 한다 (MathLive 스마트펜스는 평평한 `(`와 짝을 맺지 못한다, 실측).
- */
-function lastUnmatchedOpenIndex(latex: string): number | null {
-  const stack: number[] = [];
-  for (let i = 0; i < latex.length; i += 1) {
-    if (latex[i] === '(') stack.push(i);
-    else if (latex[i] === ')') stack.pop();
-  }
-  return stack.length > 0 ? stack[stack.length - 1] : null;
 }
 
 /** 부모가 명시적으로 조작할 때 쓰는 핸들 (선택 변환 등). */
@@ -198,22 +184,36 @@ export function MathField({
 
     mf.addEventListener('input', () => {
       if (suppressReport.current) return;
-      // MathLive 직렬화 quirk 교정 (고아 fence 등 — sanitizeLatex.ts).
-      // 오염된 형태가 문서·화면에 한 키 입력 이상 살아남지 못하게, 교정본을
-      // 캐럿 보존으로 필드에 되써넣고 문서에도 교정본을 보고한다.
-      const fix = sanitizeLatex(mf.value);
+      // 구조 불변식의 단일 게이트 (rules.ts). 파손된 형태가 문서·화면에 한 키
+      // 입력 이상 살아남지 못하게, 교정본을 캐럿 보존으로 되써넣고 문서에도
+      // 교정본만 보고한다 — 그래서 undo는 언제나 "직전 정상 상태"로 간다.
+      const fix = repairLatex(mf.value);
       if (fix.changed) {
-        const caret = mf.position;
+        // 캐럿은 "같은 내용 위치"로 되돌린다. MathLive 오프셋은 원자 인덱스라
+        // 문자열 splice와 직접 대응하지 않으므로, 캐럿 앞의 내용 토큰 수를
+        // 기준으로 다시 찾는다 (구조 토큰이 사라져도 안정적).
+        const before = contentCount(mf.getValue({ ranges: [[0, mf.position]] }, 'latex'));
         suppressReport.current = true;
         try {
           mf.setValue(fix.latex, { silenceNotifications: true });
         } finally {
           suppressReport.current = false;
         }
-        // 실측 규칙: 살아남은 fence가 왼쪽이면 캐럿 유지, 오른쪽이면 -1.
-        const target = fix.survivor === 'right' ? caret - 1 : caret;
-        mf.position = Math.max(0, Math.min(target, mf.lastOffset));
+        let target = mf.lastOffset;
+        for (let q = 0; q <= mf.lastOffset; q += 1) {
+          if (contentCount(mf.getValue({ ranges: [[0, q]] }, 'latex')) >= before) {
+            target = q;
+            break;
+          }
+        }
+        mf.position = target;
         flushShortcutBuffer(mf);
+      }
+      if (import.meta.env.DEV) {
+        const left = findViolations(mf.value);
+        if (left.length > 0) {
+          console.warn('[wellformed] 교정 후에도 위반', left.map((v) => v.ruleId), mf.value);
+        }
       }
       handlers.current.onEdit?.(mf.value, mf.position);
     });
@@ -330,37 +330,20 @@ export function MathField({
       { capture: true },
     );
 
-    // `)` 처리: smartFence의 `(`(오른쪽 같은 레벨 전부 감싸기)의 거울상 + 보완.
-    // - run에 미결 평평한 `(`가 있으면(fence 한쪽 삭제 후 sanitize된 상태),
-    //   거기부터 캐럿까지를 \left(...\right)로 묶어 닫는다 — MathLive 스마트펜스는
-    //   평평한 `(`와 짝을 맺지 못해 기본 동작이 식을 망가뜨린다 (실측).
-    // - 미결 `(`가 없으면 캐럿 왼쪽의 같은 레벨 run 전체를 감싼다 (기존 동작).
+    // 구조 보존 편집 연산 (keyOps.ts 레지스트리). 괄호 쌍 생성/제거, 밑 없는
+    // 첨자 차단, 첨자 내용 강등 등 — "파손을 애초에 만들지 않는" 층이다.
     // capture 단계여야 MathLive의 자체 처리보다 먼저 가로챌 수 있다.
     mf.addEventListener(
       'keydown',
       (ev) => {
-        if (ev.key !== ')' || mf.readOnly) return;
-        if (!mf.selectionIsCollapsed) return; // 선택이 있으면 기본 동작(치환)에 맡김
-        const pos = mf.position;
-        // 같은 레벨(현재 그룹)의 시작~캐럿 run을 읽는다. 실측: 미결 스마트펜스는
-        // 중첩 그룹을 만들지 않고 같은 레벨에 평평하게 있어 run에 `(`로 나타난다.
-        mf.executeCommand('extendToGroupStart');
-        const run = mf.getValue(mf.selection, 'latex');
-        mf.position = pos; // 분석 후 복원
-        if (run.trim() === '') return; // 기본 동작
-        const openIdx = lastUnmatchedOpenIndex(run);
-        ev.preventDefault();
-        ev.stopImmediatePropagation();
-        mf.executeCommand('extendToGroupStart');
-        const replacement =
-          openIdx === null
-            ? `\\left(${run}\\right)` // 왼쪽 전체 감싸기
-            : `${run.slice(0, openIdx)}\\left(${run.slice(openIdx + 1)}\\right)`; // 미결 ( 닫기
-        mf.insert(replacement, {
-          insertionMode: 'replaceSelection',
-          selectionMode: 'after',
-        });
-        // insert가 input 이벤트를 발사해 onEdit으로 문서·실행취소가 갱신된다.
+        if (mf.readOnly) return;
+        if (ev.ctrlKey || ev.metaKey || ev.altKey) return; // 단축키는 위 리스너 담당
+        if (dispatchKeyOp(mf, ev.key)) {
+          ev.preventDefault();
+          ev.stopImmediatePropagation();
+          // 연산이 문서를 바꿨으면 insert가 input 이벤트를 발사해
+          // onEdit으로 문서·실행취소가 한 단위로 갱신된다.
+        }
       },
       { capture: true },
     );
