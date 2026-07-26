@@ -271,3 +271,59 @@ export function finalizeGhostFences(mf: MathfieldElement): void {
     // 내부 API — 실패해도 ghost가 남을 뿐 문서에는 영향이 없다.
   }
 }
+
+/** fence 한 개의 ghost 여부. 감싸기 전후로 ghost 상태를 옮길 때 쓴다. */
+export type GhostFlags = { left: boolean; right: boolean };
+
+/**
+ * 범위 안 fence들의 ghost 여부를 **오프셋 순서대로** 뽑는다.
+ *
+ * 괄호로 감쌀 때 우리는 내용을 LaTeX으로 뽑아 다시 넣는데, 직렬화가 `'?'` 를 짝으로
+ * 바꾸므로 그 과정에서 안쪽 ghost가 전부 확정돼버린다(실측). 감싸기 전에 이걸로
+ * 상태를 떠두고 나중에 `restoreGhostFlags` 로 되돌린다.
+ */
+export function captureGhostFlags(
+  model: InternalModel,
+  range: readonly [number, number],
+): GhostFlags[] {
+  const out: GhostFlags[] = [];
+  try {
+    for (let q = range[0]; q <= Math.min(range[1], model.lastOffset); q += 1) {
+      const atom = model.at(q);
+      if (atom?.type !== 'leftright') continue;
+      out.push({ left: atom.leftDelim === '?', right: atom.rightDelim === '?' });
+    }
+  } catch {
+    return [];
+  }
+  return out;
+}
+
+/** `captureGhostFlags` 로 떠둔 상태를 같은 순서의 fence들에 되돌린다. */
+export function restoreGhostFlags(
+  model: InternalModel,
+  range: readonly [number, number],
+  flags: readonly GhostFlags[],
+): void {
+  if (flags.length === 0) return;
+  try {
+    let i = 0;
+    for (let q = range[0]; q <= Math.min(range[1], model.lastOffset); q += 1) {
+      const atom = model.at(q);
+      if (atom?.type !== 'leftright') continue;
+      const flag = flags[i];
+      i += 1;
+      if (flag === undefined) return;
+      if (flag.left) {
+        atom.leftDelim = '?';
+        atom.isDirty = true;
+      }
+      if (flag.right) {
+        atom.rightDelim = '?';
+        atom.isDirty = true;
+      }
+    }
+  } catch {
+    // 내부 API — 실패하면 ghost가 확정된 채로 남는다 (문서에는 영향 없음).
+  }
+}

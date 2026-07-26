@@ -425,6 +425,27 @@ describe('MathField 통합 — 고아 fence 교정 파이프라인', () => {
     expect(b.mf.value).toBe(String.raw`\left(a+b\right)`);
   });
 
+  // 사용자 보고 버그: 중첩 괄호를 지우면 캐럿이 남은 괄호 **밖**으로 튀었다.
+  // 교정 게이트가 캐럿을 "앞선 내용 토큰 수가 같은 첫 오프셋"으로 되돌리는데,
+  // 구조 경계에서는 여러 오프셋이 같은 카운트라 늘 가장 바깥이 뽑혔다.
+  it('중첩 괄호 안쪽을 지워도 캐럿이 남은 괄호 안에 머문다', async () => {
+    const { mf } = await mountMathField(String.raw`x\left(\left(a\right)\right)`);
+    mf.position = 3; // 안쪽 fence 본문 시작
+    mf.executeCommand('deleteBackward');
+    await settle();
+    expect(mf.value).toBe(String.raw`x\left(a\right)`);
+    expect(mf.position).toBe(2); // 남은 괄호 **안**, `a` 앞
+  });
+
+  it('평범한 괄호 삭제는 캐럿 위치가 그대로다 (회귀 방지)', async () => {
+    const { mf } = await mountMathField(String.raw`xy\left(a+b\right)`);
+    mf.position = 3; // 본문 시작
+    mf.executeCommand('deleteBackward');
+    await settle();
+    expect(mf.value).toBe('xya+b');
+    expect(mf.position).toBe(2); // `xy` 뒤, `a` 앞
+  });
+
   it('Escape는 비활성화 — 선택 확장도, 원본 LaTeX 모드 전환도 없다', async () => {
     // MathLive 기본 ESC는 선택을 확장하다가 끝에서 원본 LaTeX 모드로 넘어가
     // 렌더가 깨진다. capture 가드가 이를 통째로 막는다.
@@ -652,6 +673,51 @@ describe('괄호 로직 — 네이티브 smartFence + 닫는 괄호 거울상', 
     finalizeGhostFences(f.mf);
     expect(ghostFences(f.mf)).toEqual([{ left: '(', right: ')' }]);
     expect(f.value()).toBe(String.raw`\left(a+b\right)`); // LaTeX은 그대로
+  });
+
+  // 사용자 보고 버그: 멀리 있는 ghost까지 뒤로 스캔해 위임하면, 네이티브가 그 ghost를
+  // 승격시키며 **사이의 내용을 전부 흡수**한다 (`()?()?()` + `)` → `()?(())`).
+  it('비인접 ghost는 승격시키지 않고 전체를 감싼다', async () => {
+    const f = await createField('');
+    cleanups.push(f.dispose);
+    // `()?()?()?` 를 만들고 마지막만 완결해 `()?()?()` 로 둔다.
+    for (let i = 0; i < 3; i += 1) {
+      f.mf.executeCommand(['typedText', '(', { simulateKeystroke: true }]);
+      f.mf.executeCommand('moveToNextChar');
+    }
+    await f.settle();
+    f.mf.executeCommand('moveToPreviousChar');
+    f.mf.executeCommand(['typedText', ')', { simulateKeystroke: true }]);
+    await f.settle();
+    expect(ghostFences(f.mf)).toEqual([
+      { left: '(', right: '?' },
+      { left: '(', right: '?' },
+      { left: '(', right: ')' },
+    ]);
+
+    // 사이에 완결된 fence가 끼어 있으므로 위임하지 않는다 — 우리가 전체를 감싼다.
+    expect(dispatchKeyOp(f.mf, ')')).toBe(true);
+    await f.settle();
+    expect(f.value()).toBe(
+      String.raw`\left(\left(\right)\left(\right)\left(\right)\right)`,
+    );
+    // 감싸도 안쪽 ghost 상태가 보존된다 (감싸기는 LaTeX 왕복이라 그냥 두면 확정된다).
+    expect(ghostFences(f.mf)).toEqual([
+      { left: '(', right: '?' },
+      { left: '(', right: '?' },
+      { left: '(', right: ')' },
+      { left: '?', right: ')' },
+    ]);
+  });
+
+  it('인접한 ghost는 여전히 네이티브가 승격시킨다 (위임)', async () => {
+    const f = await createField('');
+    cleanups.push(f.dispose);
+    f.mf.executeCommand(['typedText', '(', { simulateKeystroke: true }]);
+    f.mf.executeCommand(['typedText', 'x', { simulateKeystroke: true }]);
+    await f.settle();
+    f.mf.executeCommand('moveToNextChar'); // ghost fence 바로 뒤(바깥)
+    expect(dispatchKeyOp(f.mf, ')')).toBe(false);
   });
 
   // ghost 왼쪽 구분자가 문서·계산으로 새면 안 된다 (CE가 `\left?` 를 못 읽는다).

@@ -198,20 +198,28 @@ export function MathField({
         // 문자열 splice와 직접 대응하지 않으므로, 캐럿 앞의 내용 토큰 수를
         // 기준으로 다시 찾는다 (구조 토큰이 사라져도 안정적).
         const before = contentCount(mf.getValue({ ranges: [[0, mf.position]] }, 'latex'));
+        const origin = mf.position; // setValue 뒤에는 못 읽는다
         suppressReport.current = true;
         try {
           mf.setValue(fix.latex, { silenceNotifications: true });
         } finally {
           suppressReport.current = false;
         }
-        let target = mf.lastOffset;
+        // 구조 경계에서는 **여러 오프셋이 같은 내용 카운트**를 갖는다
+        // (`x\left(a\right)` 의 오프셋 1은 괄호 밖, 2는 괄호 안 — 둘 다 앞이 `x`).
+        // 첫 후보를 잡으면 늘 가장 바깥이 뽑혀 캐럿이 괄호 밖으로 튄다. 그래서
+        // 같은 카운트 후보 중 **원래 오프셋에 가장 가까운 것**을 고른다.
+        let target: number | null = null;
         for (let q = 0; q <= mf.lastOffset; q += 1) {
-          if (contentCount(mf.getValue({ ranges: [[0, q]] }, 'latex')) >= before) {
-            target = q;
+          const count = contentCount(mf.getValue({ ranges: [[0, q]] }, 'latex'));
+          if (count < before) continue;
+          if (count > before) {
+            target ??= q; // 정확히 일치하는 후보가 없었다면 처음 넘어선 자리
             break;
           }
+          if (target === null || Math.abs(q - origin) < Math.abs(target - origin)) target = q;
         }
-        mf.position = target;
+        mf.position = target ?? mf.lastOffset;
         flushShortcutBuffer(mf);
       }
       if (import.meta.env.DEV) {

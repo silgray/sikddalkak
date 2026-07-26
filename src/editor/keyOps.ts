@@ -1,7 +1,9 @@
 import type { MathfieldElement } from 'mathlive';
 import {
+  captureGhostFlags,
   ensureGhostLeftSupport,
   modelOf,
+  restoreGhostFlags,
   type InternalAtom,
   type InternalModel,
 } from './internals';
@@ -125,21 +127,18 @@ function hasGhostPromotionTarget(ctx: EditContext): boolean {
     return owner.rightDelim === '?';
   }
 
-  // ② 같은 레벨에서 캐럿 왼쪽으로 스캔해 찾은 ghost fence
-  const branch = branchRangeAt(ctx.model, ctx.model.position);
-  const start = branch === null ? 0 : branch[0];
-  for (let q = ctx.model.position; q >= start; q -= 1) {
-    const atom = ctx.model.at(q);
-    if (
-      atom !== undefined &&
-      atomType(atom) === 'leftright' &&
-      atom.rightDelim === '?' &&
-      kindOf(atom.leftDelim) === want
-    ) {
-      return true;
-    }
-  }
-  return false;
+  // ② 캐럿 **바로 왼쪽**의 ghost fence (인접할 때만).
+  //    멀리까지 뒤로 스캔하면 안 된다: 네이티브는 찾은 ghost를 승격시키면서
+  //    **그 사이의 내용을 전부 자기 본문으로 흡수**한다(`extractAtoms`). 그래서
+  //    `()?()?()` 뒤에서 `)` 를 치면 두 번째 ghost가 세 번째 fence를 삼켜
+  //    `()?(())` 가 됐다. 인접이 아니면 위임하지 않고 호출부가 전체를 감싼다.
+  const left = ctx.model.at(ctx.model.position);
+  return (
+    left !== undefined &&
+    atomType(left) === 'leftright' &&
+    left.rightDelim === '?' &&
+    kindOf(left.leftDelim) === want
+  );
 }
 
 /**
@@ -184,6 +183,7 @@ const wrapSelectionOnClose: KeyOp = {
     const { mf, model } = ctx;
     const { open, close } = FENCE_LATEX[ctx.key];
     const inner = mf.getValue(mf.selection, 'latex');
+    const ghosts = captureGhostFlags(model, mf.selection.ranges[0]);
     mf.insert(`\\left${delimLatex(open)}${inner}\\right${close}`, {
       insertionMode: 'replaceSelection',
       selectionMode: 'after',
@@ -191,7 +191,9 @@ const wrapSelectionOnClose: KeyOp = {
     // 감싼 **본문을 다시 선택**해 여는 키와 동작을 맞춘다 (네이티브도 선택을 유지한다).
     // insert 후 캐럿은 fence 바로 뒤이므로 `position - 1` 은 본문 안(마지막 본문 atom)이다.
     const body = branchRangeAt(model, mf.position - 1);
-    if (body !== null) mf.selection = { ranges: [body], direction: 'forward' };
+    if (body === null) return;
+    restoreGhostFlags(model, body, ghosts);
+    mf.selection = { ranges: [body], direction: 'forward' };
   },
   scenarios: [
     { start: 'a+b', selection: [0, 3], key: ')', expect: String.raw`\left(a+b\right)` },
@@ -234,6 +236,8 @@ const closeFence: KeyOp = {
     const start = branch === null ? 0 : branch[0];
     mf.selection = { ranges: [[start, mf.position]], direction: 'forward' };
     const inner = mf.getValue(mf.selection, 'latex');
+    // 감싸는 동안 안쪽 ghost가 직렬화로 확정되는 걸 막으려고 상태를 떠둔다.
+    const ghosts = captureGhostFlags(model, [start, mf.position]);
     // **닫힌** fence를 먼저 넣고 왼쪽만 ghost로 바꾼다. `\left?…` 를 직접 파싱시키면
     // MathLive가 그 원본 문자열을 verbatim 캐시에 담아 직렬화 때 그대로 뱉어서
     // `\left?` 가 문서로 샌다(실측). `isDirty` 로 그 캐시를 버린다.
@@ -241,6 +245,8 @@ const closeFence: KeyOp = {
       insertionMode: 'replaceSelection',
       selectionMode: 'after',
     });
+    const body = branchRangeAt(model, mf.position - 1);
+    if (body !== null) restoreGhostFlags(model, body, ghosts);
     const fence = model.at(mf.position);
     if (fence !== undefined && fence.type === 'leftright') {
       fence.leftDelim = '?';
