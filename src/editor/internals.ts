@@ -1,4 +1,4 @@
-import type { MathfieldElement } from 'mathlive';
+import { MathfieldElement } from 'mathlive';
 
 /**
  * MathLive **내부 API** 접근을 모아두는 곳. 공개 API로 불가능한 것들만 있다.
@@ -12,10 +12,14 @@ export type InternalAtom = {
   parent?: InternalAtom | null;
   parentBranch?: unknown;
   type?: string;
-  /** leftright(fence)의 여는 구분자. ghost 여부와 무관하게 항상 실제 문자. */
+  /** leftright(fence)의 여는 구분자. ghost면 `'?'`. */
   leftDelim?: string;
+  /** leftright(fence)의 닫는 구분자. ghost면 `'?'`. */
+  rightDelim?: string;
   /** atom의 LaTeX 커맨드/문자 (`+`, `-`, `\cdot`, `x` 등). 연산자 판별에 쓴다. */
   command?: string;
+  /** true로 쓰면 MathLive가 원본 LaTeX 캐시(verbatimLatex)를 버린다. */
+  isDirty?: boolean;
 };
 export type InternalModel = {
   getAtoms: (range: [number, number]) => InternalAtom[];
@@ -89,4 +93,132 @@ export function patchMathliveDisposedBlur(mf: MathfieldElement): void {
     if (this.element === undefined || this.element === null) return undefined;
     return original.apply(this, args);
   };
+}
+
+/**
+ * ghost **왼쪽** 구분자 지원 (MathLive에 없는 것을 얹는다).
+ *
+ * MathLive는 `rightDelim === '?'`(ghost 닫는 괄호)만 지원한다 — 반투명 렌더도,
+ * 직렬화 시 짝으로 되돌리는 것도 오른쪽 전용이다(`matchingLeftDelim` 함수 자체가 없다).
+ * 우리는 닫는 괄호를 여는 괄호와 대칭으로 만들려고 `leftDelim === '?'` 를 쓰므로,
+ * 그 두 가지를 프로토타입 패치로 채운다:
+ *
+ *  1. **렌더** — 렌더하는 동안만 짝 여는 구분자로 바꿔 원본에 맡기고, 결과 Box에
+ *     MathLive 자신의 `ML__smart-fence__close`(opacity 0.5) 클래스를 붙인다.
+ *     `Box.classes`는 markup 생성 시점에 읽히므로 사후 변경이 먹힌다(실측).
+ *     그래서 다크모드·forced-colors 변형까지 MathLive CSS를 그대로 재사용한다.
+ *  2. **직렬화** — 그냥 두면 `\left?` 가 문서·localStorage·CE로 샌다(실측).
+ *     같은 방식으로 짝 여는 구분자로 바꿔 원본에 맡긴다.
+ *
+ * 내부 클래스가 export되지 않아 임시 필드에서 인스턴스를 얻어 프로토타입을 잡는다.
+ * 실패하면 `false` — 호출부는 ghost-left를 **만들지 않는 쪽으로** 폴백해야 한다
+ * (`?` 글리프가 그대로 보이는 깨진 렌더를 피하려고).
+ */
+type InternalBox = { classes?: string; children?: InternalBox[] };
+type GhostFenceAtom = { leftDelim?: string; rightDelim?: string };
+type LeftRightProto = {
+  render?: (this: GhostFenceAtom, context: unknown) => InternalBox | null;
+  _serialize?: (this: GhostFenceAtom, options: unknown) => string;
+};
+
+/** ghost 왼쪽 구분자가 흉내낼 여는 구분자 (닫는 구분자의 짝). */
+function matchingOpenDelim(rightDelim: string | undefined): string {
+  switch (rightDelim) {
+    case '\\rbrack':
+    case ']':
+      return '\\lbrack';
+    case '\\rbrace':
+    case '}':
+      return '\\lbrace';
+    case '|':
+      return '|';
+    case '\\rparen':
+      return '\\lparen';
+    default:
+      return '(';
+  }
+}
+
+/** Box 트리에서 처음 만나는 여는 구분자 박스에 반투명 클래스를 붙인다. */
+function markGhostOpenBox(box: InternalBox | null): boolean {
+  if (box === null || typeof box !== 'object') return false;
+  if (typeof box.classes === 'string' && box.classes.includes('ML__open')) {
+    box.classes = `${box.classes} ML__smart-fence__close`;
+    return true;
+  }
+  // 왼쪽 구분자는 본문보다 먼저 오므로 전위 순회의 첫 매치가 항상 바깥 fence의 것이다.
+  for (const child of box.children ?? []) {
+    if (markGhostOpenBox(child)) return true;
+  }
+  return false;
+}
+
+let ghostLeftSupported: boolean | null = null;
+
+/** 임시 필드를 띄워 `LeftRightAtom` 프로토타입을 얻는다 (export되지 않음). */
+function leftRightPrototype(): LeftRightProto | null {
+  const probe = new MathfieldElement();
+  try {
+    probe.style.position = 'fixed';
+    probe.style.left = '-9999px';
+    document.body.append(probe);
+    probe.setValue(String.raw`\left(x\right)`, { silenceNotifications: true });
+    const model = modelOf(probe);
+    if (model === null) return null;
+    for (let q = 0; q <= model.lastOffset; q += 1) {
+      const atom = model.at(q);
+      if (atom?.type === 'leftright') {
+        return Object.getPrototypeOf(atom) as LeftRightProto;
+      }
+    }
+    return null;
+  } finally {
+    probe.remove();
+  }
+}
+
+/**
+ * ghost-left 패치를 최초 1회 적용한다. 지원 여부를 반환하며, 결과는 캐시된다.
+ * 호출부(닫는 괄호 키 연산)는 `false`면 ghost-left를 만들지 말아야 한다.
+ */
+export function ensureGhostLeftSupport(): boolean {
+  if (ghostLeftSupported !== null) return ghostLeftSupported;
+  ghostLeftSupported = false;
+  try {
+    const proto = leftRightPrototype();
+    if (proto === null) return false;
+    const originalRender = proto.render;
+    const originalSerialize = proto._serialize;
+    if (typeof originalRender !== 'function' || typeof originalSerialize !== 'function') {
+      return false;
+    }
+
+    proto.render = function (this: GhostFenceAtom, context: unknown) {
+      if (this.leftDelim !== '?') return originalRender.call(this, context);
+      this.leftDelim = matchingOpenDelim(this.rightDelim);
+      try {
+        const box = originalRender.call(this, context);
+        markGhostOpenBox(box);
+        return box;
+      } finally {
+        this.leftDelim = '?';
+      }
+    };
+
+    proto._serialize = function (this: GhostFenceAtom, options: unknown) {
+      if (this.leftDelim !== '?') return originalSerialize.call(this, options);
+      this.leftDelim = matchingOpenDelim(this.rightDelim);
+      try {
+        return originalSerialize.call(this, options);
+      } finally {
+        this.leftDelim = '?';
+      }
+    };
+
+    ghostLeftSupported = true;
+    return true;
+  } catch {
+    // 내부 구조가 바뀌었다 — ghost-left 없이 동작한다 (호출부가 폴백).
+    return false;
+  }
 }

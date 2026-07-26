@@ -229,35 +229,36 @@ describe('사용자 보고 파손 경로 — 실제 편집으로 재현', () => 
     expect(docOf('_1')).toBe('1');
   });
 
-  it('빈 식에서 ) 입력 → 빈 쌍, 캐럿은 안쪽', async () => {
+  it('빈 식에서 ) 입력 → 빈 쌍, 캐럿은 바깥 (여는 괄호의 거울상)', async () => {
     const f = await createField('');
     cleanups.push(f.dispose);
     expect(dispatchKeyOp(f.mf, ')')).toBe(true);
     await f.settle();
     expect(f.value()).toBe(String.raw`\left(\right)`);
-    // 캐럿은 쌍 안쪽 (바깥 끝이 아니다)
-    expect(f.mf.position).toBeLessThan(f.mf.lastOffset);
+    // `(` 가 캐럿을 쌍 **안**에 두는 것의 거울상 — `)` 는 쌍 **밖**(닫은 뒤)에 둔다.
+    expect(f.mf.position).toBe(f.mf.lastOffset);
   });
 
-  it('여는 괄호 삭제 → 쌍이 함께 벗겨지고 내용은 남는다', async () => {
+  it('여는 구분자 삭제 → 네이티브 + 교정 게이트가 쌍을 함께 벗긴다', async () => {
+    // 이제 우리 keyOp은 삭제에 관여하지 않는다 (네이티브 onDelete가 처리).
+    // 네이티브는 한쪽을 `.`로 만들어 반쪽을 남기고, rules.ts의 orphan-fence가 교정한다.
     const f = await createField(String.raw`\left(a+b\right)`);
     cleanups.push(f.dispose);
     f.mf.position = 1; // 내용 맨 앞 (= 여는 구분자 바로 뒤)
     await f.settle();
-    expect(dispatchKeyOp(f.mf, 'Backspace')).toBe(true);
-    await f.settle();
-    expect(f.value()).toBe('a+b');
+    expect(dispatchKeyOp(f.mf, 'Backspace')).toBe(false); // 위임
+    await f.command('deleteBackward');
+    expect(docOf(f.value())).toBe('a+b');
   });
 
-  it('닫는 괄호 뒤 backspace → 지우지 않고 커서만 안으로', async () => {
+  it('닫는 구분자 뒤 backspace → 네이티브 + 교정 게이트가 쌍을 함께 벗긴다', async () => {
     const f = await createField(String.raw`\left(a+b\right)`);
     cleanups.push(f.dispose);
     f.mf.position = f.mf.lastOffset;
     await f.settle();
-    expect(dispatchKeyOp(f.mf, 'Backspace')).toBe(true);
-    await f.settle();
-    expect(f.value()).toBe(String.raw`\left(a+b\right)`); // 그대로
-    expect(f.mf.position).toBeLessThan(f.mf.lastOffset); // 캐럿은 그룹 안
+    expect(dispatchKeyOp(f.mf, 'Backspace')).toBe(false); // 위임
+    await f.command('deleteBackward');
+    expect(docOf(f.value())).toBe('a+b');
   });
 
   it('밑 없는 ^ / _ 입력은 차단된다', async () => {
@@ -441,8 +442,23 @@ describe('MathField 통합 — 고아 fence 교정 파이프라인', () => {
   });
 });
 
-describe('괄호 로직 — 선택 감싸기 / ghost 승격 / 항 단위 (dispatchKeyOp 직접)', () => {
-  // Fix A: 선택 위에 닫는 괄호를 쳐도 dangling이 아니라 감싼다.
+/**
+ * 모델의 fence 구분자 상태. ghost는 `'?'` 로 나타난다 — LaTeX에는 안 보이므로
+ * (직렬화가 짝으로 바꾼다) 모델을 직접 봐야 ghost 여부를 확인할 수 있다.
+ */
+function ghostFences(mf: MathfieldElement): { left?: string; right?: string }[] {
+  const model = modelOf(mf);
+  if (model === null) return [];
+  const out: { left?: string; right?: string }[] = [];
+  for (let q = 0; q <= model.lastOffset; q += 1) {
+    const atom = model.at(q);
+    if (atom?.type === 'leftright') out.push({ left: atom.leftDelim, right: atom.rightDelim });
+  }
+  return out;
+}
+
+describe('괄호 로직 — 네이티브 smartFence + 닫는 괄호 거울상', () => {
+  // 선택 위에 닫는 괄호를 쳐도 dangling이 아니라 감싼다 (네이티브 기형 버그 우회).
   it('선택 + ) → 감쌈 (dangling 아님)', async () => {
     const f = await createField('a+b');
     cleanups.push(f.dispose);
@@ -453,21 +469,52 @@ describe('괄호 로직 — 선택 감싸기 / ghost 승격 / 항 단위 (dispat
     expect(f.value()).toBe(String.raw`\left(a+b\right)`);
   });
 
-  // Fix C: 빈 쌍 안에서 )는 새 쌍을 중첩하지 않고 네이티브 smartFence에 위임돼 승격한다.
-  it('빈 쌍 안에서 ) → 중첩 없이 네이티브 승격 (위임)', async () => {
+  // ghost 왼쪽 구분자를 만들고, `(` 를 치면 **네이티브가** 승격시킨다 (우리 코드 없음).
+  it(') → ghost 여는 괄호, 이후 ( 입력 시 네이티브가 승격', async () => {
+    const f = await createField('a+b');
+    cleanups.push(f.dispose);
+    f.mf.position = f.mf.lastOffset;
+    expect(dispatchKeyOp(f.mf, ')')).toBe(true);
+    await f.settle();
+    // 직렬화는 짝으로 나오지만(internals.ts 패치) 모델은 ghost 상태다.
+    expect(f.value()).toBe(String.raw`\left(a+b\right)`);
+    expect(ghostFences(f.mf)).toEqual([{ left: '?', right: ')' }]);
+
+    // `(` 는 우리가 잡지 않는다 — 네이티브 smartFence의 ghost-left 분기가 채운다.
+    expect(dispatchKeyOp(f.mf, '(')).toBe(false);
+    f.mf.executeCommand(['typedText', '(', { simulateKeystroke: true }]);
+    await f.settle();
+    expect(f.value()).toBe(String.raw`\left(a+b\right)`);
+    expect(ghostFences(f.mf)).toEqual([{ left: '(', right: ')' }]); // 승격됨
+  });
+
+  // 여는 괄호가 만든 ghost는 네이티브가 승격시킨다 — 우리는 손을 뗀다.
+  it('( 로 만든 ghost는 ) 입력 시 네이티브가 승격 (위임)', async () => {
     const f = await createField('');
     cleanups.push(f.dispose);
-    expect(dispatchKeyOp(f.mf, ')')).toBe(true); // 빈 쌍 생성
+    f.mf.executeCommand(['typedText', '(', { simulateKeystroke: true }]);
+    f.mf.executeCommand(['typedText', 'x', { simulateKeystroke: true }]);
     await f.settle();
-    expect(f.value()).toBe(String.raw`\left(\right)`);
-    const posInside = f.mf.position;
-    // 두 번째 )는 fence 본문 끝이라 우리가 손을 뗀다 (위임).
+    expect(ghostFences(f.mf)).toEqual([{ left: '(', right: '?' }]);
+    // 같은 종류의 승격 대상이 있으므로 우리 연산은 비켜선다.
     expect(dispatchKeyOp(f.mf, ')')).toBe(false);
-    // 앱에서는 이때 네이티브 기본 처리가 이어진다 — 캐럿을 밖으로 빼며 승격.
     f.mf.executeCommand(['typedText', ')', { simulateKeystroke: true }]);
     await f.settle();
-    expect(f.value()).toBe(String.raw`\left(\right)`); // 중첩되지 않음
-    expect(f.mf.position).toBeGreaterThan(posInside); // 캐럿이 밖으로
+    expect(f.value()).toBe(String.raw`\left(x\right)`); // 중첩되지 않음
+    expect(ghostFences(f.mf)).toEqual([{ left: '(', right: ')' }]);
+  });
+
+  // 혼합 구분자 금지: `(` 안에서 `]` 는 그 fence를 닫지 않고 자기 fence를 만든다.
+  it('( ghost 안에서 ] → 혼합 없이 각자 fence', async () => {
+    const f = await createField('');
+    cleanups.push(f.dispose);
+    for (const ch of ['(', 'x']) {
+      f.mf.executeCommand(['typedText', ch, { simulateKeystroke: true }]);
+    }
+    await f.settle();
+    expect(dispatchKeyOp(f.mf, ']')).toBe(true); // 종류가 달라 우리가 처리
+    await f.settle();
+    expect(f.value()).toBe(String.raw`\left(\left\lbrack x\right\rbrack\right)`);
   });
 
   // Fix C: 구간 맨 앞에서는 (커서) 빈 쌍을 넣는다 (감싸기 아님).
@@ -506,14 +553,47 @@ describe('괄호 로직 — 선택 감싸기 / ghost 승격 / 항 단위 (dispat
     expect(step()).toBe('1+xy');
   });
 
-  // Fix B: 캐럿이 + 뒤일 때 )는 반쪽 (1+)이 아니라 식 전체를 감싼다.
-  it(') after + → 반쪽 없이 1+xy 전체 감쌈', async () => {
+  // 흡수 범위는 여는 괄호의 정확한 거울상이다: `(` 가 캐럿→branch 끝을 삼키듯
+  // `)` 는 branch 시작→캐럿을 삼킨다. (항/연산자 경계를 따지지 않는다 — 네이티브와 동일)
+  it(') 는 branch 시작부터 캐럿까지 흡수한다 (여는 괄호의 거울상)', async () => {
     const f = await createField('1+xy');
     cleanups.push(f.dispose);
-    f.mf.position = 2; // + 바로 뒤
     await f.settle();
+    f.mf.position = 2; // + 바로 뒤
     expect(dispatchKeyOp(f.mf, ')')).toBe(true);
     await f.settle();
-    expect(f.value()).toBe(String.raw`\left(1+xy\right)`);
+    expect(f.value()).toBe(String.raw`\left(1+\right)xy`);
+    expect(ghostFences(f.mf)).toEqual([{ left: '?', right: ')' }]);
+  });
+
+  // MathLive는 ghost **오른쪽**만 반투명 렌더한다. 왼쪽은 internals.ts의 프로토타입
+  // 패치가 채운다 — 안 되면 `?` 글리프가 그대로 보이는 깨진 렌더가 되므로 핀으로 고정.
+  it('ghost 여는 괄호는 반투명 클래스로 렌더된다', async () => {
+    const f = await createField('a+b');
+    cleanups.push(f.dispose);
+    f.mf.position = f.mf.lastOffset;
+    expect(dispatchKeyOp(f.mf, ')')).toBe(true);
+    await f.settle();
+    const openClasses = [...(f.mf.shadowRoot?.querySelectorAll('[class*="ML__open"]') ?? [])].map(
+      (el) => el.className.toString(),
+    );
+    expect(openClasses.length).toBeGreaterThan(0);
+    expect(openClasses.some((c) => c.includes('ML__smart-fence__close'))).toBe(true);
+  });
+
+  // ghost 왼쪽 구분자가 문서·계산으로 새면 안 된다 (CE가 `\left?` 를 못 읽는다).
+  it('ghost 왼쪽 구분자는 LaTeX으로 새지 않는다', async () => {
+    const f = await createField('a');
+    cleanups.push(f.dispose);
+    f.mf.position = f.mf.lastOffset;
+    for (const key of [')', ']', '}']) {
+      const g = await createField('a');
+      cleanups.push(g.dispose);
+      g.mf.position = g.mf.lastOffset;
+      expect(dispatchKeyOp(g.mf, key)).toBe(true);
+      await g.settle();
+      expect(g.value()).not.toContain('\\left?');
+      expect(findViolations(g.value())).toEqual([]);
+    }
   });
 });

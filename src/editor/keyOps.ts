@@ -1,7 +1,11 @@
 import type { MathfieldElement } from 'mathlive';
-import { modelOf, type InternalAtom, type InternalModel } from './internals';
-import { matchingClose } from './latexScan';
-import { atomBounds, branchRangeAt, isAdditiveOp, suspendNormalization, termRunRange } from './selection';
+import {
+  ensureGhostLeftSupport,
+  modelOf,
+  type InternalAtom,
+  type InternalModel,
+} from './internals';
+import { atomBounds, branchRangeAt, suspendNormalization } from './selection';
 
 /**
  * 키 연산 레지스트리 — "파손을 애초에 만들지 않는" 편집 연산들.
@@ -41,12 +45,37 @@ export type KeyOp = {
   }[];
 };
 
-const OPEN_KEYS = new Set(['(', '[']);
-const CLOSE_KEYS = new Set([')', ']']);
-/** 닫는 구분자 → 여는 짝. 닫는 키로 감쌀 때 여는 짝을 찾는다. */
-const OPEN_FOR: Record<string, string> = { ')': '(', ']': '[' };
-/** 눌린 키(여는·닫는 무관)에 대응하는 여는 구분자. */
-const openDelimOf = (key: string): string => (OPEN_KEYS.has(key) ? key : OPEN_FOR[key]);
+/**
+ * 닫는 구분자 키만 우리가 다룬다. **여는 키는 전부 네이티브 smartFence에 맡긴다** —
+ * ghost 생성·선택 감싸기·ghost 승격을 이미 다 해준다(조사·실측 확인).
+ * `|`는 여닫이 겸용이라 네이티브 특수 처리(집합 기호)가 있어 건드리지 않는다.
+ */
+const CLOSE_KEYS = new Set([')', ']', '}']);
+
+/** 키 → fence LaTeX 구분자. `\left{` 는 불가라 중괄호는 `\lbrace`/`\rbrace`를 쓴다. */
+const FENCE_LATEX: Record<string, { open: string; close: string }> = {
+  ')': { open: '(', close: ')' },
+  ']': { open: '\\lbrack', close: '\\rbrack' },
+  '}': { open: '\\lbrace', close: '\\rbrace' },
+};
+
+/** 구분자 종류. 혼합 구분자(`(`…`]`)를 막으려면 종류가 같아야 한다. */
+const DELIM_KIND: Record<string, string> = {
+  '(': 'paren', ')': 'paren', '\\lparen': 'paren', '\\rparen': 'paren',
+  '[': 'bracket', ']': 'bracket', '\\lbrack': 'bracket', '\\rbrack': 'bracket',
+  '{': 'brace', '}': 'brace', '\\lbrace': 'brace', '\\rbrace': 'brace',
+  '\\{': 'brace', '\\}': 'brace',
+  '|': 'bar',
+};
+
+const kindOf = (delim: string | undefined): string | undefined =>
+  delim === undefined ? undefined : DELIM_KIND[delim];
+
+/**
+ * 구분자를 LaTeX에 이어붙일 때의 표기. 명령형(`\lbrack`)은 뒤 글자를 삼키므로
+ * (`\left\lbrack` + `x^2` → `\lbrackx^2` 파싱 실패, 실측) 공백을 붙인다.
+ */
+const delimLatex = (delim: string): string => (delim.startsWith('\\') ? `${delim} ` : delim);
 
 /** 캐럿 왼쪽/오른쪽에 맞닿은 atom. */
 function atomBefore(ctx: EditContext): InternalAtom | undefined {
@@ -68,27 +97,45 @@ function owningAtom(ctx: EditContext): InternalAtom | undefined {
   return ctx.model.at(ctx.model.position)?.parent ?? undefined;
 }
 
-/** fence의 여는 구분자가 눌린 닫는 키의 짝과 맞는지 (`)`↔`(`, `]`↔`[`/`\lbrack`). */
-function fenceMatchesKey(owner: InternalAtom, key: string): boolean {
-  const want = openDelimOf(key);
-  const delim = owner.leftDelim ?? '';
-  if (want === '(') return delim === '(';
-  if (want === '[') return delim === '[' || delim === '\\lbrack';
-  return false;
-}
-
 /**
- * 캐럿이 **감싸는 fence(leftright) 본문의 끝**(닫는 구분자 바로 앞)이고, 그 fence가
- * 눌린 닫는 키와 짝이 맞는지. 이때 닫는 키는 네이티브 smartFence에 맡기는 게 옳다 —
- * ghost면 승격하고(캐럿을 밖으로), 진짜면 캐럿만 밖으로 뺀다(실측). 우리가 가로채면
- * 빈 쌍에서 `)`가 새 쌍을 중첩하는 등 부작용이 난다.
+ * 눌린 닫는 키를 **네이티브 smartFence가 승격시킬 fence**가 있는지.
+ *
+ * 네이티브는 ① 감싸는 fence(조부모까지 거슬러 올라감) ② 같은 레벨에서 뒤로 스캔해
+ * 찾은 ghost fence 를 승격 대상으로 삼는다(`insertSmartFence` 조사). 그 중 **종류가
+ * 같은** 것이 있으면 우리는 손을 떼고 네이티브에 맡긴다 — ghost 승격, 캐럿 밖으로
+ * 빼기, 본문 흡수/축출을 전부 제대로 해준다.
+ *
+ * 종류가 다르면(예: `(` 안에서 `]`) 대상으로 치지 않는다 → 혼합 구분자가 생기지
+ * 않고, 호출부가 `]` 만의 fence를 따로 만든다.
  */
-function atMatchingFenceEnd(ctx: EditContext): boolean {
-  const owner = owningAtom(ctx);
-  if (owner === undefined || atomType(owner) !== 'leftright') return false;
-  if (!fenceMatchesKey(owner, ctx.key)) return false;
-  const range = branchRangeAt(ctx.model, ctx.model.position);
-  return range !== null && range[1] === ctx.model.position;
+function hasSameKindPromotionTarget(ctx: EditContext): boolean {
+  const want = kindOf(ctx.key);
+  if (want === undefined) return false;
+
+  // ① 감싸는 fence들 (부모 → 조부모 → …)
+  for (
+    let owner = owningAtom(ctx);
+    owner !== undefined;
+    owner = owner.parent ?? undefined
+  ) {
+    if (atomType(owner) === 'leftright' && kindOf(owner.leftDelim) === want) return true;
+  }
+
+  // ② 같은 레벨에서 캐럿 왼쪽으로 스캔해 찾은 ghost fence
+  const branch = branchRangeAt(ctx.model, ctx.model.position);
+  const start = branch === null ? 0 : branch[0];
+  for (let q = ctx.model.position; q >= start; q -= 1) {
+    const atom = ctx.model.at(q);
+    if (
+      atom !== undefined &&
+      atomType(atom) === 'leftright' &&
+      atom.rightDelim === '?' &&
+      kindOf(atom.leftDelim) === want
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -117,160 +164,85 @@ function replaceOwnerWithBranchContent(ctx: EditContext, caret: 'before' | 'afte
   return true;
 }
 
-/** run 안에서 마지막 미결 여는 괄호의 인덱스. 없으면 null. */
-function lastUnmatchedOpenIndex(latex: string): number | null {
-  const stack: number[] = [];
-  for (let i = 0; i < latex.length; i += 1) {
-    if (latex[i] === '(') stack.push(i);
-    else if (latex[i] === ')') stack.pop();
-  }
-  return stack.length > 0 ? stack[stack.length - 1] : null;
-}
-
 /**
- * 선택이 있을 때 여는 구분자를 치면 선택을 감싼다.
- * (MathLive 기본은 선택을 지우고 빈 쌍을 넣는다 — 내용 손실)
+ * 선택 + 닫는 구분자 → 선택을 짝 fence로 감싼다.
+ *
+ * **여는 키는 네이티브가 이미 잘 한다** (선택을 감싸고 선택 범위까지 유지 — 조사 확인).
+ * 반면 닫는 키는 네이티브 버그가 있다: 선택 감싸기 경로가 여닫이 공통인데 닫는 키는
+ * 짝 구분자가 `undefined`라 `\left)a+b\right)` 같은 기형이 나온다(실측).
+ * 그래서 **닫는 키일 때만** 우리가 가로챈다.
  */
-const wrapSelection: KeyOp = {
-  id: 'wrap-selection',
-  summary: '선택 상태에서 여는/닫는 구분자를 치면 선택을 감싼다',
-  // 여는 키뿐 아니라 닫는 키(`)`,`]`)도 선택이 있으면 감싼다. 안 그러면 선택 위에
-  // 닫는 키를 쳤을 때 MathLive 기본이 dangling `)`를 남긴다(실측).
-  when: (ctx) => (OPEN_KEYS.has(ctx.key) || CLOSE_KEYS.has(ctx.key)) && !ctx.collapsed,
+const wrapSelectionOnClose: KeyOp = {
+  id: 'wrap-selection-close',
+  summary: '선택 상태에서 닫는 구분자를 치면 선택을 짝 fence로 감싼다',
+  when: (ctx) => CLOSE_KEYS.has(ctx.key) && !ctx.collapsed,
   run: (ctx) => {
+    const { open, close } = FENCE_LATEX[ctx.key];
     const inner = ctx.mf.getValue(ctx.mf.selection, 'latex');
-    const open = openDelimOf(ctx.key);
-    const close = matchingClose(open);
-    ctx.mf.insert(`\\left${open}${inner}\\right${close}`, {
+    ctx.mf.insert(`\\left${delimLatex(open)}${inner}\\right${close}`, {
       insertionMode: 'replaceSelection',
       selectionMode: 'after',
     });
   },
   scenarios: [
-    { start: 'a+b', selection: [0, 3], key: '(', expect: String.raw`\left(a+b\right)` },
-    { start: 'x^2', selection: [0, 3], key: '[', expect: String.raw`\left[x^2\right]` },
-    // 닫는 키로도 감싼다 (dangling 방지)
     { start: 'a+b', selection: [0, 3], key: ')', expect: String.raw`\left(a+b\right)` },
-    { start: 'x^2', selection: [0, 3], key: ']', expect: String.raw`\left[x^2\right]` },
+    {
+      start: 'x^2',
+      selection: [0, 3],
+      key: ']',
+      expect: String.raw`\left\lbrack x^2\right\rbrack`,
+    },
   ],
 };
 
 /**
- * `)` 입력: ① 미결 여는 괄호가 있으면 그것을 닫고 ② 없으면 캐럿 왼쪽 같은 레벨
- * run 전체를 감싸고 ③ 감쌀 것도 없으면 빈 쌍을 만든다 (캐럿은 안쪽).
- * — 어느 경로든 결과는 항상 쌍이다.
+ * 승격할 fence가 없을 때의 닫는 구분자 → **ghost 여는 괄호** fence를 만든다.
+ *
+ * 여는 괄호의 정확한 거울상이다. 네이티브가 `(` 에서 하는 일(`\left(\right?` 를 넣고
+ * **캐럿부터 branch 끝까지** 본문으로 흡수)을 반대 방향으로 한다: `\left?…\right)` 로
+ * **branch 시작부터 캐럿까지** 흡수하고, 캐럿은 fence 밖(닫는 구분자 뒤)에 둔다.
+ *
+ * 네이티브는 닫는 괄호로 ghost를 절대 만들지 않아 짝 없는 `)` 를 그냥 흘린다.
+ * 여기서 만든 ghost 왼쪽 구분자는 나중에 `(` 를 치면 **네이티브가 알아서 승격**시킨다
+ * (`insertSmartFence` 의 ghost-left 분기들) — 승격 로직은 새로 짤 필요가 없다.
+ *
+ * 렌더·직렬화는 MathLive가 왼쪽 ghost를 모르므로 `internals.ts` 의 프로토타입 패치가
+ * 채운다. 패치가 실패하면 `?` 글리프가 그대로 보이는 깨진 렌더가 되므로, 그때는
+ * 이 연산을 켜지 않고(`when` 이 false) 네이티브 기본 동작에 맡긴다.
  */
-const closeDelim: KeyOp = {
-  id: 'close-delim',
-  summary: '닫는 구분자 입력은 항상 쌍을 만든다 (미결 닫기 / 왼쪽 감싸기 / 빈 쌍)',
-  // 감싸는 fence 본문 끝에서는 손을 떼 네이티브 smartFence에 위임한다 (ghost 승격/닫기).
-  when: (ctx) => CLOSE_KEYS.has(ctx.key) && ctx.collapsed && !atMatchingFenceEnd(ctx),
+const closeFence: KeyOp = {
+  id: 'close-fence',
+  summary: '승격 대상이 없는 닫는 구분자는 ghost 여는 괄호 fence를 만든다',
+  when: (ctx) =>
+    CLOSE_KEYS.has(ctx.key) &&
+    ctx.collapsed &&
+    !hasSameKindPromotionTarget(ctx) &&
+    ensureGhostLeftSupport(),
   run: (ctx) => {
     const { mf, model } = ctx;
-    const pos = mf.position;
-    mf.executeCommand('extendToGroupStart');
-    const groupStart = mf.selection.ranges[0][0];
-    const run = mf.getValue(mf.selection, 'latex');
-    mf.position = pos; // 분석 후 복원
-    const open = ctx.key === ')' ? '(' : '[';
-    const close = ctx.key;
-    if (run.trim() === '') {
-      // 구간 맨 앞 — 빈 쌍 `(<커서>)`를 넣는다. 스마트펜스(typedText)는 뒤 내용을
-      // 감싸버리므로(`\frac{|1}{x}` → `\frac{(1)}{x}`) 직접 삽입하고 캐럿을 안으로.
-      mf.insert(`\\left${open}\\right${close}`, {
-        insertionMode: 'replaceSelection',
-        selectionMode: 'after',
-      });
-      mf.executeCommand('moveToPreviousChar'); // 빈 쌍 안으로
-      return;
-    }
-    // 왼쪽 run이 덧셈 연산자로 끝나면(`1+|xy`) 반쪽 `\left(1+\right)`이 되지 않게
-    // 오른쪽 항까지 확장해 완전한 식(`1+xy`)을 감싼다.
-    let wrapEnd = pos;
-    if (isAdditiveOp(model.at(pos))) {
-      const term = termRunRange(model, pos, pos);
-      if (term !== null) wrapEnd = Math.max(wrapEnd, term[1]);
-    }
-    mf.selection = { ranges: [[groupStart, wrapEnd]], direction: 'forward' };
+    const { open, close } = FENCE_LATEX[ctx.key];
+    const branch = branchRangeAt(model, model.position);
+    const start = branch === null ? 0 : branch[0];
+    mf.selection = { ranges: [[start, mf.position]], direction: 'forward' };
     const inner = mf.getValue(mf.selection, 'latex');
-    const openIdx = lastUnmatchedOpenIndex(inner);
-    const replacement =
-      openIdx === null
-        ? `\\left${open}${inner}\\right${close}` // 왼쪽 run 전체 감싸기
-        : `${inner.slice(0, openIdx)}\\left${open}${inner.slice(openIdx + 1)}\\right${close}`;
-    mf.insert(replacement, { insertionMode: 'replaceSelection', selectionMode: 'after' });
+    // **닫힌** fence를 먼저 넣고 왼쪽만 ghost로 바꾼다. `\left?…` 를 직접 파싱시키면
+    // MathLive가 그 원본 문자열을 verbatim 캐시에 담아 직렬화 때 그대로 뱉어서
+    // `\left?` 가 문서로 샌다(실측). `isDirty` 로 그 캐시를 버린다.
+    mf.insert(`\\left${delimLatex(open)}${inner}\\right${close}`, {
+      insertionMode: 'replaceSelection',
+      selectionMode: 'after',
+    });
+    const fence = model.at(mf.position);
+    if (fence !== undefined && fence.type === 'leftright') {
+      fence.leftDelim = '?';
+      fence.isDirty = true;
+    }
   },
   scenarios: [
+    // ghost 왼쪽 구분자는 직렬화 시 짝으로 나온다 (internals.ts 패치)
     { start: '', key: ')', expect: String.raw`\left(\right)` },
     { start: 'a+b', key: ')', expect: String.raw`\left(a+b\right)` },
-    { start: '(a+b', key: ')', expect: String.raw`\left(a+b\right)` },
-  ],
-};
-
-/**
- * 여는 구분자 삭제 → 쌍을 함께 벗긴다 (내용 유지).
- * MathLive 기본은 한쪽만 지워 `\left(x\right.` 같은 반쪽을 만든다(실측).
- */
-const unwrapOnOpenDelete: KeyOp = {
-  id: 'unwrap-open-delete',
-  summary: '여는 구분자를 지우면 짝도 함께 사라진다 (내용은 유지)',
-  when: (ctx) => {
-    if (!ctx.collapsed) return false;
-    if (ctx.key !== 'Backspace' && ctx.key !== 'Delete') return false;
-    // backspace: 캐럿 왼쪽이 leftright의 시작(=여는 구분자 직후, 내용 맨 앞)
-    if (ctx.key === 'Backspace') {
-      return atBranchStart(ctx) && atomType(owningAtom(ctx)) === 'leftright';
-    }
-    // delete: 캐럿 오른쪽 atom이 leftright 전체
-    const next = ctx.model.at(ctx.model.position + 1);
-    return atomType(next) === 'leftright';
-  },
-  run: (ctx) => {
-    if (ctx.key === 'Backspace') {
-      // 캐럿이 쌍 안 맨 앞이다 — 소유한 leftright를 내용으로 치환.
-      replaceOwnerWithBranchContent(ctx);
-      return;
-    }
-    // Delete: 캐럿 오른쪽 leftright atom을 통째로 잡아 구분자만 벗긴다.
-    const { mf, model } = ctx;
-    const next = model.at(model.position + 1);
-    if (next === undefined) return;
-    const bounds = atomBounds(model, next);
-    if (bounds === null) return;
-    const whole = mf.getValue({ ranges: [bounds] }, 'latex');
-    const inner = whole.replace(/^\\left(\\[a-zA-Z]+|.)/, '').replace(/\\right(\\[a-zA-Z]+|.)$/, '');
-    mf.selection = { ranges: [bounds], direction: 'forward' };
-    mf.insert(inner, { insertionMode: 'replaceSelection', selectionMode: 'after' });
-  },
-  scenarios: [
-    // `(a+b)` 안 맨 앞에서 backspace → 괄호만 벗겨짐
-    { start: String.raw`\left(a+b\right)`, caret: 1, key: 'Backspace', expect: 'a+b' },
-  ],
-};
-
-/**
- * 닫는 구분자 뒤에서 backspace → 지우지 않고 캐럿만 그룹 안으로 (정책).
- * 미결 괄호가 생기지 않고, 한 번 더 누르면 내용이 지워진다.
- */
-const enterGroupOnClose: KeyOp = {
-  id: 'enter-group-on-close',
-  summary: '닫는 구분자 뒤 backspace는 지우지 않고 커서만 그룹 안으로',
-  when: (ctx) => {
-    if (!ctx.collapsed || ctx.key !== 'Backspace') return false;
-    return atomType(atomBefore(ctx)) === 'leftright';
-  },
-  run: (ctx) => {
-    // 그룹 안 끝으로 (닫는 구분자 바로 앞).
-    ctx.mf.executeCommand('moveToPreviousChar');
-    ctx.mf.executeCommand('moveToGroupEnd');
-  },
-  scenarios: [
-    // 값은 그대로여야 한다 (캐럿만 이동)
-    {
-      start: String.raw`\left(a+b\right)`,
-      key: 'Backspace',
-      expect: String.raw`\left(a+b\right)`,
-    },
+    { start: 'x^2', key: ']', expect: String.raw`\left\lbrack x^2\right\rbrack` },
   ],
 };
 
@@ -320,10 +292,8 @@ const demoteScriptContent: KeyOp = {
 };
 
 export const KEY_OPS: readonly KeyOp[] = [
-  wrapSelection,
-  closeDelim,
-  unwrapOnOpenDelete,
-  enterGroupOnClose,
+  wrapSelectionOnClose,
+  closeFence,
   blockBaselessScript,
   demoteScriptContent,
 ];

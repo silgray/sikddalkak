@@ -1,6 +1,10 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type Ref } from 'react';
 import { MathfieldElement } from 'mathlive';
-import { flushShortcutBuffer, patchMathliveDisposedBlur } from '../editor/internals';
+import {
+  ensureGhostLeftSupport,
+  flushShortcutBuffer,
+  patchMathliveDisposedBlur,
+} from '../editor/internals';
 import { contentCount, findViolations, repairLatex } from '../editor/wellformed';
 import { dispatchKeyOp } from '../editor/keyOps';
 import {
@@ -362,6 +366,9 @@ export function MathField({
     // 포커스된 필드가 언마운트될 때의 MathLive 크래시 우회 (editor/internals.ts 참고).
     // 내부 프로토타입에 접근해야 해서 살아있는 인스턴스가 필요하다. 최초 1회만 적용됨.
     patchMathliveDisposedBlur(mf);
+    // ghost 여는 괄호(닫는 괄호 입력용) 렌더·직렬화 패치. 최초 1회만 실제 작업을
+    // 하고 결과가 캐시된다 — 키 입력 도중이 아니라 여기서 미리 데워둔다.
+    ensureGhostLeftSupport();
     mfRef.current = mf;
     return () => {
       mf.remove();
