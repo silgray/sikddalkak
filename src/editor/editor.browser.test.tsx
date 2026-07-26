@@ -5,7 +5,7 @@ import type { MathfieldElement } from 'mathlive';
 import { createField } from './harness';
 import { MathField } from '../components/MathField';
 import { ce } from '../engine/ce';
-import { modelOf } from './internals';
+import { finalizeGhostFences, modelOf } from './internals';
 import { expandSelectionSemantic, siblingRunRange } from './selection';
 import { KEY_OPS, dispatchKeyOp } from './keyOps';
 import { findViolations, repairLatex } from './wellformed';
@@ -529,14 +529,22 @@ describe('괄호 로직 — 네이티브 smartFence + 닫는 괄호 거울상', 
     expect(f.value()).toBe(String.raw`\frac{\left(\right)1}{x}`);
   });
 
-  // Fix C: 감싸는 fence 본문 끝은 우리가 잡지 않고 위임한다.
-  it('fence 본문 끝에서 ) → 위임 (dispatchKeyOp false)', async () => {
-    const f = await createField(String.raw`\left(x\right)`);
-    cleanups.push(f.dispose);
-    f.mf.position = f.mf.lastOffset;
-    f.mf.executeCommand('moveToPreviousChar'); // \right) 앞(본문 끝)으로
-    await f.settle();
-    expect(dispatchKeyOp(f.mf, ')')).toBe(false);
+  // 위임은 **ghost일 때만**이다. 진짜 fence 본문 끝은 위임하지 않는다 —
+  // 네이티브가 거기서 하는 건 승격이 아니라 타이핑 오버라서 여닫이가 비대칭해진다.
+  // (진짜 fence 케이스는 아래 "거울상" 테스트가 결과까지 고정한다.)
+  it('ghost fence 본문 끝에서만 ) 를 위임한다', async () => {
+    const ghost = await createField('');
+    cleanups.push(ghost.dispose);
+    ghost.mf.executeCommand(['typedText', '(', { simulateKeystroke: true }]);
+    ghost.mf.executeCommand(['typedText', 'x', { simulateKeystroke: true }]);
+    await ghost.settle();
+    expect(dispatchKeyOp(ghost.mf, ')')).toBe(false); // ghost → 네이티브에 맡긴다
+
+    const real = await createField(String.raw`\left(x\right)`);
+    cleanups.push(real.dispose);
+    await real.settle();
+    real.mf.position = 2; // 본문 끝
+    expect(dispatchKeyOp(real.mf, ')')).toBe(true); // 진짜 fence → 우리가 처리
   });
 
   // Fix B: Ctrl+D는 원자 → 곱셈 항 → 덧셈식 순으로 오른다.
@@ -579,6 +587,71 @@ describe('괄호 로직 — 네이티브 smartFence + 닫는 괄호 거울상', 
     );
     expect(openClasses.length).toBeGreaterThan(0);
     expect(openClasses.some((c) => c.includes('ML__smart-fence__close'))).toBe(true);
+  });
+
+  // 사용자 보고 버그: 진짜 fence 안에서 `)` 가 입력되지 않았다. 위임 조건이 넓어
+  // 네이티브가 짝 없는 `)` 를 넣었고 교정 규칙(unmatched-delim)이 그걸 지웠다.
+  it('진짜 fence 본문 중간에서 ) → 입력이 취소되지 않는다', async () => {
+    const f = await createField(String.raw`\left(1+x\right)`);
+    cleanups.push(f.dispose);
+    await f.settle();
+    f.mf.position = 3; // 본문 중간 (`1+` 뒤)
+    expect(dispatchKeyOp(f.mf, ')')).toBe(true); // 위임하지 않고 우리가 처리
+    await f.settle();
+    expect(f.value()).toBe(String.raw`\left(\left(1+\right)x\right)`);
+    expect(findViolations(f.value())).toEqual([]);
+  });
+
+  // 사용자 보고 버그: 진짜 fence 끝에서 `)` 가 타이핑 오버(캐럿만 밖으로)라
+  // 여는 괄호와 비대칭이었다. 이제 `(` 처럼 새 fence를 만든다.
+  it('진짜 fence에서 ( 와 ) 는 거울상 — 타이핑 오버가 아니다', async () => {
+    const closing = await createField(String.raw`\left(x\right)`);
+    cleanups.push(closing.dispose);
+    await closing.settle();
+    closing.mf.position = 2; // 본문 끝
+    expect(dispatchKeyOp(closing.mf, ')')).toBe(true);
+    await closing.settle();
+    expect(closing.value()).toBe(String.raw`\left(\left(x\right)\right)`);
+    // 새로 생긴 안쪽 fence의 **왼쪽**이 ghost다.
+    expect(ghostFences(closing.mf)[0]).toEqual({ left: '?', right: ')' });
+
+    // 거울상: 같은 자리에서 `(` 는 안쪽 **오른쪽**이 ghost인 같은 모양을 만든다.
+    const opening = await createField(String.raw`\left(x\right)`);
+    cleanups.push(opening.dispose);
+    await opening.settle();
+    opening.mf.position = 1; // 본문 시작
+    expect(dispatchKeyOp(opening.mf, '(')).toBe(false); // 여는 키는 네이티브 담당
+    opening.mf.executeCommand(['typedText', '(', { simulateKeystroke: true }]);
+    await opening.settle();
+    expect(opening.value()).toBe(closing.value()); // 같은 LaTeX
+    expect(ghostFences(opening.mf)[0]).toEqual({ left: '(', right: '?' });
+  });
+
+  // 선택 감싸기는 여닫이가 같아야 한다 — 네이티브 `(` 가 선택을 유지하므로 `)` 도.
+  it('선택 + ) 는 감싼 뒤에도 선택을 유지한다', async () => {
+    const f = await createField('a+b');
+    cleanups.push(f.dispose);
+    f.mf.selection = { ranges: [[0, 3]], direction: 'forward' };
+    await f.settle();
+    expect(dispatchKeyOp(f.mf, ')')).toBe(true);
+    await f.settle();
+    expect(f.value()).toBe(String.raw`\left(a+b\right)`);
+    expect(f.mf.selectionIsCollapsed).toBe(false);
+    expect(f.mf.getValue(f.mf.selection, 'latex')).toBe('a+b'); // 감싼 본문이 선택된 채
+  });
+
+  // ghost는 "편집 중인 셀의 순간 상태" — 포커스가 떠나면 확정된다.
+  it('finalizeGhostFences 는 ghost를 전부 확정한다', async () => {
+    const f = await createField('a+b');
+    cleanups.push(f.dispose);
+    f.mf.position = f.mf.lastOffset;
+    expect(dispatchKeyOp(f.mf, ')')).toBe(true);
+    await f.settle();
+    expect(ghostFences(f.mf)).toEqual([{ left: '?', right: ')' }]);
+
+    finalizeGhostFences(f.mf);
+    expect(ghostFences(f.mf)).toEqual([{ left: '(', right: ')' }]);
+    expect(f.value()).toBe(String.raw`\left(a+b\right)`); // LaTeX은 그대로
   });
 
   // ghost 왼쪽 구분자가 문서·계산으로 새면 안 된다 (CE가 `\left?` 를 못 읽는다).

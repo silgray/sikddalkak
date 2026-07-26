@@ -121,6 +121,24 @@ type LeftRightProto = {
   _serialize?: (this: GhostFenceAtom, options: unknown) => string;
 };
 
+/** ghost 오른쪽 구분자가 흉내낼 닫는 구분자 (여는 구분자의 짝). */
+function matchingCloseDelim(leftDelim: string | undefined): string {
+  switch (leftDelim) {
+    case '\\lbrack':
+    case '[':
+      return '\\rbrack';
+    case '\\lbrace':
+    case '{':
+      return '\\rbrace';
+    case '|':
+      return '|';
+    case '\\lparen':
+      return '\\rparen';
+    default:
+      return ')';
+  }
+}
+
 /** ghost 왼쪽 구분자가 흉내낼 여는 구분자 (닫는 구분자의 짝). */
 function matchingOpenDelim(rightDelim: string | undefined): string {
   switch (rightDelim) {
@@ -220,5 +238,36 @@ export function ensureGhostLeftSupport(): boolean {
   } catch {
     // 내부 구조가 바뀌었다 — ghost-left 없이 동작한다 (호출부가 폴백).
     return false;
+  }
+}
+
+/**
+ * 이 필드의 ghost fence를 전부 진짜 구분자로 확정한다 (포커스가 셀을 떠날 때).
+ *
+ * ghost는 "지금 편집 중인 셀의 순간 상태"라는 의미를 코드로 못박는 장치다. LaTeX
+ * 표현은 어차피 확정본과 같으므로(직렬화가 짝으로 바꾼다) 문서·계산·저장에는 아무
+ * 영향이 없고, 반투명 표시만 사라진다.
+ *
+ * `isDirty`를 함께 세워야 한다 — MathLive가 원본 LaTeX을 verbatim 캐시에 들고 있으면
+ * 구분자를 바꿔도 직렬화 결과가 안 바뀐다(실측).
+ */
+export function finalizeGhostFences(mf: MathfieldElement): void {
+  try {
+    const model = modelOf(mf);
+    if (model === null) return;
+    for (let q = 0; q <= model.lastOffset; q += 1) {
+      const atom = model.at(q);
+      if (atom?.type !== 'leftright') continue;
+      if (atom.leftDelim === '?') {
+        atom.leftDelim = matchingOpenDelim(atom.rightDelim);
+        atom.isDirty = true;
+      }
+      if (atom.rightDelim === '?') {
+        atom.rightDelim = matchingCloseDelim(atom.leftDelim);
+        atom.isDirty = true;
+      }
+    }
+  } catch {
+    // 내부 API — 실패해도 ghost가 남을 뿐 문서에는 영향이 없다.
   }
 }

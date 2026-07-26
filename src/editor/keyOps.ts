@@ -98,27 +98,31 @@ function owningAtom(ctx: EditContext): InternalAtom | undefined {
 }
 
 /**
- * 눌린 닫는 키를 **네이티브 smartFence가 승격시킬 fence**가 있는지.
+ * 눌린 닫는 키로 **네이티브가 실제로 승격시킬 ghost fence**가 있는지.
  *
- * 네이티브는 ① 감싸는 fence(조부모까지 거슬러 올라감) ② 같은 레벨에서 뒤로 스캔해
- * 찾은 ghost fence 를 승격 대상으로 삼는다(`insertSmartFence` 조사). 그 중 **종류가
- * 같은** 것이 있으면 우리는 손을 떼고 네이티브에 맡긴다 — ghost 승격, 캐럿 밖으로
- * 빼기, 본문 흡수/축출을 전부 제대로 해준다.
+ * ⚠ "같은 종류 fence가 감싸고 있으면 위임"으로 넓게 잡으면 안 된다. 네이티브가
+ * 승격시키는 건 그 fence가 **ghost일 때뿐**이고, 진짜 fence에서는 전혀 다른 짓을
+ * 한다(실측):
+ *   - 캐럿이 본문 **끝**: 타이핑 오버 — 캐럿만 밖으로 빼고 새 괄호를 안 만든다.
+ *     (여는 괄호는 같은 자리에서 새 중첩 fence를 만드는데, 이러면 여닫이가 비대칭)
+ *   - 캐럿이 본문 **중간**: 승격에 실패해 평범한 `)` 를 삽입 → 짝이 없어
+ *     `rules.ts` 의 `unmatched-delim` 이 지운다 = 입력이 취소된 것처럼 보인다.
+ * 그래서 **ghost일 때만** 위임하고, 진짜 fence면 호출부가 새 fence를 만든다.
  *
  * 종류가 다르면(예: `(` 안에서 `]`) 대상으로 치지 않는다 → 혼합 구분자가 생기지
  * 않고, 호출부가 `]` 만의 fence를 따로 만든다.
  */
-function hasSameKindPromotionTarget(ctx: EditContext): boolean {
+function hasGhostPromotionTarget(ctx: EditContext): boolean {
   const want = kindOf(ctx.key);
   if (want === undefined) return false;
 
-  // ① 감싸는 fence들 (부모 → 조부모 → …)
-  for (
-    let owner = owningAtom(ctx);
-    owner !== undefined;
-    owner = owner.parent ?? undefined
-  ) {
-    if (atomType(owner) === 'leftright' && kindOf(owner.leftDelim) === want) return true;
+  // ① 감싸는 fence — **처음 만나는 같은 종류**에서 판정을 끝낸다. 진짜 fence를
+  //    건너뛰고 더 바깥 ghost를 찾으면 안 된다: 네이티브도 안쪽 진짜 fence에서
+  //    먼저 타이핑 오버를 해버려 바깥까지 가지 않는다.
+  for (let owner = owningAtom(ctx); owner !== undefined; owner = owner.parent ?? undefined) {
+    if (atomType(owner) !== 'leftright') continue;
+    if (kindOf(owner.leftDelim) !== want) continue;
+    return owner.rightDelim === '?';
   }
 
   // ② 같은 레벨에서 캐럿 왼쪽으로 스캔해 찾은 ghost fence
@@ -177,12 +181,17 @@ const wrapSelectionOnClose: KeyOp = {
   summary: '선택 상태에서 닫는 구분자를 치면 선택을 짝 fence로 감싼다',
   when: (ctx) => CLOSE_KEYS.has(ctx.key) && !ctx.collapsed,
   run: (ctx) => {
+    const { mf, model } = ctx;
     const { open, close } = FENCE_LATEX[ctx.key];
-    const inner = ctx.mf.getValue(ctx.mf.selection, 'latex');
-    ctx.mf.insert(`\\left${delimLatex(open)}${inner}\\right${close}`, {
+    const inner = mf.getValue(mf.selection, 'latex');
+    mf.insert(`\\left${delimLatex(open)}${inner}\\right${close}`, {
       insertionMode: 'replaceSelection',
       selectionMode: 'after',
     });
+    // 감싼 **본문을 다시 선택**해 여는 키와 동작을 맞춘다 (네이티브도 선택을 유지한다).
+    // insert 후 캐럿은 fence 바로 뒤이므로 `position - 1` 은 본문 안(마지막 본문 atom)이다.
+    const body = branchRangeAt(model, mf.position - 1);
+    if (body !== null) mf.selection = { ranges: [body], direction: 'forward' };
   },
   scenarios: [
     { start: 'a+b', selection: [0, 3], key: ')', expect: String.raw`\left(a+b\right)` },
@@ -216,7 +225,7 @@ const closeFence: KeyOp = {
   when: (ctx) =>
     CLOSE_KEYS.has(ctx.key) &&
     ctx.collapsed &&
-    !hasSameKindPromotionTarget(ctx) &&
+    !hasGhostPromotionTarget(ctx) &&
     ensureGhostLeftSupport(),
   run: (ctx) => {
     const { mf, model } = ctx;
