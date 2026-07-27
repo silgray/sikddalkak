@@ -200,10 +200,18 @@ export function foldMatrixFns(json: MathJsonExpression): MathJsonExpression {
   const [head] = walked;
 
   // **괄호가 최우선이 되는 지점.** 재귀가 바닥부터 올라오므로 이 노드에 닿았을 때
-  // 안쪽은 이미 하나의 값으로 접혀 있다 — 껍데기만 벗기면 바깥 연산은 그 값을 본다.
-  // 이게 없으면 괄호가 평탄화돼 `(A×B)·(C×D)` 가 `((A×B)·C)×D` 로 계산된다.
+  // 안쪽 벡터 연산은 이미 끝나 있다. 이게 없으면 괄호가 평탄화돼
+  // `(A×B)·(C×D)` 가 `((A×B)·C)×D` 로 계산된다.
+  //
+  // 다만 마커가 없는 산술(`(v+w)`)은 아직 **값이 아니라 미평가 노드**다. 그대로
+  // 내보내면 바깥에서 모양을 알 수 없어(벡터인지 판단 불가) 마커가 조용히 버려지고
+  // 결국 차원 불일치로 오판된다(실측: `v·(v+w)`). 그래서 여기서 값으로 접는다.
   if (head === 'Delimiter' && walked.length >= 2) {
-    return walked[1] as MathJsonExpression;
+    const inner = walked[1];
+    if (Array.isArray(inner) && jsonHasMatrix(inner) && !is2DMatrixJson(inner)) {
+      return prefold(inner);
+    }
+    return inner as MathJsonExpression;
   }
 
   if (MULTIPLY_HEADS.has(head as string) && walked.some((a) => a === DOT_MARKER || a === CROSS_MARKER)) {

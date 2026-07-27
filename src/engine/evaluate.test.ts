@@ -289,6 +289,24 @@ describe('행렬', () => {
       expect(latexOf(r)).toBe(norm('11x+8y-9z'));
     });
 
+    // 괄호 안이 마커 없는 산술이면 미평가 노드로 남아 모양을 알 수 없다 →
+    // 마커가 조용히 버려지고 차원 불일치로 오판됐다(사용자 보고). 값으로 접어야 한다.
+    it('괄호 안 산술도 값으로 접어 내적한다', () => {
+      const V = (a: string, b: string, c: string) =>
+        String.raw`\begin{pmatrix}${a}\\${b}\\${c}\end{pmatrix}`;
+      const defs = [`v=${V('x_1', 'y_1', 'z_1')}`, `w=${V('x_2', 'y_2', 'z_2')}`];
+      // v·(v+w) = v·v + v·w
+      const [, , dot] = run([...defs, String.raw`v\cdot\left(v+w\right)`]);
+      expect(latexOf(dot)).toBe(norm('x_1^2+y_1^2+z_1^2+x_1x_2+y_1y_2+z_1z_2'));
+      // 숫자로도: (1,2,3)·((1,2,3)+(4,5,6)) = 1·5+2·7+3·9 = 46
+      const [, , num] = run([
+        `a=${V('1', '2', '3')}`,
+        `b=${V('4', '5', '6')}`,
+        String.raw`a\cdot\left(a+b\right)`,
+      ]);
+      expect(latexOf(num)).toBe('46');
+    });
+
     it('괄호 안 외적의 차원이 안 맞으면 에러다', () => {
       const [r] = run([
         V3('-3', '3', '-1') +
