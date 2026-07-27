@@ -239,26 +239,28 @@ describe('사용자 보고 파손 경로 — 실제 편집으로 재현', () => 
     expect(f.mf.position).toBe(f.mf.lastOffset);
   });
 
-  it('여는 구분자 삭제 → 네이티브 + 교정 게이트가 쌍을 함께 벗긴다', async () => {
-    // 이제 우리 keyOp은 삭제에 관여하지 않는다 (네이티브 onDelete가 처리).
-    // 네이티브는 한쪽을 `.`로 만들어 반쪽을 남기고, rules.ts의 orphan-fence가 교정한다.
+  // 삭제는 우리 keyOp이 한 번에 처리한다 — 반쪽 fence(`\left.`)를 거치지 않으므로
+  // 교정 게이트도, 캐럿 재추측도 돌지 않는다. 캐럿은 지운 구분자 자리에 남는다.
+  it('여는 구분자 삭제 → 쌍이 함께 사라지고 캐럿은 내용 맨 앞', async () => {
     const f = await createField(String.raw`\left(a+b\right)`);
     cleanups.push(f.dispose);
-    f.mf.position = 1; // 내용 맨 앞 (= 여는 구분자 바로 뒤)
     await f.settle();
-    expect(dispatchKeyOp(f.mf, 'Backspace')).toBe(false); // 위임
-    await f.command('deleteBackward');
-    expect(docOf(f.value())).toBe('a+b');
+    f.mf.position = 1; // 내용 맨 앞 (= 여는 구분자 바로 뒤)
+    expect(dispatchKeyOp(f.mf, 'Backspace')).toBe(true);
+    await f.settle();
+    expect(f.value()).toBe('a+b');
+    expect(f.mf.position).toBe(0); // `a` 앞
   });
 
-  it('닫는 구분자 뒤 backspace → 네이티브 + 교정 게이트가 쌍을 함께 벗긴다', async () => {
+  it('닫는 구분자 뒤 backspace → 쌍이 함께 사라지고 캐럿은 내용 맨 뒤', async () => {
     const f = await createField(String.raw`\left(a+b\right)`);
     cleanups.push(f.dispose);
-    f.mf.position = f.mf.lastOffset;
     await f.settle();
-    expect(dispatchKeyOp(f.mf, 'Backspace')).toBe(false); // 위임
-    await f.command('deleteBackward');
-    expect(docOf(f.value())).toBe('a+b');
+    f.mf.position = f.mf.lastOffset;
+    expect(dispatchKeyOp(f.mf, 'Backspace')).toBe(true);
+    await f.settle();
+    expect(f.value()).toBe('a+b');
+    expect(f.mf.position).toBe(3); // `b` 뒤
   });
 
   it('밑 없는 ^ / _ 입력은 차단된다', async () => {
@@ -425,22 +427,51 @@ describe('MathField 통합 — 고아 fence 교정 파이프라인', () => {
     expect(b.mf.value).toBe(String.raw`\left(a+b\right)`);
   });
 
+  /** 실제 앱과 같은 경로: keydown → keyOp(우리) → 없으면 네이티브. */
+  const pressKey = (
+    mf: MathfieldElement,
+    key: string,
+    fallback: 'deleteBackward' | 'deleteForward',
+  ) => {
+    const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+    mf.dispatchEvent(ev);
+    if (!ev.defaultPrevented) mf.executeCommand(fallback);
+  };
+
   // 사용자 보고 버그: 중첩 괄호를 지우면 캐럿이 남은 괄호 **밖**으로 튀었다.
-  // 교정 게이트가 캐럿을 "앞선 내용 토큰 수가 같은 첫 오프셋"으로 되돌리는데,
-  // 구조 경계에서는 여러 오프셋이 같은 카운트라 늘 가장 바깥이 뽑혔다.
+  // 이제 keyOp이 캐럿까지 직접 정하므로 남은 괄호 안에 머문다.
   it('중첩 괄호 안쪽을 지워도 캐럿이 남은 괄호 안에 머문다', async () => {
     const { mf } = await mountMathField(String.raw`x\left(\left(a\right)\right)`);
     mf.position = 3; // 안쪽 fence 본문 시작
-    mf.executeCommand('deleteBackward');
+    pressKey(mf, 'Backspace', 'deleteBackward');
     await settle();
     expect(mf.value).toBe(String.raw`x\left(a\right)`);
     expect(mf.position).toBe(2); // 남은 괄호 **안**, `a` 앞
   });
 
+  // 빈 본문 중첩은 내용 카운트가 전부 0이라 옛 휴리스틱이 가장 크게 어긋나던 자리다.
+  it('빈 본문 중첩을 지워도 캐럿이 남은 괄호 안에 머문다', async () => {
+    const { mf } = await mountMathField(String.raw`\left(\left(\right)\right)`);
+    mf.position = 2; // 안쪽 빈 본문
+    pressKey(mf, 'Backspace', 'deleteBackward');
+    await settle();
+    expect(mf.value).toBe(String.raw`\left(\right)`);
+    expect(mf.position).toBe(1); // `()` 안 — 밖(2)이 아니다
+  });
+
+  it('구조가 낀 괄호를 지워도 캐럿이 그 구조 밖에 남는다', async () => {
+    const { mf } = await mountMathField(String.raw`x\left(\frac{a}{b}\right)y`);
+    mf.position = 2; // fence 본문 시작 (분수 앞)
+    pressKey(mf, 'Backspace', 'deleteBackward');
+    await settle();
+    expect(mf.value).toBe(String.raw`x\frac{a}{b}y`);
+    expect(mf.position).toBe(1); // 분수 **밖** — 분자 안(2)이 아니다
+  });
+
   it('평범한 괄호 삭제는 캐럿 위치가 그대로다 (회귀 방지)', async () => {
     const { mf } = await mountMathField(String.raw`xy\left(a+b\right)`);
     mf.position = 3; // 본문 시작
-    mf.executeCommand('deleteBackward');
+    pressKey(mf, 'Backspace', 'deleteBackward');
     await settle();
     expect(mf.value).toBe('xya+b');
     expect(mf.position).toBe(2); // `xy` 뒤, `a` 앞
@@ -718,6 +749,56 @@ describe('괄호 로직 — 네이티브 smartFence + 닫는 괄호 거울상', 
     await f.settle();
     f.mf.executeCommand('moveToNextChar'); // ghost fence 바로 뒤(바깥)
     expect(dispatchKeyOp(f.mf, ')')).toBe(false);
+  });
+
+  // 네 방향 삭제 모두 쌍이 사라지고, 캐럿은 "지운 구분자가 있던 자리"에 남는다.
+  it('네 방향 삭제: 쌍이 사라지고 캐럿은 지운 쪽에 남는다', async () => {
+    const cases: { caret: number; key: string; pos: number }[] = [
+      { caret: 2, key: 'Backspace', pos: 1 }, // 본문 시작 → 여는 쪽 → 내용 맨 앞
+      { caret: 1, key: 'Delete', pos: 1 }, //    fence 바로 앞 → 여는 쪽
+      { caret: 3, key: 'Delete', pos: 2 }, //    본문 끝 → 닫는 쪽 → 내용 맨 뒤
+      { caret: 4, key: 'Backspace', pos: 2 }, // fence 바로 뒤 → 닫는 쪽
+    ];
+    for (const c of cases) {
+      const f = await createField(String.raw`x\left(a\right)y`);
+      cleanups.push(f.dispose);
+      await f.settle();
+      f.mf.position = c.caret;
+      expect(dispatchKeyOp(f.mf, c.key), `caret ${c.caret} + ${c.key}`).toBe(true);
+      await f.settle();
+      expect(f.value(), `caret ${c.caret} + ${c.key}`).toBe('xay');
+      expect(f.mf.position, `caret ${c.caret} + ${c.key}`).toBe(c.pos);
+    }
+  });
+
+  it('괄호를 지워도 안쪽 ghost는 보존된다', async () => {
+    const f = await createField('');
+    cleanups.push(f.dispose);
+    // `((x?)` 모양: 바깥 fence 안에 ghost fence 하나
+    for (const ch of ['(', '(', 'x']) {
+      f.mf.executeCommand(['typedText', ch, { simulateKeystroke: true }]);
+    }
+    await f.settle();
+    expect(ghostFences(f.mf)).toEqual([
+      { left: '(', right: '?' },
+      { left: '(', right: '?' },
+    ]);
+    // 바깥 fence의 여는 쪽을 지운다 (캐럿을 바깥 본문 시작으로)
+    f.mf.position = 1;
+    expect(dispatchKeyOp(f.mf, 'Backspace')).toBe(true);
+    await f.settle();
+    expect(ghostFences(f.mf)).toEqual([{ left: '(', right: '?' }]); // 안쪽 ghost 유지
+  });
+
+  it('깊은 중첩은 한 번에 한 겹씩만 벗겨진다', async () => {
+    const f = await createField(String.raw`\left(\left(\left(\right)\right)\right)`);
+    cleanups.push(f.dispose);
+    await f.settle();
+    f.mf.position = 3; // 가장 안쪽 빈 본문
+    expect(dispatchKeyOp(f.mf, 'Backspace')).toBe(true);
+    await f.settle();
+    expect(f.value()).toBe(String.raw`\left(\left(\right)\right)`);
+    expect(f.mf.position).toBe(2); // 남은 안쪽 괄호 안
   });
 
   // ghost 왼쪽 구분자가 문서·계산으로 새면 안 된다 (CE가 `\left?` 를 못 읽는다).

@@ -168,6 +168,122 @@ function replaceOwnerWithBranchContent(ctx: EditContext, caret: 'before' | 'afte
 }
 
 /**
+ * 삭제 대상 fence와 캐럿이 갈 쪽. 네 자리에서만 성립한다:
+ *
+ * | 키 | 캐럿 위치 | 지우는 쪽 | 캐럿 |
+ * |---|---|---|---|
+ * | Backspace | fence 본문 시작 | 여는 쪽 | 내용 맨 앞 |
+ * | Delete    | fence 바로 앞   | 여는 쪽 | 내용 맨 앞 |
+ * | Delete    | fence 본문 끝   | 닫는 쪽 | 내용 맨 뒤 |
+ * | Backspace | fence 바로 뒤   | 닫는 쪽 | 내용 맨 뒤 |
+ */
+function fenceDeletionAt(ctx: EditContext): { fence: InternalAtom; caret: 'start' | 'end' } | null {
+  if (!ctx.collapsed) return null;
+  const { model } = ctx;
+  const pos = model.position;
+
+  if (ctx.key === 'Backspace') {
+    const here = model.at(pos);
+    // 캐럿 바로 왼쪽이 fence 전체 → 닫는 쪽을 지운다.
+    if (atomType(here) === 'leftright' && here !== undefined) return { fence: here, caret: 'end' };
+    // 본문 맨 앞 → 여는 쪽을 지운다.
+    const owner = owningAtom(ctx);
+    if (atBranchStart(ctx) && atomType(owner) === 'leftright' && owner !== undefined) {
+      return { fence: owner, caret: 'start' };
+    }
+    return null;
+  }
+
+  if (ctx.key === 'Delete') {
+    const next = model.at(pos + 1);
+    if (next === undefined) return null;
+    // 본문 끝: 자식이 부모보다 먼저 오므로 `at(pos + 1)` 이 **자기를 감싼** fence다.
+    if (atomType(next) === 'leftright' && owningAtom(ctx) === next) {
+      return { fence: next, caret: 'end' };
+    }
+    // fence 바로 앞: 오른쪽 fence의 **본문 첫 자리**가 먼저 온다(그 부모가 fence).
+    const owner = next.parent ?? undefined;
+    if (
+      atomType(next) === 'first' &&
+      atomType(owner) === 'leftright' &&
+      owner !== undefined &&
+      owningAtom(ctx) !== owner
+    ) {
+      return { fence: owner, caret: 'start' };
+    }
+    return null;
+  }
+
+  return null;
+}
+
+/**
+ * fence atom을 그 **본문 내용으로 치환**하고 캐럿을 지정한 쪽에 둔다.
+ *
+ * 캐럿을 여기서 직접 정하는 게 핵심이다. 네이티브에 맡기면 반쪽 fence(`\left.`)가
+ * 남고, 그걸 교정 규칙이 지우면서 LaTeX이 바뀌어 캐럿을 **문자열로 다시 추측**해야
+ * 하는데, 구조 경계에서는 그 추측이 원리적으로 불가능하다(같은 내용 카운트를 갖는
+ * 위치가 여럿). 여기서 없애면 그 추측 자체가 필요 없다.
+ */
+function unwrapFence(ctx: EditContext, fence: InternalAtom, caret: 'start' | 'end'): boolean {
+  const { mf, model } = ctx;
+  const bounds = atomBounds(model, fence);
+  if (bounds === null) return false;
+  // 자식이 부모보다 먼저 오는 순서라 `bounds[0] + 1` 이 본문의 첫 자리다.
+  const body = branchRangeAt(model, bounds[0] + 1);
+  if (body === null) return false;
+
+  const content = mf.getValue({ ranges: [body] }, 'latex');
+  // 치환은 LaTeX 왕복이라 안쪽 ghost가 확정돼버린다 — 상태를 떠뒀다 되돌린다.
+  const ghosts = captureGhostFlags(model, body);
+
+  mf.selection = { ranges: [bounds], direction: 'forward' };
+  // 빈 본문(`(())`)이면 내용이 `''` 이라 fence만 사라진다 — 같은 경로로 처리된다.
+  mf.insert(content, { insertionMode: 'replaceSelection', selectionMode: 'after' });
+  const contentEnd = mf.position; // insert 후 캐럿은 내용 뒤
+  restoreGhostFlags(model, [bounds[0], contentEnd], ghosts);
+
+  const clamp = (q: number) => Math.max(0, Math.min(q, mf.lastOffset));
+  mf.position = caret === 'start' ? clamp(bounds[0]) : clamp(contentEnd);
+  return true;
+}
+
+/**
+ * 괄호 구분자를 지우면 **쌍이 함께** 사라지고 내용은 남는다 (프로젝트 정책).
+ *
+ * 네이티브 `onDelete` 는 한쪽만 `.` 로 만들어 반쪽 fence를 남기고, 그걸 `rules.ts` 의
+ * `orphan-fence` 가 뒤늦게 치우는 구조였다. 결과는 같지만 그 과정에서 문서 LaTeX이
+ * 바뀌어 **캐럿을 다시 추측**해야 했고, 그 추측이 구조 경계에서 계속 틀렸다.
+ * 여기서 한 번에 처리하면 반쪽 fence도, 추측도 생기지 않는다.
+ * (`rules.ts` 의 백스톱은 붙여넣기·저장본 대비로 그대로 남는다.)
+ */
+const deleteFencePair: KeyOp = {
+  id: 'delete-fence-pair',
+  summary: '구분자를 지우면 괄호 쌍이 함께 사라지고 캐럿은 내용의 그 자리에 남는다',
+  when: (ctx) => fenceDeletionAt(ctx) !== null,
+  run: (ctx) => {
+    const target = fenceDeletionAt(ctx);
+    if (target === null) return;
+    unwrapFence(ctx, target.fence, target.caret);
+  },
+  scenarios: [
+    // 여는 쪽 삭제 — 내용은 남고 캐럿은 내용 맨 앞
+    { start: String.raw`\left(a+b\right)`, caret: 1, key: 'Backspace', expect: 'a+b' },
+    // 닫는 쪽 삭제 — fence 바로 뒤에서
+    { start: String.raw`\left(a+b\right)`, caret: 5, key: 'Backspace', expect: 'a+b' },
+    // Delete: fence 바로 앞에서 여는 쪽
+    { start: String.raw`x\left(a\right)`, caret: 1, key: 'Delete', expect: 'xa' },
+    // 빈 본문 중첩 — 한 겹만 벗겨진다
+    {
+      start: String.raw`\left(\left(\right)\right)`,
+      caret: 2,
+      key: 'Backspace',
+      expect: String.raw`\left(\right)`,
+    },
+  ],
+};
+
+/**
  * 선택 + 닫는 구분자 → 선택을 짝 fence로 감싼다.
  *
  * **여는 키는 네이티브가 이미 잘 한다** (선택을 감싸고 선택 범위까지 유지 — 조사 확인).
@@ -309,6 +425,7 @@ const demoteScriptContent: KeyOp = {
 export const KEY_OPS: readonly KeyOp[] = [
   wrapSelectionOnClose,
   closeFence,
+  deleteFencePair,
   blockBaselessScript,
   demoteScriptContent,
 ];

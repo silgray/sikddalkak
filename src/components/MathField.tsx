@@ -197,29 +197,26 @@ export function MathField({
         // 캐럿은 "같은 내용 위치"로 되돌린다. MathLive 오프셋은 원자 인덱스라
         // 문자열 splice와 직접 대응하지 않으므로, 캐럿 앞의 내용 토큰 수를
         // 기준으로 다시 찾는다 (구조 토큰이 사라져도 안정적).
+        // 주의: 이 복원은 **근사**다. 구조 경계에서는 여러 오프셋이 같은 내용 카운트를
+        // 가져(`x\left(a\right)` 의 오프셋 1은 괄호 밖, 2는 괄호 안 — 둘 다 앞이 `x`)
+        // 문자열만으로는 구분할 수 없다. 그래서 사용자의 캐럿 의도가 분명한 편집
+        // (괄호 쌍 삭제 등)은 여기까지 오지 않고 `keyOps.ts` 에서 캐럿까지 직접 정한다.
+        // 여기 남는 건 붙여넣기·깨진 저장본 교정처럼 되돌릴 의도가 없는 경우뿐이다.
         const before = contentCount(mf.getValue({ ranges: [[0, mf.position]] }, 'latex'));
-        const origin = mf.position; // setValue 뒤에는 못 읽는다
         suppressReport.current = true;
         try {
           mf.setValue(fix.latex, { silenceNotifications: true });
         } finally {
           suppressReport.current = false;
         }
-        // 구조 경계에서는 **여러 오프셋이 같은 내용 카운트**를 갖는다
-        // (`x\left(a\right)` 의 오프셋 1은 괄호 밖, 2는 괄호 안 — 둘 다 앞이 `x`).
-        // 첫 후보를 잡으면 늘 가장 바깥이 뽑혀 캐럿이 괄호 밖으로 튄다. 그래서
-        // 같은 카운트 후보 중 **원래 오프셋에 가장 가까운 것**을 고른다.
-        let target: number | null = null;
+        let target = mf.lastOffset;
         for (let q = 0; q <= mf.lastOffset; q += 1) {
-          const count = contentCount(mf.getValue({ ranges: [[0, q]] }, 'latex'));
-          if (count < before) continue;
-          if (count > before) {
-            target ??= q; // 정확히 일치하는 후보가 없었다면 처음 넘어선 자리
+          if (contentCount(mf.getValue({ ranges: [[0, q]] }, 'latex')) >= before) {
+            target = q;
             break;
           }
-          if (target === null || Math.abs(q - origin) < Math.abs(target - origin)) target = q;
         }
-        mf.position = target ?? mf.lastOffset;
+        mf.position = target;
         flushShortcutBuffer(mf);
       }
       if (import.meta.env.DEV) {
