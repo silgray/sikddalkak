@@ -13,19 +13,50 @@ export function isMatrixLike(expr: Expression): boolean {
 }
 
 /**
- * 곱셈 순서를 보존하는 축소 정규화 형식. Multiply/Order 정규화를 빼서
- * `b^Tb` 같은 곱이 재배열되지 않게 한다 — CE는 `Transpose(b)`처럼 함수로
- * 감싼 인자를 (b가 matrix로 declare돼 있어도) 행렬로 인정하지 않고
- * 교환법칙 가정으로 정렬해버린다.
+ * **괄호와 곱셈 순서를 함께 보존하는** 축소 정규화 형식.
+ *
+ * 두 가지를 지키려고 형식을 최소로 줄였다(전부 실측 근거):
+ *  - **괄호 보존**: CE는 `\left(…\right)` 를 `Delimiter` 노드로 남기는데,
+ *    `Flatten` 이 그 껍데기를 벗기고 `InvisibleOperator` 가 중첩을 무너뜨린다.
+ *    둘 다 빼야 `(A×B)·(C×D)` 의 그룹 구조가 살아남는다.
+ *  - **마커 인접성**: `InvisibleOperator` 는 인자를 **재정렬**해서 벡터 연산
+ *    마커를 피연산자 앞으로 끌어낸다. 그러면 "마커가 두 피연산자 사이"라는
+ *    전제가 깨져 `resolveVectorMarkers` 가 엉뚱한 짝을 잡는다.
+ *  - 곱셈 순서 보존(기존 이유): CE는 `Transpose(b)` 처럼 함수로 감싼 인자를
+ *    행렬로 인정하지 않고 교환법칙 가정으로 정렬해버린다.
+ *
+ * 그 대가로 곱셈의 머리가 `Multiply` 가 아니라 `InvisibleOperator` 로 온다 →
+ * fold는 `MULTIPLY_HEADS` 로 둘 다 받는다.
  */
-export const ORDER_PRESERVING_FORMS = [
-  'InvisibleOperator',
-  'Number',
-  'Add',
-  'Power',
-  'Divide',
-  'Flatten',
-] as const;
+export const GROUPED_FORMS = ['Number', 'Add', 'Power', 'Divide'] as const;
+
+/** 곱셈으로 취급하는 머리. 그룹 보존 파싱에서는 `InvisibleOperator` 로 온다. */
+const MULTIPLY_HEADS = new Set(['Multiply', 'InvisibleOperator']);
+
+/**
+ * 원시 JSON에서 심볼을 바인딩 값으로 치환한다.
+ *
+ * `Expression.subs` 를 쓰면 안 된다 — 치환하며 **재정규화**해서 곱셈 인자를
+ * 재정렬하고, 그 바람에 벡터 연산 마커가 피연산자에서 떨어진다(실측:
+ * `["InvisibleOperator","b",마커,"b"]` → `["Multiply",마커,M,M]`). 마커가 짝을
+ * 잃으면 일반 곱으로 되돌아가 쓰레기 값이 나온다. 트리를 그대로 두고 잎만 바꾼다.
+ */
+export function substituteJson(
+  json: MathJsonExpression,
+  bindings: Readonly<Record<string, { json: MathJsonExpression }>>,
+): MathJsonExpression {
+  if (typeof json === 'string') {
+    const bound = bindings[json];
+    return bound === undefined ? json : bound.json;
+  }
+  if (!Array.isArray(json)) return json;
+  // 머리(연산자 이름)는 치환 대상이 아니다.
+  const [head, ...args] = json as unknown as [MathJsonExpression, ...MathJsonExpression[]];
+  return [
+    head,
+    ...args.map((arg) => substituteJson(arg, bindings)),
+  ] as unknown as MathJsonExpression;
+}
 
 /** JSON 어딘가에 행렬 리터럴이 있는지 (행렬 파이프라인 선택용). */
 export function jsonHasMatrix(json: unknown): boolean {
@@ -89,18 +120,53 @@ function asColumnMatrix(flat: MathJsonExpression): MathJsonExpression {
 }
 
 /**
- * Multiply 인자 속 벡터 연산 마커를 해석한다.
- * 양옆이 벡터 리터럴이면 Dot/Cross로 계산해 결과 리터럴로 치환하고,
- * 아니면(스칼라 곱 등) 마커만 지워 일반 곱셈으로 되돌린다.
+ * 피연산자의 모양. 벡터 연산의 차원 검증에 쓴다.
+ *
+ * `other` 는 스칼라·심볼·심볼식처럼 **벡터 연산 대상이 아닌** 것 전부다.
+ * 벡터(Nx1·1xN·평평한 List)는 2D 행렬이기도 하지만 `vector` 로 먼저 잡는다 —
+ * 그래야 `2\cdot b`(스칼라 × 벡터)가 행렬 취급되어 막히지 않는다.
+ */
+type Shape =
+  | { kind: 'vector'; length: number }
+  | { kind: 'matrix' }
+  | { kind: 'other' };
+
+function shapeOf(json: unknown): Shape {
+  const flat = asFlatVector(json);
+  if (flat !== null) return { kind: 'vector', length: (flat as unknown as unknown[]).length - 1 };
+  if (is2DMatrixJson(json)) return { kind: 'matrix' };
+  return { kind: 'other' };
+}
+
+/**
+ * 곱셈 인자 속 벡터 연산 마커를 해석한다.
+ *
+ * 양옆이 벡터면 **차원을 검증한 뒤** Dot/Cross로 계산해 결과로 치환한다.
+ * 예전에는 벡터가 아니면 마커를 조용히 버리고 일반 곱으로 되돌렸는데, 그게
+ * 차원이 안 맞는 식에서 에러 대신 쓰레기 값이 나오던 직접 원인이었다
+ * (`(-3,3,-1)·((1,2,3)×(x,y))` → `(0,0)`). 이제 진짜 행렬이 섞이면 에러다.
+ * 스칼라·심볼은 그대로 일반 곱으로 되돌린다 (`2\cdot b`).
  */
 function resolveVectorMarkers(args: unknown[]): unknown[] {
   const out = [...args];
   for (let i = 0; i < out.length; i += 1) {
-    if (out[i] !== DOT_MARKER && out[i] !== CROSS_MARKER) continue;
-    const left = asFlatVector(out[i - 1]);
-    const right = asFlatVector(out[i + 1]);
-    if (left !== null && right !== null) {
-      const op = out[i] === DOT_MARKER ? 'Dot' : 'Cross';
+    const marker = out[i];
+    if (marker !== DOT_MARKER && marker !== CROSS_MARKER) continue;
+    const op = marker === DOT_MARKER ? 'Dot' : 'Cross';
+    const leftShape = shapeOf(out[i - 1]);
+    const rightShape = shapeOf(out[i + 1]);
+
+    if (leftShape.kind === 'vector' && rightShape.kind === 'vector') {
+      if (op === 'Cross' && (leftShape.length !== 3 || rightShape.length !== 3)) {
+        throw new Error(
+          `cross product requires two 3-vectors (${leftShape.length} × ${rightShape.length})`,
+        );
+      }
+      if (op === 'Dot' && leftShape.length !== rightShape.length) {
+        throw new Error(`dimension mismatch: ${leftShape.length} · ${rightShape.length}`);
+      }
+      const left = asFlatVector(out[i - 1]);
+      const right = asFlatVector(out[i + 1]);
       const result = ce.box([op, left, right] as unknown as MathJsonExpression).evaluate();
       const json: unknown = result.json;
       const replacement =
@@ -109,10 +175,15 @@ function resolveVectorMarkers(args: unknown[]): unknown[] {
           : json;
       out.splice(i - 1, 3, replacement);
       i -= 2; // 치환 지점부터 재검사 (연쇄 a·b·c)
-    } else {
-      out.splice(i, 1); // 벡터가 아니다 — 일반 곱셈
-      i -= 1;
+      continue;
     }
+
+    // 한쪽이 진짜 2D 행렬이면 내적/외적의 대상이 아니다.
+    if (leftShape.kind === 'matrix' || rightShape.kind === 'matrix') {
+      throw new Error('dimension mismatch');
+    }
+    out.splice(i, 1); // 스칼라·심볼 — 일반 곱셈
+    i -= 1;
   }
   return out;
 }
@@ -127,10 +198,19 @@ export function foldMatrixFns(json: MathJsonExpression): MathJsonExpression {
   if (!Array.isArray(json)) return json;
   let walked = json.map((item) => foldMatrixFns(item as MathJsonExpression)) as unknown[];
   const [head] = walked;
-  if (head === 'Multiply' && walked.some((a) => a === DOT_MARKER || a === CROSS_MARKER)) {
-    walked = ['Multiply', ...resolveVectorMarkers(walked.slice(1))];
+
+  // **괄호가 최우선이 되는 지점.** 재귀가 바닥부터 올라오므로 이 노드에 닿았을 때
+  // 안쪽은 이미 하나의 값으로 접혀 있다 — 껍데기만 벗기면 바깥 연산은 그 값을 본다.
+  // 이게 없으면 괄호가 평탄화돼 `(A×B)·(C×D)` 가 `((A×B)·C)×D` 로 계산된다.
+  if (head === 'Delimiter' && walked.length >= 2) {
+    return walked[1] as MathJsonExpression;
+  }
+
+  if (MULTIPLY_HEADS.has(head as string) && walked.some((a) => a === DOT_MARKER || a === CROSS_MARKER)) {
+    const resolved = resolveVectorMarkers(walked.slice(1));
     // 인자가 하나만 남으면 곱을 벗긴다: Multiply(x) -> x
-    if (walked.length === 2) return walked[1] as MathJsonExpression;
+    if (resolved.length === 1) return resolved[0] as MathJsonExpression;
+    walked = [head, ...resolved];
   }
   // 전치는 순수 구조 연산이라 심볼 원소여도 안전하게 접힌다(실측). 리터럴만
   // 접으면 `v^Tv` 처럼 심볼 벡터의 전치가 안 접혀 CE가 에러 박스를 낸다.
@@ -201,10 +281,33 @@ export function asMatrixIfRows(expr: Expression): Expression {
 /** 미평가 곱(2D 행렬 피연산자 ≥2)을 트리 어디서든 재귀로 찾는다. */
 function hasUnevaluatedMatrixProduct(json: unknown): boolean {
   if (!Array.isArray(json)) return false;
-  if (json[0] === 'Multiply' && json.slice(1).filter(is2DMatrixJson).length >= 2) {
+  if (MULTIPLY_HEADS.has(json[0] as string) && json.slice(1).filter(is2DMatrixJson).length >= 2) {
     return true;
   }
   return json.some(hasUnevaluatedMatrixProduct);
+}
+
+/**
+ * 행렬 리터럴의 셀을 검증한다.
+ *  - 셀 안에 또 행렬/리스트가 있으면 에러 (중첩 행렬 금지). 그냥 두면
+ *    `[[1],[2]]` 같은 리스트가 셀에 박힌 채 조용히 렌더된다(실측).
+ *  - 빈 셀(`Nothing`)이 있으면 미완성이다. 행렬 크기는 삽입 후 불변이라 빈 칸이
+ *    남을 수 있는데, 그 상태로 계산하면 반쯤 채운 행렬로 엉뚱한 답이 나온다.
+ */
+export function assertMatrixCellsValid(json: unknown): void {
+  if (!Array.isArray(json)) return;
+  if (json[0] === 'Matrix' && Array.isArray(json[1])) {
+    for (const row of (json[1] as unknown[]).slice(1)) {
+      if (!Array.isArray(row)) continue;
+      for (const cell of row.slice(1)) {
+        if (cell === 'Nothing') throw new Error('incomplete expression');
+        if (Array.isArray(cell) && (cell[0] === 'Matrix' || cell[0] === 'List')) {
+          throw new Error('matrix cannot contain a matrix');
+        }
+      }
+    }
+  }
+  for (const item of json) assertMatrixCellsValid(item);
 }
 
 /**
@@ -234,8 +337,9 @@ function matrixDimError(expr: Expression): boolean {
  * try/catch로 받아 에러 결과 또는 null로 만든다. 이걸 안 던지면 미평가 곱이나
  * CE Error LaTeX이 결과 셀에 쓰레기로 렌더된다.
  */
-export function reduceMatrixExpr(subbed: Expression): Expression {
-  const folded = foldMatrixFns(subbed.json);
+export function reduceMatrixExpr(subbed: MathJsonExpression): Expression {
+  assertMatrixCellsValid(subbed);
+  const folded = foldMatrixFns(subbed);
   const evaluated = ce.box(folded).evaluate();
   if (matrixDimError(evaluated)) throw new Error('dimension mismatch');
   return asMatrixIfRows(collapseOneByOne(evaluated));

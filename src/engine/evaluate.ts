@@ -3,12 +3,13 @@ import type { Expression, FormOption, MathJsonExpression } from '@cortex-js/comp
 import { ce } from './ce';
 import type { CellMode, EvalResult } from '../types';
 import {
-  ORDER_PRESERVING_FORMS,
+  GROUPED_FORMS,
   asMatrixIfRows,
   collapseOneByOne,
   isMatrixLike,
   jsonHasMatrix,
   preprocessVectorOps,
+  substituteJson,
   reduceMatrixExpr,
 } from './matrixPipeline';
 import { repairLatex } from '../editor/wellformed';
@@ -159,6 +160,11 @@ function readStructure(input: EvalInput): Structure {
   // 방어선 2 — 입력 경로가 교정하지 못한 저장본(옛 문서)도 계산되게.
   const latex = repairLatex(input.latex.trim()).latex;
   if (latex === '') return { kind: 'empty' };
+  // 채우지 않은 칸이 남아 있으면 미완성이다. CE는 `\placeholder{}` 를 파싱하지 못해
+  // `unbalanced-environment` 같은 엉뚱한 메시지를 내므로 여기서 먼저 잡는다.
+  if (latex.includes('\\placeholder')) {
+    return { kind: 'error', message: 'incomplete expression' };
+  }
 
   let expr: Expression;
   try {
@@ -207,12 +213,17 @@ function computeNode(
       isMatrixLike(parsed);
     const expr = usesMatrix
       ? rewriteBoundApplications(
-          ce.parse(preprocessVectorOps(latex), { form: [...ORDER_PRESERVING_FORMS] }),
+          ce.parse(preprocessVectorOps(latex), { form: [...GROUPED_FORMS] }),
           bindings,
-          [...ORDER_PRESERVING_FORMS],
+          [...GROUPED_FORMS],
         )
       : rewriteBoundApplications(parsed, bindings);
-    const evaluateExpr = usesMatrix ? reduceMatrixExpr : reduce;
+    // 행렬 경로는 `Expression.subs` 대신 **원시 JSON 치환**을 쓴다 — subs는 재정규화하며
+    // 곱셈 인자를 재정렬해 벡터 연산 마커를 피연산자에서 떼어놓는다(실측).
+    const evaluateExpr = usesMatrix
+      ? (e: Expression, bind: boolean) =>
+          reduceMatrixExpr(bind ? substituteJson(e.json, bindings) : e.json)
+      : (e: Expression, bind: boolean) => reduce(bind ? e.subs(bindings) : e);
     const def = asDefinition(expr);
 
     if (def !== null) {
@@ -224,7 +235,7 @@ function computeNode(
         };
       }
       // 선행 정의는 위상 순서에 의해 이미 bindings에 있다.
-      const value = evaluateExpr(def.value.subs(bindings));
+      const value = evaluateExpr(def.value, true);
       return {
         result: {
           kind: 'ok',
@@ -237,8 +248,7 @@ function computeNode(
       };
     }
 
-    const base = node.input.mode === 'scoped' ? expr.subs(bindings) : expr;
-    const result = evaluateExpr(base);
+    const result = evaluateExpr(expr, node.input.mode === 'scoped');
     const bool = asBoolean(result);
     return {
       result:

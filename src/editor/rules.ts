@@ -283,12 +283,71 @@ const normalizeFlatPair: StructureRule = {
   ],
 };
 
+/**
+ * 행렬의 **빈 마지막 행**을 placeholder로 채운다.
+ *
+ * MathLive는 직렬화할 때 빈 마지막 행의 `\\` 를 남기지만, 파싱할 때는 그 행을
+ * 버린다(`normalizeCells`: 마지막 행이 빈 셀 하나뿐이면 pop). 즉 직렬화/파싱이
+ * 비대칭이라 **같은 LaTeX인데 행 수가 달라진다** — 마지막 행을 비우고 undo→redo를
+ * 하거나 새로고침만 해도 행이 하나 줄어든다(실측).
+ *
+ * placeholder를 넣으면 그 행이 "빈 셀 하나"가 아니게 되어 살아남는다. 행렬 크기가
+ * 삽입 후 불변이라는 정책과도 맞고, 채워지지 않은 칸은 평가 단계에서 미완성으로
+ * 걸러진다.
+ *
+ * ⚠ `latexScan` 은 행렬 환경·셀 경계를 모르므로(`&`/`\\` 가 평범한 토큰) 여기서는
+ * 원문을 직접 훑는다. 중첩 행렬은 평가 단계에서 에러라 비중첩만 다루면 된다.
+ */
+const MATRIX_ENVS = 'matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix';
+const MATRIX_BLOCK = new RegExp(
+  String.raw`\\begin\{(${MATRIX_ENVS})\}([\s\S]*?)\\end\{\1\}`,
+  'g',
+);
+/** 마지막 행이 빈 셀 하나뿐 — 본문이 `\\`(+공백)로 끝난다. */
+const ENDS_WITH_EMPTY_ROW = /\\\\[ \t]*$/;
+
+const matrixTrailingEmptyRow: StructureRule = {
+  id: 'matrix-trailing-empty-row',
+  summary: '행렬의 빈 마지막 행은 placeholder로 채운다 (왕복 시 행 손실 방지)',
+  find: (doc) => {
+    const out: Violation[] = [];
+    MATRIX_BLOCK.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = MATRIX_BLOCK.exec(doc.latex)) !== null) {
+      const body = m[2];
+      if (!ENDS_WITH_EMPTY_ROW.test(body)) continue;
+      // 본문 끝(= `\end{...}` 바로 앞)에 끼워 넣는다.
+      const at = m.index + `\\begin{${m[1]}}`.length + body.length;
+      out.push({ ruleId: 'matrix-trailing-empty-row', start: at, end: at, detail: m[1] });
+    }
+    return out;
+  },
+  fix: (_doc, v) => [{ start: v.start, end: v.end, text: '\\placeholder{}' }],
+  examples: [
+    {
+      before: String.raw`\begin{pmatrix}1\\2\\\end{pmatrix}`,
+      after: String.raw`\begin{pmatrix}1\\2\\\placeholder{}\end{pmatrix}`,
+    },
+    // 이미 채워져 있으면 건드리지 않는다 (멱등)
+    {
+      before: String.raw`\begin{pmatrix}1\\2\\3\end{pmatrix}`,
+      after: String.raw`\begin{pmatrix}1\\2\\3\end{pmatrix}`,
+    },
+    // 중간 빈 행은 파싱에서 살아남으므로 대상이 아니다
+    {
+      before: String.raw`\begin{pmatrix}1\\\\3\end{pmatrix}`,
+      after: String.raw`\begin{pmatrix}1\\\\3\end{pmatrix}`,
+    },
+  ],
+};
+
 export const RULES: readonly StructureRule[] = [
   scriptNeedsBase,
   emptyScript,
   orphanFence,
   normalizeFlatPair,
   unmatchedDelim,
+  matrixTrailingEmptyRow,
 ];
 
 /** 등록된 모든 규칙의 위반 (경고·테스트용). */

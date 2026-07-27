@@ -193,8 +193,16 @@ export function Cell({
     // 재보고해서 상태가 이미 갱신됐다 (expand 직후 factor로 되돌리기 등).
   };
 
+  /**
+   * 셀에 오류가 있으면 계산성 변환(expand/simplify/factor)을 정지한다.
+   * 깨진 식 위에서 변환한 결과는 신뢰할 수 없기 때문. 결과 행은 이미 오류일 때
+   * 통째로 대체되므로(ResultRow), 여기서 막는 건 입력 쪽 버튼과 단축키다.
+   * (구분 기호 툴바는 계산이 아니라 표기 변경이므로 막지 않는다.)
+   */
+  const transformsBlocked = result.kind === 'error';
+
   const applyTransform = (op: TransformOp) => {
-    if (selection === null) return;
+    if (selection === null || transformsBlocked) return;
     const replacement = selection.replacements[op];
     if (replacement === undefined) return;
     replaceCurrentSelection(selection.field, replacement);
@@ -235,8 +243,8 @@ export function Cell({
           onDeleteEmpty={onDeleteEmpty}
         />
         <div className="cell-actions">
-          {/* 입력 필드의 선택 변환 버튼 — 조작 대상 옆에. */}
-          {selection !== null && selection.field === 'input' && (
+          {/* 입력 필드의 선택 변환 버튼 — 조작 대상 옆에. 오류 셀에서는 숨긴다. */}
+          {selection !== null && selection.field === 'input' && !transformsBlocked && (
             <TransformButtons selection={selection} onApply={applyTransform} />
           )}
           <button type="button" className="remove" title="Delete cell" onClick={onRemove}>

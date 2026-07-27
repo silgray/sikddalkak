@@ -30,7 +30,20 @@ export const TRANSFORM_SHORTCUTS: Record<string, 'expand' | 'simplify' | 'factor
  */
 function pruneMenu(mf: MathfieldElement): void {
   try {
-    const REMOVE = new Set(['mode', 'variant', 'color', 'background-color']);
+    // 행/열 추가·삭제는 뺀다 — 행렬 크기는 삽입한 뒤 바뀌지 않는다(정책).
+    // 크기를 잘못 골랐으면 행렬을 지우고 다시 삽입한다. `insert-matrix` 는 남긴다.
+    const REMOVE = new Set([
+      'mode',
+      'variant',
+      'color',
+      'background-color',
+      'add-row-above',
+      'add-row-below',
+      'add-column-before',
+      'add-column-after',
+      'delete-row',
+      'delete-column',
+    ]);
     type Item = { id?: string; type?: string; submenu?: Item[] };
     const items = (mf.menuItems as Item[]).filter((item) => {
       if (item.id !== undefined && REMOVE.has(item.id)) return false;
@@ -51,6 +64,24 @@ function pruneMenu(mf: MathfieldElement): void {
   } catch {
     // 메뉴 구조가 바뀌면(버전 업) 기본 메뉴 그대로 둔다.
   }
+}
+
+/**
+ * MathLive 기본 키바인딩 중 **행렬의 행/열을 추가·삭제**하는 것들.
+ * 행렬 크기는 삽입한 뒤 불변이라는 정책이라 전부 막는다 (조사로 확보한 목록).
+ */
+function isMatrixResizeKey(ev: KeyboardEvent): boolean {
+  const ctrl = ev.ctrlKey || ev.metaKey;
+  const key = ev.key;
+  const isEnter = key === 'Enter';
+  // addRowAfter / addRowBefore
+  if (isEnter && (ctrl || ev.altKey)) return true;
+  if (key === ';' && ctrl) return true;
+  // addColumnAfter / addColumnBefore
+  if (key === 'Tab' && ev.altKey) return true;
+  // removeColumn / removeRow
+  if (ev.shiftKey && (key === 'Backspace' || key === 'Delete')) return true;
+  return false;
 }
 
 /** 부모가 명시적으로 조작할 때 쓰는 핸들 (선택 변환 등). */
@@ -297,6 +328,14 @@ export function MathField({
         // 혼란스러워 통째로 막는다. 추후 단축키로 재지정 예정. readOnly 체크보다
         // 앞에 둬서 입력·결과 필드 모두에서 중화한다.
         if (ev.key === 'Escape') {
+          ev.preventDefault();
+          ev.stopImmediatePropagation();
+          return;
+        }
+        // 행렬 크기는 삽입한 뒤 바뀌지 않는다 — MathLive 기본 행/열 편집 키를 막는다.
+        // (이 리스너 뒤의 keyOps 리스너는 ctrl/meta/alt 조합을 통째로 통과시키므로
+        //  여기서 잡아야 한다.)
+        if (isMatrixResizeKey(ev)) {
           ev.preventDefault();
           ev.stopImmediatePropagation();
           return;

@@ -2,7 +2,7 @@ import { expand, factor } from '@cortex-js/compute-engine';
 import type { Expression, MathJsonExpression } from '@cortex-js/compute-engine';
 import { ce } from './ce';
 import {
-  ORDER_PRESERVING_FORMS,
+  GROUPED_FORMS,
   jsonHasMatrix,
   preprocessVectorOps,
   reduceMatrixExpr,
@@ -216,10 +216,10 @@ function factorOp(expr: Expression): Expression {
  */
 function transformMatrixSelection(raw: string, op: TransformOp): string | null {
   if (op === 'factor') return null;
-  const expr = ce.parse(preprocessVectorOps(raw), { form: [...ORDER_PRESERVING_FORMS] });
+  const expr = ce.parse(preprocessVectorOps(raw), { form: [...GROUPED_FORMS] });
   if (!expr.isValid) return null;
   const baseline = expr.latex;
-  const out = ce.box(chopJson(reduceMatrixExpr(expr).json)).latex;
+  const out = ce.box(chopJson(reduceMatrixExpr(expr.json).json)).latex;
   if (norm(out) === norm(baseline)) return null;
   return out;
 }

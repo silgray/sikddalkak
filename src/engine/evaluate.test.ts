@@ -254,6 +254,79 @@ describe('행렬', () => {
     expect(latexOf(r)).toBe(norm('x_1x_2+y_1y_2+z_1z_2'));
   });
 
+  // 괄호가 계산 순서를 정한다. 예전엔 파싱이 괄호를 평탄화해 마커를 좌→우로 훑는
+  // 바람에 `(A×B)·(C×D)` 가 `((A×B)·C)×D` 로 계산됐다 (사용자 보고 버그).
+  describe('괄호 우선순위', () => {
+    const V3 = (a: string, b: string, c: string) =>
+      String.raw`\begin{pmatrix}${a}\\${b}\\${c}\end{pmatrix}`;
+    const P = (s: string) => String.raw`\left(${s}\right)`;
+    const X = String.raw`\times`;
+    const DOT = String.raw`\cdot`;
+
+    it('외적은 결합법칙이 없다 — 괄호 위치에 따라 답이 다르다', () => {
+      // A=(1,0,0), B=(1,0,0), C=(0,1,0)
+      // A×(B×C) = e1×e3 = -e2 ,  (A×B)×C = 0×e2 = 0
+      const [a] = run([V3('1', '0', '0') + X + P(V3('1', '0', '0') + X + V3('0', '1', '0'))]);
+      expect(latexOf(a)).toBe(norm(V3('0', '-1', '0')));
+      const [b] = run([P(V3('1', '0', '0') + X + V3('1', '0', '0')) + X + V3('0', '1', '0')]);
+      expect(latexOf(b)).toBe(norm(V3('0', '0', '0')));
+    });
+
+    it('(A×B)·(C×D) 는 스칼라다', () => {
+      const [r] = run([
+        P(V3('1', '2', '3') + X + V3('1', '1', '0')) +
+          DOT +
+          P(V3('x', 'y', 'z') + X + V3('x', 'y', 'z')),
+      ]);
+      expect(latexOf(r)).toBe('0'); // 오른쪽이 영벡터
+    });
+
+    it('괄호 안 외적을 먼저 계산한 뒤 내적한다', () => {
+      // (-3,3,-1)·((1,2,3)×(x,y,z)) = 11x+8y-9z
+      const [r] = run([
+        V3('-3', '3', '-1') + DOT + P(V3('1', '2', '3') + X + V3('x', 'y', 'z')),
+      ]);
+      expect(latexOf(r)).toBe(norm('11x+8y-9z'));
+    });
+
+    it('괄호 안 외적의 차원이 안 맞으면 에러다', () => {
+      const [r] = run([
+        V3('-3', '3', '-1') +
+          DOT +
+          P(V3('1', '2', '3') + X + String.raw`\begin{pmatrix}x\\y\end{pmatrix}`),
+      ]);
+      expect(r.kind).toBe('error');
+    });
+  });
+
+  // 행렬 크기는 삽입 후 불변이라 빈 칸이 남을 수 있다. 반쯤 채운 행렬로 계산하면
+  // 엉뚱한 답이 나오므로 미완성으로 막는다.
+  it('채우지 않은 칸이 있으면 미완성 에러다', () => {
+    // 빈 마지막 행은 교정 규칙이 placeholder로 채운다 → 미완성으로 잡힌다
+    const [trailing] = run([String.raw`\begin{pmatrix}1\\2\\\end{pmatrix}`]);
+    expect(trailing).toMatchObject({ kind: 'error', message: 'incomplete expression' });
+    // 마지막 행의 일부 칸만 빈 경우도 마찬가지
+    const [partial] = run([String.raw`\begin{pmatrix}1 & 2\\3 & \end{pmatrix}`]);
+    expect(partial).toMatchObject({ kind: 'error', message: 'incomplete expression' });
+  });
+
+  it('행렬 안에 행렬이 들어가면 에러다', () => {
+    const [r] = run([String.raw`\begin{pmatrix}\begin{pmatrix}1\\2\end{pmatrix}\\3\end{pmatrix}`]);
+    expect(r.kind).toBe('error');
+  });
+
+  // 원소가 값이든 정의된 문자든 미정의 문자든 같은 경로를 타야 한다.
+  it('벡터 원소가 값이든 문자든 동작이 같다', () => {
+    const V = (a: string) => String.raw`\begin{pmatrix}${a}\\2\\3\end{pmatrix}`;
+    const ONES = String.raw`\begin{pmatrix}1\\1\\0\end{pmatrix}`;
+    const [, withValue] = run(['a=1', `${V('a')}\\cdot${ONES}`]);
+    expect(latexOf(withValue)).toBe('3'); // 정의된 문자 → 값과 같은 결과
+    const [literal] = run([`${V('1')}\\cdot${ONES}`]);
+    expect(latexOf(literal)).toBe('3');
+    const [symbolic] = run([`${V('q')}\\cdot${ONES}`]); // 미정의 문자 → 심볼릭
+    expect(latexOf(symbolic)).toBe(norm('q+2'));
+  });
+
   // 차원이 안 맞으면 쓰레기가 아니라 에러다. CE는 곱은 미평가로(에러 없이) 남기고
   // 덧셈/내적/외적은 incompatible-dimensions Error를 낸다 — 둘 다 잡아낸다.
   it('차원 불일치 행렬곱은 에러다', () => {
