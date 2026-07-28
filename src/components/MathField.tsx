@@ -4,6 +4,7 @@ import {
   ensureGhostLeftSupport,
   finalizeGhostFences,
   flushShortcutBuffer,
+  modelOf,
   patchMathliveDisposedBlur,
 } from '../editor/internals';
 import { contentCount, findViolations, repairLatex } from '../editor/wellformed';
@@ -245,6 +246,27 @@ export function MathField({
           if (contentCount(mf.getValue({ ranges: [[0, q]] }, 'latex')) >= before) {
             target = q;
             break;
+          }
+        }
+        // 행렬 빈 행 보정(matrix-trailing-empty-row)이 방금 placeholder를 끼워
+        // 넣었다면 위 근사는 못 미친다 — `\placeholder` 도 command 토큰이라
+        // contentCount에 잡히지만, 그 앞(비우기 전 마지막 내용) 지점에서 이미
+        // `before` 와 일치해버려 placeholder까지 가지 않고 멈춘다. 그 결과 캐럿이
+        // "방금 비운 칸" 이 아니라 그 **앞 행**에 남아, 이어서 치는 값이 엉뚱한
+        // 행에 끼어든다(실측). 이 규칙만은 캐럿 의도가 분명하다(방금 비운 칸에
+        // 이어 쓰려는 것) — 새로 생긴 placeholder 바로 앞에 캐럿을 둔다. MathLive는
+        // placeholder 앞 캐럿에서 타이핑하면 그 자리를 그대로 대체한다(실측).
+        if (fix.applied.includes('matrix-trailing-empty-row')) {
+          const model = modelOf(mf);
+          if (model !== null) {
+            // 문서에 다른 placeholder(예: 아직 안 채운 분수)가 더 있을 수 있으니
+            // "처음 찾은 것"이 아니라 위 근사치(target)와 가장 가까운 것을 고른다.
+            let bestQ: number | null = null;
+            for (let q = 0; q <= model.lastOffset; q += 1) {
+              if (model.at(q)?.type !== 'placeholder') continue;
+              if (bestQ === null || Math.abs(q - target) < Math.abs(bestQ - target)) bestQ = q;
+            }
+            if (bestQ !== null) target = Math.max(0, bestQ - 1);
           }
         }
         mf.position = target;

@@ -477,6 +477,24 @@ describe('MathField 통합 — 고아 fence 교정 파이프라인', () => {
     expect(mf.position).toBe(2); // `xy` 뒤, `a` 앞
   });
 
+  // 사용자 보고 버그: 행렬 마지막 행을 비우면 matrix-trailing-empty-row 규칙이
+  // placeholder를 끼워 넣는데, contentCount 기반 캐럿 복원이 "방금 비운 그 칸"과
+  // "그 앞 행의 끝"을 구분하지 못해(둘 다 앞선 내용 카운트가 같다) 캐럿이 앞 행에
+  // 남았다. 그 상태로 이어 입력하면 값이 엉뚱한 행에 끼어든다(실측: 마지막 행 "3"을
+  // 지우고 "5"를 치면 2행이 "25"가 됨). 이제 caret이 placeholder 바로 앞에 놓여
+  // 이어 입력이 그 자리를 자연스럽게 대체한다.
+  it('행렬 마지막 행을 비우고 이어 입력하면 그 행에 들어간다', async () => {
+    const { mf } = await mountMathField(String.raw`\begin{pmatrix}1\\2\\3\end{pmatrix}`);
+    mf.position = 6; // '3' 바로 뒤 (셀 안)
+    pressKey(mf, 'Backspace', 'deleteBackward');
+    await settle();
+    expect(mf.value).toBe(String.raw`\begin{pmatrix}1\\ 2\\ \placeholder{}\end{pmatrix}`);
+    mf.executeCommand(['typedText', '5', { simulateKeystroke: true }]);
+    await settle();
+    // 2행이 "25"로 오염되지 않고, 3행에 "5"가 들어간다.
+    expect(mf.value).toBe(String.raw`\begin{pmatrix}1\\ 2\\ 5\end{pmatrix}`);
+  });
+
   it('Escape는 비활성화 — 선택 확장도, 원본 LaTeX 모드 전환도 없다', async () => {
     // MathLive 기본 ESC는 선택을 확장하다가 끝에서 원본 LaTeX 모드로 넘어가
     // 렌더가 깨진다. capture 가드가 이를 통째로 막는다.
