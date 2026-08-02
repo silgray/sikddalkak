@@ -12,10 +12,13 @@
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
     "test:browser": "vitest run --config vitest.browser.config.ts",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prelab": "node scripts/copy-mathlive-assets.mjs",
+    "lab": "vite --config vite.lab.config.ts"
   },
   "dependencies": {
     "@cortex-js/compute-engine": "0.90.0",
+    "madge": "^8.0.0",
     "mathlive": "0.110.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

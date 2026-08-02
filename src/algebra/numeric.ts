@@ -1,0 +1,192 @@
+import type { TypedExpr } from './elaborate';
+import { fail, ok, type Result } from './result';
+import { isScalar } from './shape';
+
+/**
+ * 수치 평가기 — **재작성이 값을 바꾸지 않았는지 대조하는 용도**다.
+ *
+ * 이게 이 모듈의 "빈틈없음"을 만드는 핵심 장치다(설계 §10②). 심볼에 구체적인 수를 채워
+ * 넣고 `evalNumeric(rewrite(e)) ≈ evalNumeric(e)` 를 확인하면, 교환법칙을 잘못 쓰거나
+ * 인수 순서를 뒤집는 버그가 자동으로 드러난다. 사람이 눈으로 볼 수 없는 종류의 실수다.
+ *
+ * 값은 전부 `number[][]` (행 우선). 스칼라는 `[[x]]` — 모양 도메인과 같은 규약이다.
+ */
+
+export type Matrix = readonly (readonly number[])[];
+
+const scalarValue = (m: Matrix): number | null =>
+  m.length === 1 && m[0].length === 1 ? m[0][0] : null;
+
+export type Assignment = Readonly<Record<string, Matrix>>;
+
+const SCALAR_FNS: Record<string, (x: number) => number> = {
+  sin: Math.sin, cos: Math.cos, tan: Math.tan,
+  arcsin: Math.asin, arccos: Math.acos, arctan: Math.atan,
+  sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh,
+  exp: Math.exp, ln: Math.log, log: Math.log10,
+  sqrt: Math.sqrt, abs: Math.abs,
+};
+
+const map2 = (a: Matrix, b: Matrix, f: (x: number, y: number) => number): Matrix =>
+  a.map((row, i) => row.map((x, j) => f(x, b[i][j])));
+
+const scale = (k: number, m: Matrix): Matrix => m.map((row) => row.map((x) => k * x));
+
+function matMul(a: Matrix, b: Matrix): Matrix {
+  return a.map((row) =>
+    b[0].map((_, j) => row.reduce((sum, x, k) => sum + x * b[k][j], 0)),
+  );
+}
+
+const transpose = (m: Matrix): Matrix => m[0].map((_, j) => m.map((row) => row[j]));
+
+/** 열/행 방향에 상관없이 벡터의 성분을 뽑는다. */
+const components = (m: Matrix): number[] => m.flatMap((row) => [...row]);
+
+export function evalNumeric(e: TypedExpr, assignment: Assignment): Result<Matrix> {
+  switch (e.op) {
+    case 'num':
+      return ok([[e.value]]);
+
+    case 'sym': {
+      const value = assignment[e.name];
+      return value === undefined
+        ? fail('unknown-shape', `No value assigned to ${e.name}`)
+        : ok(value);
+    }
+
+    case 'matrix': {
+      const rows: number[][] = [];
+      for (const row of e.rows) {
+        const cells: number[] = [];
+        for (const cell of row) {
+          const v = evalNumeric(cell, assignment);
+          if (!v.ok) return v;
+          const s = scalarValue(v.value);
+          if (s === null) return fail('shape-mismatch', 'A matrix entry must be a scalar');
+          cells.push(s);
+        }
+        rows.push(cells);
+      }
+      return ok(rows);
+    }
+
+    case 'add': {
+      let acc: Matrix | null = null;
+      for (const term of e.terms) {
+        const v = evalNumeric(term, assignment);
+        if (!v.ok) return v;
+        acc = acc === null ? v.value : map2(acc, v.value, (x, y) => x + y);
+      }
+      return acc === null ? fail('malformed', 'Empty sum') : ok(acc);
+    }
+
+    case 'neg': {
+      const v = evalNumeric(e.operand, assignment);
+      return v.ok ? ok(scale(-1, v.value)) : v;
+    }
+
+    case 'scalarMul': {
+      const l = evalNumeric(e.left, assignment);
+      if (!l.ok) return l;
+      const r = evalNumeric(e.right, assignment);
+      if (!r.ok) return r;
+      const ls = scalarValue(l.value);
+      const rs = scalarValue(r.value);
+      if (ls !== null) return ok(scale(ls, r.value));
+      if (rs !== null) return ok(scale(rs, l.value));
+      return fail('shape-mismatch', 'scalarMul without a scalar operand');
+    }
+
+    case 'matMul': {
+      const l = evalNumeric(e.left, assignment);
+      if (!l.ok) return l;
+      const r = evalNumeric(e.right, assignment);
+      if (!r.ok) return r;
+      if (l.value[0].length !== r.value.length) {
+        return fail('shape-mismatch', 'Inner dimensions differ');
+      }
+      return ok(matMul(l.value, r.value));
+    }
+
+    case 'dot': {
+      const l = evalNumeric(e.left, assignment);
+      if (!l.ok) return l;
+      const r = evalNumeric(e.right, assignment);
+      if (!r.ok) return r;
+      const a = components(l.value);
+      const b = components(r.value);
+      if (a.length !== b.length) return fail('shape-mismatch', 'Dot product length mismatch');
+      return ok([[a.reduce((sum, x, i) => sum + x * b[i], 0)]]);
+    }
+
+    case 'cross': {
+      const l = evalNumeric(e.left, assignment);
+      if (!l.ok) return l;
+      const r = evalNumeric(e.right, assignment);
+      if (!r.ok) return r;
+      const [a1, a2, a3] = components(l.value);
+      const [b1, b2, b3] = components(r.value);
+      const out = [a2 * b3 - a3 * b2, a3 * b1 - a1 * b3, a1 * b2 - a2 * b1];
+      // 결과의 방향(열/행)은 왼쪽 피연산자를 따른다 — elaborate가 정한 모양과 같다.
+      return ok(l.value.length === 1 ? [out] : out.map((x) => [x]));
+    }
+
+    case 'transpose': {
+      const v = evalNumeric(e.operand, assignment);
+      return v.ok ? ok(transpose(v.value)) : v;
+    }
+
+    case 'matPow': {
+      if (e.exponent < 0) {
+        // 역행렬은 일부러 뺐다. 이 평가기는 **대조용**이라, 특이행렬 처리와 수치 오차까지
+        // 떠안으면 대조 자체를 믿기 어려워진다. 역행렬이 낀 식은 속성 테스트에서 건너뛴다.
+        return fail('unsupported', 'Numeric check does not cover matrix inverses');
+      }
+      const v = evalNumeric(e.base, assignment);
+      if (!v.ok) return v;
+      const n = v.value.length;
+      let acc: Matrix = Array.from({ length: n }, (_, i) =>
+        Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)),
+      );
+      for (let i = 0; i < e.exponent; i += 1) acc = matMul(acc, v.value);
+      return ok(acc);
+    }
+
+    case 'scalarPow': {
+      const base = evalNumeric(e.base, assignment);
+      if (!base.ok) return base;
+      const exponent = evalNumeric(e.exponent, assignment);
+      if (!exponent.ok) return exponent;
+      const b = scalarValue(base.value);
+      const x = scalarValue(exponent.value);
+      if (b === null || x === null) return fail('shape-mismatch', 'scalarPow needs scalars');
+      return ok([[Math.pow(b, x)]]);
+    }
+
+    case 'call': {
+      const fn = SCALAR_FNS[e.name];
+      if (fn === undefined) return fail('unsupported', `No numeric definition for ${e.name}`);
+      const arg = evalNumeric(e.args[0], assignment);
+      if (!arg.ok) return arg;
+      const x = scalarValue(arg.value);
+      return x === null ? fail('shape-mismatch', 'Expected a scalar argument') : ok([[fn(x)]]);
+    }
+  }
+}
+
+/** 두 값이 (부동소수 오차를 감안해) 같은가. */
+export function matricesClose(a: Matrix, b: Matrix, tolerance = 1e-9): boolean {
+  if (a.length !== b.length) return false;
+  return a.every(
+    (row, i) =>
+      row.length === b[i].length &&
+      row.every((x, j) => Math.abs(x - b[i][j]) <= tolerance * Math.max(1, Math.abs(x))),
+  );
+}
+
+/** 스칼라 결과를 꺼낸다 (테스트 편의). */
+export const asScalar = (m: Matrix): number | null => scalarValue(m);
+
+/** 이 식이 스칼라 모양인가 — 대조 전 확인용. */
+export const expectsScalar = (e: TypedExpr): boolean => isScalar(e.shape);

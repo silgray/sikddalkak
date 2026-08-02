@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5173
+    },
+    {
+      "name": "algebra-lab",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "lab"],
+      "port": 5174
     }
   ]
 }
