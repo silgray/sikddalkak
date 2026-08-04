@@ -1,4 +1,5 @@
 import { elaborate, type Env, type TypedExpr } from './elaborate';
+import { parse } from './index';
 import { evalNumeric, matricesClose, type Assignment } from './numeric';
 import { shape } from './shape';
 import { parseSyntax } from './syntax';
@@ -30,6 +31,17 @@ export function typedOf(latex: string, env: Env = TEST_ENV): TypedExpr {
   const typed = elaborate(syntax.value, env);
   if (!typed.ok) throw new Error(`elaborate failed: ${typed.errors[0].message}`);
   return typed.value;
+}
+
+/**
+ * LaTeX → **정규화까지 끝난** Typed IR (elaborate + normalize, 공개 `parse()`와 동일).
+ * `typedOf` 와 달리 평탄화·항등원 소거·정렬이 끝난 트리를 준다 — 소거 결과를 보는
+ * 테스트는 이걸 써야 한다 (`typedOf` 만으로는 elaborate 직후 모습만 보인다).
+ */
+export function normalizedOf(latex: string, env: Env = TEST_ENV): TypedExpr {
+  const r = parse(latex, env);
+  if (!r.ok) throw new Error(`parse failed: ${r.errors[0].message}`);
+  return r.value;
 }
 
 /**

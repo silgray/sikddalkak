@@ -129,6 +129,7 @@ button.active {
 }
 
 .math-input {
+  width: 100%;
   display: inline-block;
   min-width: 0;
   flex: 1;

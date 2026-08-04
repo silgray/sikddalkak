@@ -49,6 +49,7 @@ function precedence(e: TypedExpr): number {
     case 'sym':
     case 'matrix':
     case 'call':
+    case 'matIdentity':
       return ATOM;
     case 'transpose':
     case 'matPow':
@@ -56,6 +57,7 @@ function precedence(e: TypedExpr): number {
       return POW;
     case 'scalarMul':
     case 'matMul':
+    case 'mul':
       return MUL;
     case 'dot':
     case 'cross':
@@ -83,27 +85,31 @@ const CALL_LATEX: Record<string, string> = {
 };
 
 /**
- * 병치로 두 인수를 잇는다.
+ * 병치로 n개의 인수를 잇는다.
  *
- * 오른쪽에 `POW` 를 요구하는 이유: 병치는 좌결합이라 `A(BC)` 의 괄호가 사라지면
- * `(AB)C` 로 다시 읽혀 **비가환 순서가 바뀐다**.
+ * 뒤따르는 인수마다 `POW` 세기를 요구하는 이유: 병치는 좌결합이라 `A(BC)` 의 괄호가
+ * 사라지면 `(AB)C` 로 다시 읽혀 **비가환 순서가 바뀐다**.
  */
-function renderProduct(left: TypedExpr, right: TypedExpr): string {
-  // 앞에 붙은 음수는 곱 **밖으로** 빼낸다.
+function renderProduct(factors: readonly TypedExpr[]): string {
+  // 맨 앞에 붙은 음수는 곱 **밖으로** 빼낸다.
   //
   // LaTeX에는 `-(rC)` 와 `(-r)C` 를 구분할 표기가 없다 (둘 다 `-rC` 로 읽힌다). 값은
   // 같으니 문제는 아니지만, 괄호를 씌워 구분하려 들면 `\left(-r\right)C` 같은 게 나오고
   // 렌더가 멱등이 아니게 된다. 두 트리를 같은 LaTeX으로 수렴시키는 쪽이 낫다.
-  if (left.op === 'neg') return `-${renderProduct(left.operand, right)}`;
-  if (left.op === 'num' && left.value < 0) {
-    return `-${renderProduct({ ...left, value: -left.value }, right)}`;
+  const [head, ...rest] = factors;
+  if (head.op === 'neg') return `-${renderProduct([head.operand, ...rest])}`;
+  if (head.op === 'num' && head.value < 0) {
+    return `-${renderProduct([{ ...head, value: -head.value }, ...rest])}`;
   }
-  const l = at(left, MUL);
-  const r = at(right, POW);
-  // `2`·`3` 을 그냥 붙이면 `23` 이 된다. 그렇다고 `\cdot` 를 끼우면 **묶음이 달라진다** —
-  // `\cdot` 는 병치보다 느슨해서 `2\cdot 3x` 가 `2·(3x)` 로 읽힌다. 괄호로 떼어놓는 게
-  // 유일하게 안전한 방법이다.
-  return /\d$/.test(l) && /^\d/.test(r) ? `${l}${paren(r)}` : `${l}${r}`;
+  return factors.reduce((acc, factor, i) => {
+    if (i === 0) return at(factor, MUL);
+    const r = at(factor, POW);
+    // `2`·`3` 을 그냥 붙이면 `23` 이 된다. 그렇다고 `\cdot` 를 끼우면 **묶음이 달라진다** —
+    // `\cdot` 는 병치보다 느슨해서 `2\cdot 3x` 가 `2·(3x)` 로 읽힌다. 괄호로 떼어놓는 게
+    // 유일하게 안전한 방법이다. (매 접합마다 확인해야 한다 — n-항이라 중간에도 숫자끼리
+    // 만날 수 있다.)
+    return /\d$/.test(acc) && /^\d/.test(r) ? `${acc}${paren(r)}` : `${acc}${r}`;
+  }, '');
 }
 
 export function render(e: TypedExpr): string {
@@ -113,6 +119,9 @@ export function render(e: TypedExpr): string {
 
     case 'sym':
       return symbolLatex(e.name);
+
+    case 'matIdentity':
+      return 'I';
 
     case 'matrix':
       return `\\begin{pmatrix}${e.rows
@@ -148,11 +157,14 @@ export function render(e: TypedExpr): string {
 
     case 'scalarMul':
     case 'matMul':
-      return renderProduct(e.left, e.right);
+      return renderProduct(e.factors);
+
+    case 'mul':
+      return renderProduct([e.scalar, e.matrix]);
 
     // 내적/외적은 양쪽 피연산자에 병치 세기를 요구한다.
     // 내적이 내적의 피연산자가 되는 일은 애초에 없다 — 내적 결과는 스칼라라서 그 다음 곱은
-    // 스칼라곱으로 해석된다 (`u·v·w` = `scalarMul(dot(u,v), w)`).
+    // 스칼라곱으로 해석된다 (`u·v·w` = `scalarMul(factors:[dot(u,v), w])`).
     // 외적은 결합법칙이 없어 파서가 `u×v×w` 를 아예 거부하므로 괄호가 반드시 필요하다.
     // 곱과 같은 이유로 앞선 음수는 밖으로 뺀다. 내적·외적은 각 자리에 선형이라
     // `(-x)·y = -(x·y)` 이고, LaTeX에는 둘을 구분할 표기가 없다.

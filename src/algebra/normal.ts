@@ -8,7 +8,7 @@ import {
 } from './elaborate';
 import { OP_PROPERTIES } from './ops';
 import { fail, ok, type Result } from './result';
-import { SCALAR, isKnownShape, isScalar, isSquare, type Shape } from './shape';
+import { SCALAR, formatShape, isKnownShape, isScalar, isSquare, type Shape } from './shape';
 
 /**
  * 정규형 — **단항식 = (수치 계수, 스칼라 인수 집합, 비스칼라 인수 열)**.
@@ -58,6 +58,16 @@ export function exprKey(e: TypedExpr): string {
       return `+(${e.terms.map(exprKey).join(' ')})`;
     case 'neg':
       return `-(${exprKey(e.operand)})`;
+    case 'scalarMul':
+      return `*(${e.factors.map(exprKey).join(',')})`;
+    case 'matMul':
+      return `M(${e.factors.map(exprKey).join(',')})`;
+    case 'mul':
+      return `mul(${exprKey(e.scalar)},${exprKey(e.matrix)})`;
+    case 'dot':
+      return `dot(${exprKey(e.left)},${exprKey(e.right)})`;
+    case 'cross':
+      return `cross(${exprKey(e.left)},${exprKey(e.right)})`;
     case 'transpose':
       return `T(${exprKey(e.operand)})`;
     case 'matPow':
@@ -66,8 +76,8 @@ export function exprKey(e: TypedExpr): string {
       return `p(${exprKey(e.base)},${exprKey(e.exponent)})`;
     case 'call':
       return `${e.name}(${e.args.map(exprKey).join(',')})`;
-    default:
-      return `${e.op}(${exprKey(e.left)},${exprKey(e.right)})`;
+    case 'matIdentity':
+      return `I(${formatShape(e.shape)})`;
   }
 }
 
@@ -167,7 +177,9 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
     case 'matrix':
     case 'call':
     case 'scalarPow':
+    case 'matIdentity':
       // 순수 스칼라 부분식은 CE 몫이라(§7) 여기서는 통째로 원자 취급한다.
+      // matIdentity도 여기서는 그냥 원자다 — 소거는 normalize의 몫이다.
       return ok([atom(e)]);
 
     case 'neg': {
@@ -187,11 +199,24 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
 
     case 'scalarMul':
     case 'matMul': {
-      const left = toPolynomial(e.left);
-      if (!left.ok) return left;
-      const right = toPolynomial(e.right);
-      if (!right.ok) return right;
-      return collapseIfScalar(polyMul(left.value, right.value), e.shape);
+      // n-항 인수를 순서대로 곱해나간다. (scalarMul은 전부 스칼라 모양이라 폴딩 결과의
+      // factors가 애초에 비지만, matMul은 안쪽에서 스칼라로 접히는 경우가 있어
+      // collapseIfScalar가 필요하다 — `matMul(r,u)` 처럼 (1,3)(3,1)=(1,1)인 경우.)
+      let acc: Polynomial = [ONE];
+      for (const f of e.factors) {
+        const p = toPolynomial(f);
+        if (!p.ok) return p;
+        acc = polyMul(acc, p.value);
+      }
+      return collapseIfScalar(acc, e.shape);
+    }
+
+    case 'mul': {
+      const scalar = toPolynomial(e.scalar);
+      if (!scalar.ok) return scalar;
+      const matrix = toPolynomial(e.matrix);
+      if (!matrix.ok) return matrix;
+      return collapseIfScalar(polyMul(scalar.value, matrix.value), e.shape);
     }
 
     case 'dot':

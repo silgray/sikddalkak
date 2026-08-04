@@ -51,6 +51,16 @@ export function sexpTyped(e: TypedExpr): string {
       return `(add ${e.terms.map(sexpTyped).join(' ')})`;
     case 'neg':
       return `(neg ${sexpTyped(e.operand)})`;
+    case 'scalarMul':
+      return `(scalarMul ${e.factors.map(sexpTyped).join(' ')})`;
+    case 'matMul':
+      return `(matMul ${e.factors.map(sexpTyped).join(' ')})`;
+    case 'mul':
+      return `(mul ${sexpTyped(e.scalar)} ${sexpTyped(e.matrix)})`;
+    case 'dot':
+      return `(dot ${sexpTyped(e.left)} ${sexpTyped(e.right)})`;
+    case 'cross':
+      return `(cross ${sexpTyped(e.left)} ${sexpTyped(e.right)})`;
     case 'transpose':
       return `(transpose ${sexpTyped(e.operand)})`;
     case 'matPow':
@@ -59,8 +69,8 @@ export function sexpTyped(e: TypedExpr): string {
       return `(scalarPow ${sexpTyped(e.base)} ${sexpTyped(e.exponent)})`;
     case 'call':
       return `(${e.name} ${e.args.map(sexpTyped).join(' ')})`;
-    default:
-      return `(${e.op} ${sexpTyped(e.left)} ${sexpTyped(e.right)})`;
+    case 'matIdentity':
+      return 'I';
   }
 }
 
@@ -78,6 +88,16 @@ export function sexpTypedWithShapes(e: TypedExpr): string {
         return `(add ${e.terms.map(sexpTypedWithShapes).join(' ')})`;
       case 'neg':
         return `(neg ${sexpTypedWithShapes(e.operand)})`;
+      case 'scalarMul':
+        return `(scalarMul ${e.factors.map(sexpTypedWithShapes).join(' ')})`;
+      case 'matMul':
+        return `(matMul ${e.factors.map(sexpTypedWithShapes).join(' ')})`;
+      case 'mul':
+        return `(mul ${sexpTypedWithShapes(e.scalar)} ${sexpTypedWithShapes(e.matrix)})`;
+      case 'dot':
+        return `(dot ${sexpTypedWithShapes(e.left)} ${sexpTypedWithShapes(e.right)})`;
+      case 'cross':
+        return `(cross ${sexpTypedWithShapes(e.left)} ${sexpTypedWithShapes(e.right)})`;
       case 'transpose':
         return `(transpose ${sexpTypedWithShapes(e.operand)})`;
       case 'matPow':
@@ -86,8 +106,8 @@ export function sexpTypedWithShapes(e: TypedExpr): string {
         return `(scalarPow ${sexpTypedWithShapes(e.base)} ${sexpTypedWithShapes(e.exponent)})`;
       case 'call':
         return `(${e.name} ${e.args.map(sexpTypedWithShapes).join(' ')})`;
-      default:
-        return `(${e.op} ${sexpTypedWithShapes(e.left)} ${sexpTypedWithShapes(e.right)})`;
+      case 'matIdentity':
+        return 'I';
     }
   })();
   return `${inner}:${formatShape(e.shape)}`;

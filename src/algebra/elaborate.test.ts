@@ -35,7 +35,7 @@ describe('사용자 예시 — 설계가 답해야 하는 것들', () => {
 
   it('(v^T v)A 는 스칼라 x 행렬이다', () => {
     expect(opsOf(String.raw`\left(v^Tv\right)A`)).toBe(
-      '(scalarMul (matMul (transpose v) v) A)',
+      '(mul (matMul (transpose v) v) A)',
     );
     expect(shapeOf(String.raw`\left(v^Tv\right)A`)).toBe('3x3');
   });
@@ -57,7 +57,7 @@ describe('사용자 예시 — 설계가 답해야 하는 것들', () => {
   it('(v.w)v x A(v x w) 가 통째로 성립한다', () => {
     const latex = String.raw`\left(v\cdot w\right)v\times A\left(v\times w\right)`;
     expect(opsOf(latex)).toBe(
-      '(cross (scalarMul (dot v w) v) (matMul A (cross v w)))',
+      '(cross (mul (dot v w) v) (matMul A (cross v w)))',
     );
     expect(shapeOf(latex)).toBe('3x1');
   });
@@ -69,10 +69,10 @@ describe('사용자 예시 — 설계가 답해야 하는 것들', () => {
 });
 
 describe('cdot — 모양이 연산을 고른다', () => {
-  it('스칼라가 끼면 스칼라곱', () => {
-    expect(opsOf(String.raw`a\cdot v`)).toBe('(scalarMul a v)');
+  it('스칼라가 끼면 mul(scalar, matrix) — 순수 스칼라끼리의 scalarMul과 구분된다', () => {
+    expect(opsOf(String.raw`a\cdot v`)).toBe('(mul a v)');
     expect(shapeOf(String.raw`a\cdot v`)).toBe('3x1');
-    expect(opsOf(String.raw`v\cdot a`)).toBe('(scalarMul v a)');
+    expect(opsOf(String.raw`v\cdot a`)).toBe('(mul a v)');
   });
 
   it('같은 방향 같은 길이 벡터면 내적 -> 스칼라', () => {
@@ -95,8 +95,8 @@ describe('cdot — 모양이 연산을 고른다', () => {
 });
 
 describe('times — 모양이 연산을 고른다', () => {
-  it('스칼라가 끼면 스칼라곱', () => {
-    expect(opsOf(String.raw`a\times v`)).toBe('(scalarMul a v)');
+  it('스칼라가 끼면 mul(scalar, matrix)', () => {
+    expect(opsOf(String.raw`a\times v`)).toBe('(mul a v)');
   });
 
   it('3-벡터끼리면 외적 -> 3-벡터', () => {
@@ -113,10 +113,10 @@ describe('times — 모양이 연산을 고른다', () => {
   });
 });
 
-describe('병치 — 스칼라곱 아니면 행렬곱', () => {
-  it('스칼라가 끼면 스칼라곱', () => {
-    expect(opsOf('2A')).toBe('(scalarMul 2 A)');
-    expect(opsOf('av')).toBe('(scalarMul a v)');
+describe('병치 — 스칼라·행렬 조합에 따라 scalarMul/matMul/mul 셋 중 하나', () => {
+  it('스칼라와 행렬이 섞이면 mul', () => {
+    expect(opsOf('2A')).toBe('(mul 2 A)');
+    expect(opsOf('av')).toBe('(mul a v)');
   });
 
   it('안쪽 차원이 맞으면 행렬곱', () => {
@@ -185,8 +185,8 @@ describe('거듭제곱', () => {
 });
 
 describe('분수·함수', () => {
-  it('스칼라로 나누면 역수의 스칼라곱이다', () => {
-    expect(opsOf(String.raw`\frac{A}{a}`)).toBe('(scalarMul A (scalarPow a -1))');
+  it('스칼라로 나누면 역수와의 mul이다', () => {
+    expect(opsOf(String.raw`\frac{A}{a}`)).toBe('(mul (scalarPow a -1) A)');
     expect(shapeOf(String.raw`\frac{A}{a}`)).toBe('3x3');
   });
 
@@ -226,7 +226,7 @@ describe('미정의 심볼은 스칼라로 가정한다', () => {
     expect(opsOf('xy')).toBe('(scalarMul x y)');
   });
 
-  it('그래서 미정의 문자와 행렬의 곱은 스칼라곱이 된다', () => {
-    expect(opsOf('kA')).toBe('(scalarMul k A)');
+  it('그래서 미정의 문자와 행렬의 곱은 mul이 된다', () => {
+    expect(opsOf('kA')).toBe('(mul k A)');
   });
 });

@@ -1,5 +1,3 @@
-import type { TypedExpr } from './elaborate';
-
 /**
  * 연산의 대수적 성질 — **코드 분기가 아니라 데이터**로 둔다.
  *
@@ -26,6 +24,8 @@ export type OpProperties = {
   readonly distributesOverAdd: boolean;
   /** 결과가 항상 스칼라인가 (내적처럼 모양을 떨어뜨리는 연산) */
   readonly yieldsScalar: boolean;
+  /** (kv*w) = k(v*w) — 참이라면 스칼라 곱을 밖으로 꺼낼 수 있다 */
+  readonly homogeneity: boolean;
 };
 
 export const OP_PROPERTIES: Record<BinaryOp, OpProperties> = {
@@ -34,6 +34,7 @@ export const OP_PROPERTIES: Record<BinaryOp, OpProperties> = {
     associative: true,
     distributesOverAdd: true,
     yieldsScalar: false,
+    homogeneity: true,
   },
   matMul: {
     // 여기가 `ABA → A²B` 를 막는 지점이다.
@@ -41,6 +42,7 @@ export const OP_PROPERTIES: Record<BinaryOp, OpProperties> = {
     associative: true,
     distributesOverAdd: true,
     yieldsScalar: false,
+    homogeneity: true,
   },
   dot: {
     commutativity: 'commutative',
@@ -48,6 +50,7 @@ export const OP_PROPERTIES: Record<BinaryOp, OpProperties> = {
     associative: false,
     distributesOverAdd: true,
     yieldsScalar: true,
+    homogeneity: true,
   },
   cross: {
     commutativity: 'anticommutative',
@@ -55,16 +58,11 @@ export const OP_PROPERTIES: Record<BinaryOp, OpProperties> = {
     associative: false,
     distributesOverAdd: true,
     yieldsScalar: false,
+    homogeneity: true,
   },
 };
 
 export const isBinaryOp = (op: string): op is BinaryOp => op in OP_PROPERTIES;
-
-/** 이 노드가 성질 표를 가진 이항 연산인가. */
-export const asBinary = (
-  e: TypedExpr,
-): (TypedExpr & { op: BinaryOp; left: TypedExpr; right: TypedExpr }) | null =>
-  isBinaryOp(e.op) ? (e as TypedExpr & { op: BinaryOp; left: TypedExpr; right: TypedExpr }) : null;
 
 /** 인수 열로 평탄화해도 되는가 (결합법칙). */
 export const canFlatten = (op: BinaryOp): boolean => OP_PROPERTIES[op].associative;

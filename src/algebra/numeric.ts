@@ -55,6 +55,12 @@ export function evalNumeric(e: TypedExpr, assignment: Assignment): Result<Matrix
         : ok(value);
     }
 
+    case 'matIdentity': {
+      const rows = e.shape.rows;
+      if (typeof rows !== 'number') return fail('unknown-shape', 'Identity matrix has no known size');
+      return ok(Array.from({ length: rows }, (_, i) => Array.from({ length: rows }, (_, j) => (i === j ? 1 : 0))));
+    }
+
     case 'matrix': {
       const rows: number[][] = [];
       for (const row of e.rows) {
@@ -87,26 +93,42 @@ export function evalNumeric(e: TypedExpr, assignment: Assignment): Result<Matrix
     }
 
     case 'scalarMul': {
-      const l = evalNumeric(e.left, assignment);
-      if (!l.ok) return l;
-      const r = evalNumeric(e.right, assignment);
-      if (!r.ok) return r;
-      const ls = scalarValue(l.value);
-      const rs = scalarValue(r.value);
-      if (ls !== null) return ok(scale(ls, r.value));
-      if (rs !== null) return ok(scale(rs, l.value));
-      return fail('shape-mismatch', 'scalarMul without a scalar operand');
+      let acc = 1;
+      for (const f of e.factors) {
+        const v = evalNumeric(f, assignment);
+        if (!v.ok) return v;
+        const s = scalarValue(v.value);
+        if (s === null) return fail('shape-mismatch', 'scalarMul factor must be a scalar');
+        acc *= s;
+      }
+      return ok([[acc]]);
     }
 
     case 'matMul': {
-      const l = evalNumeric(e.left, assignment);
-      if (!l.ok) return l;
-      const r = evalNumeric(e.right, assignment);
-      if (!r.ok) return r;
-      if (l.value[0].length !== r.value.length) {
-        return fail('shape-mismatch', 'Inner dimensions differ');
+      const values: Matrix[] = [];
+      for (const f of e.factors) {
+        const v = evalNumeric(f, assignment);
+        if (!v.ok) return v;
+        values.push(v.value);
       }
-      return ok(matMul(l.value, r.value));
+      let acc = values[0];
+      for (let i = 1; i < values.length; i += 1) {
+        if (acc[0].length !== values[i].length) {
+          return fail('shape-mismatch', 'Inner dimensions differ');
+        }
+        acc = matMul(acc, values[i]);
+      }
+      return ok(acc);
+    }
+
+    case 'mul': {
+      const s = evalNumeric(e.scalar, assignment);
+      if (!s.ok) return s;
+      const m = evalNumeric(e.matrix, assignment);
+      if (!m.ok) return m;
+      const k = scalarValue(s.value);
+      if (k === null) return fail('shape-mismatch', 'mul.scalar must be a scalar');
+      return ok(scale(k, m.value));
     }
 
     case 'dot': {

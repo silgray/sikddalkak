@@ -19,6 +19,7 @@ import {
   type Monomial,
   type Polynomial,
 } from './normal';
+import { normalize } from './normalize';
 import { fail, ok, type Result } from './result';
 import { render } from './render';
 import { parseCeJson } from './syntax';
@@ -58,16 +59,25 @@ export function isPureScalar(e: TypedExpr): boolean {
     case 'matMul':
     case 'matPow':
       return false;
+    // `mul` 은 `matrix` 필드가 비스칼라 모양이라 `e.shape` 도 늘 비스칼라다 — 위의
+    // `isScalar(e.shape)` 관문에서 이미 걸러진다. 여기 있는 건 switch 완전성 때문이다.
+    case 'mul':
+      return false;
     case 'add':
       return e.terms.every(isPureScalar);
     case 'neg':
       return isPureScalar(e.operand);
     case 'scalarMul':
-      return isPureScalar(e.left) && isPureScalar(e.right);
+      return e.factors.every(isPureScalar);
     case 'scalarPow':
       return isPureScalar(e.base) && isPureScalar(e.exponent);
     case 'call':
       return e.args.every(isPureScalar);
+    // 미정 항등원은 `isScalar(e.shape)` 관문에서 대부분 걸러지지만(정사각 미정 크기는
+    // 스칼라가 아니다), CE는 애초에 `I` 를 모른다 — 넘기면 그냥 미지 심볼로 읽어 무슨
+    // 정리를 할지 알 수 없다. 절대 위임하지 않는다.
+    case 'matIdentity':
+      return false;
   }
 }
 
@@ -127,6 +137,7 @@ function mapChildren(
   switch (e.op) {
     case 'num':
     case 'sym':
+    case 'matIdentity':
       return ok(e);
 
     case 'matrix': {
@@ -162,14 +173,31 @@ function mapChildren(
     }
 
     case 'scalarMul':
-    case 'matMul':
+    case 'matMul': {
+      const mapped: TypedExpr[] = [];
+      for (const factor of e.factors) {
+        const result = f(factor);
+        if (!result.ok) return result;
+        mapped.push(result.value);
+      }
+      return foldMul(mapped);
+    }
+
+    case 'mul': {
+      const scalar = f(e.scalar);
+      if (!scalar.ok) return scalar;
+      const matrix = f(e.matrix);
+      if (!matrix.ok) return matrix;
+      return mulTyped(scalar.value, matrix.value);
+    }
+
     case 'dot':
     case 'cross': {
       const left = f(e.left);
       if (!left.ok) return left;
       const right = f(e.right);
       if (!right.ok) return right;
-      const combine = e.op === 'dot' ? dotTyped : e.op === 'cross' ? crossTyped : mulTyped;
+      const combine = e.op === 'dot' ? dotTyped : crossTyped;
       return combine(left.value, right.value);
     }
 
@@ -248,8 +276,19 @@ function refineScalars(p: Polynomial, op: CeOp, env: Env, fold: boolean): Polyno
  * 곱을 합 위로 완전히 분배하고 동류항을 합친다.
  *
  * `v^T(A+B)v` → `v^TAv + v^TBv`, `(A+B)²` → `A² + AB + BA + B²` (순서 유지).
+ *
+ * `fromPolynomial` 은 `mulTyped` 로 좌결합 접기만 하고 평탄화·정렬은 안 한다 — 그 결과가
+ * `parse()`(elaborate+normalize)가 같은 값에 대해 내놓는 트리와 **모양이 다를 수 있다**
+ * (값은 같은데 구조가 달라 렌더→재파싱 왕복이 깨진다, 퍼즈로 확인). 그래서 끝에
+ * `normalize` 를 한 번 더 걸어 어느 경로로 왔든 같은 값이 같은 트리로 수렴하게 한다.
  */
 export function expand(e: TypedExpr, env: Env): Result<TypedExpr> {
+  const result = expandRaw(e, env);
+  if (!result.ok) return result;
+  return normalize(result.value);
+}
+
+function expandRaw(e: TypedExpr, env: Env): Result<TypedExpr> {
   if (isPureScalar(e)) return ok(viaCe(e, 'expand', env));
   const p = toPolynomial(e);
   if (!p.ok) return p;
@@ -266,14 +305,24 @@ export function expand(e: TypedExpr, env: Env): Result<TypedExpr> {
  * expand와 달리 **괄호를 함부로 풀지 않는다.** 자식부터 정리한 뒤, 덧셈 노드에서만
  * 동류항을 합친다. 어떤 항을 합치려고 분배가 필요하면 그 항은 통째로 놔둔다 —
  * 사용자가 `\left(A+B\right)C` 라고 쓴 걸 정리랍시고 펼쳐놓지 않기 위해서다.
+ *
+ * 재귀는 `simplifyRaw` 안에서만 돌고, **normalize는 맨 바깥에서 한 번만** 건다 —
+ * 재귀할 때마다 정규화하면 트리 깊이만큼 중복 작업이 쌓인다 (정규화 자체는 몇 번을
+ * 걸어도 값은 안 바뀌지만, 굳이 반복할 이유가 없다).
  */
 export function simplify(e: TypedExpr, env: Env): Result<TypedExpr> {
+  const result = simplifyRaw(e, env);
+  if (!result.ok) return result;
+  return normalize(result.value);
+}
+
+function simplifyRaw(e: TypedExpr, env: Env): Result<TypedExpr> {
   if (isPureScalar(e)) return ok(viaCe(e, 'simplify', env));
 
   if (e.op === 'add') {
     const terms: TypedExpr[] = [];
     for (const term of e.terms) {
-      const simplified = simplify(term, env);
+      const simplified = simplifyRaw(term, env);
       if (!simplified.ok) return simplified;
       terms.push(simplified.value);
     }
@@ -297,7 +346,7 @@ export function simplify(e: TypedExpr, env: Env): Result<TypedExpr> {
     );
   }
 
-  return mapChildren(e, (child) => simplify(child, env));
+  return mapChildren(e, (child) => simplifyRaw(child, env));
 }
 
 // ---------------------------------------------------------------------------
@@ -444,6 +493,12 @@ const foldMul = (parts: readonly TypedExpr[]): Result<TypedExpr> =>
  * 억지로 뽑으면 곱의 순서가 바뀌어 답이 달라진다.
  */
 export function factor(e: TypedExpr, env: Env): Result<TypedExpr> {
+  const result = factorRaw(e, env);
+  if (!result.ok) return result;
+  return normalize(result.value);
+}
+
+function factorRaw(e: TypedExpr, env: Env): Result<TypedExpr> {
   // 구조적 추출을 **먼저** 시도한다. CE를 먼저 부르면 순수 스칼라 `AB+AC` 처럼
   // 우리 쪽이 할 수 있는 것까지 놓친다 (CE 0.90은 다변수 공통인수를 못 뽑는다, 실측).
   const structural = factorStructural(e, env);
@@ -531,5 +586,9 @@ export function substitute(e: TypedExpr, env: Env): Result<TypedExpr> {
     }
     return mapChildren(node, step);
   };
-  return step(e);
+  const result = step(e);
+  if (!result.ok) return result;
+  // 치환된 심볼의 정의가 이미 중첩된 곱일 수 있다 (`D=AB` 를 `Dv` 에 꽂으면 그 자체가
+  // matMul 안의 matMul이 된다) — 다른 변환들과 같은 이유로 여기도 정규화한다.
+  return normalize(result.value);
 }

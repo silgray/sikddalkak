@@ -32,14 +32,40 @@ export type TypedExpr =
   | { readonly op: 'matrix'; readonly shape: Shape; readonly rows: readonly (readonly TypedExpr[])[] }
   | { readonly op: 'add'; readonly shape: Shape; readonly terms: readonly TypedExpr[] }
   | { readonly op: 'neg'; readonly shape: Shape; readonly operand: TypedExpr }
-  | { readonly op: 'scalarMul'; readonly shape: Shape; readonly left: TypedExpr; readonly right: TypedExpr }
-  | { readonly op: 'matMul'; readonly shape: Shape; readonly left: TypedExpr; readonly right: TypedExpr }
+  /**
+   * 스칼라끼리의 곱. **n-항** — 이항 트리로 두면 `AABBAAAu` 같은 식이 7겹으로 중첩돼
+   * 구조를 알아볼 수 없다. `elaborate` 는 정규화 없이 둘씩만 담고(중첩된 채로 둔다),
+   * `normalize` 가 평탄화·정렬·숫자 접기를 한다. 정규화가 끝난 뒤의 불변식: 길이 ≥ 2,
+   * 전부 스칼라 모양, 숫자 리터럴은 최대 1개(있다면 맨 앞), 나머지는 `exprKey` 순 정렬.
+   */
+  | { readonly op: 'scalarMul'; readonly shape: Shape; readonly factors: readonly TypedExpr[] }
+  /**
+   * 행렬끼리의 곱. **n-항**, 이유는 `scalarMul` 과 같다. 정규화 후 불변식: 길이 ≥ 2,
+   * 전부 비스칼라 모양. **순서는 절대 정렬하지 않는다** — 인수 순서가 비가환을 지키는
+   * 지점이다 (`ABA` 와 `A²B` 는 같은 인수 열이 될 수 없다).
+   */
+  | { readonly op: 'matMul'; readonly shape: Shape; readonly factors: readonly TypedExpr[] }
+  /**
+   * 스칼라 부분과 행렬 부분이 섞인 곱. `scalar` 는 스칼라 모양(단일 심볼이거나
+   * `scalarMul` 일 수 있다), `matrix` 는 비스칼라 모양(단일 심볼이거나 `matMul`일 수
+   * 있다). 한쪽만 있으면 이 노드를 만들지 않고 `scalarMul`/`matMul` 을 그대로 쓴다.
+   */
+  | { readonly op: 'mul'; readonly shape: Shape; readonly scalar: TypedExpr; readonly matrix: TypedExpr }
   | { readonly op: 'dot'; readonly shape: Shape; readonly left: TypedExpr; readonly right: TypedExpr }
   | { readonly op: 'cross'; readonly shape: Shape; readonly left: TypedExpr; readonly right: TypedExpr }
   | { readonly op: 'transpose'; readonly shape: Shape; readonly operand: TypedExpr }
   | { readonly op: 'matPow'; readonly shape: Shape; readonly base: TypedExpr; readonly exponent: number }
   | { readonly op: 'scalarPow'; readonly shape: Shape; readonly base: TypedExpr; readonly exponent: TypedExpr }
-  | { readonly op: 'call'; readonly shape: Shape; readonly name: string; readonly args: readonly TypedExpr[] };
+  | { readonly op: 'call'; readonly shape: Shape; readonly name: string; readonly args: readonly TypedExpr[] }
+  /**
+   * 항등행렬 `I`. 모양은 미정(`{rows:'unknown',cols:'unknown'}`)일 수 있다 — elaborate가
+   * 바닥에서 위로 훑는 동안은 `I` 혼자서 크기를 알 길이 없고, 곱하거나 더하는 **상대**가
+   * 알려줘야 한다(`resolveIdentities`). 끝까지 아무도 안 알려주면 normalize가 `(1,1)`
+   * (스칼라 1과 같음)로 굳힌다. 전용 노드로 두는 이유는 `sym` 이름 `'I'` 로 흘려보내면
+   * TypeScript가 switch 처리를 강제해주지 않아 numeric.ts 같은 곳에서 조용히
+   * "값이 없다" 로 새어나가기 때문이다.
+   */
+  | { readonly op: 'matIdentity'; readonly shape: Shape };
 
 /**
  * 심볼 환경.
@@ -74,21 +100,52 @@ const TRANSPOSE_MARKS = new Set(['T', 'top', 'intercal', '\\top', '\\intercal'])
 const shapeMismatch = (message: string, where?: string): Result<TypedExpr> =>
   fail('shape-mismatch', message, where);
 
-/** 두 피연산자 중 스칼라가 아닌 쪽을 고른다 (스칼라곱의 결과 모양). */
-const nonScalarShape = (a: Shape, b: Shape): Shape => (isScalar(a) ? b : a);
-
-/** 성공한 결과에 부호를 씌운다. */
-const negated = (result: Result<TypedExpr>): Result<TypedExpr> =>
-  result.ok ? ok({ op: 'neg', shape: result.value.shape, operand: result.value }) : result;
-
 // ---------------------------------------------------------------------------
 // 곱 — 세 가지 표기(`·`, `×`, 병치)가 모양에 따라 서로 다른 연산으로 갈린다
 // ---------------------------------------------------------------------------
 
-/** 행렬곱. `(m,n)(n,p) -> (m,p)`. 안쪽 차원이 **확실히** 다를 때만 오류. */
+/**
+ * `e` 가 (겉으로는 `mul`/`neg` 에 감싸여 있더라도) 안에 **아직 모양이 안 정해진
+ * 항등원**을 품고 있는가. `kI`, `-I` 처럼 스칼라와 먼저 결합된 뒤에야 다른 피연산자를
+ * 만나는 경우를 잡기 위해서다 — 그러지 않으면 `2 \cdot I \cdot a^{-1} \cdot v` 처럼
+ * `I` 가 다른 스칼라와 먼저 묶여버린 식에서 상대(`v`)를 만나도 모양을 못 찾는다.
+ */
+function hasUnresolvedIdentity(e: TypedExpr): boolean {
+  if (e.op === 'matIdentity') return !isKnownShape(e.shape);
+  if (e.op === 'neg') return hasUnresolvedIdentity(e.operand);
+  if (e.op === 'mul') return !isKnownShape(e.matrix.shape) && hasUnresolvedIdentity(e.matrix);
+  return false;
+}
+
+/**
+ * 행렬곱. `(m,n)(n,p) -> (m,p)`. 안쪽 차원이 **확실히** 다를 때만 오류.
+ *
+ * 미정 항등원(`I`)이 (겉으로 `mul`/`neg` 에 감싸여 있어도) 한쪽에 있으면 **상대에게서
+ * 모양을 유도**한다 — 정사각이므로 한 차원만 알면 결정된다(`AI` → I는 A.cols×A.cols,
+ * `IA` → I는 A.rows×A.rows). 둘 다 미정 `I` 면 크기를 정하지 않아도 곱은 여전히 `I` 다.
+ */
 function elaborateMatMul(left: TypedExpr, right: TypedExpr, symbol: string): Result<TypedExpr> {
-  const a = left.shape;
-  const b = right.shape;
+  let a = left.shape;
+  let b = right.shape;
+  let resolvedLeft = left;
+  let resolvedRight = right;
+
+  if (
+    left.op === 'matIdentity' &&
+    right.op === 'matIdentity' &&
+    !isKnownShape(a) &&
+    !isKnownShape(b)
+  ) {
+    return ok(left);
+  }
+  if (!isKnownShape(a) && isKnownShape(b) && hasUnresolvedIdentity(left)) {
+    resolvedLeft = resolveIdentities(left, shape(b.rows, b.rows));
+    a = resolvedLeft.shape;
+  } else if (!isKnownShape(b) && isKnownShape(a) && hasUnresolvedIdentity(right)) {
+    resolvedRight = resolveIdentities(right, shape(a.cols, a.cols));
+    b = resolvedRight.shape;
+  }
+
   if (!isKnownShape(a) || !isKnownShape(b)) {
     return fail('unknown-shape', `Cannot determine the shape of a ${symbol} operand`);
   }
@@ -97,7 +154,11 @@ function elaborateMatMul(left: TypedExpr, right: TypedExpr, symbol: string): Res
       `Cannot multiply ${formatShape(a)} by ${formatShape(b)}: inner dimensions differ`,
     );
   }
-  return ok({ op: 'matMul', shape: shape(a.rows, b.cols), left, right });
+  return ok({
+    op: 'matMul',
+    shape: shape(a.rows, b.cols),
+    factors: [resolvedLeft, resolvedRight],
+  });
 }
 
 /**
@@ -152,37 +213,33 @@ function elaborateTimes(left: TypedExpr, right: TypedExpr): Result<TypedExpr> {
 }
 
 /**
- * 병치(암묵적 곱) — 스칼라가 끼면 스칼라곱, 아니면 행렬곱.
+ * 병치(암묵적 곱) — 스칼라·행렬 중 무엇끼리인지에 따라 `scalarMul`/`matMul`/`mul` 셋 중
+ * 하나를 고른다. 재작성이 인수를 다시 곱해 조립할 때도 이 함수를 쓴다 (`mulTyped` 로
+ * 내보낸다). 조립 규칙이 두 벌이 되면 모양·연산 판정이 어긋나므로 한 곳에 둔다.
  *
- * 재작성이 인수를 다시 곱해 조립할 때도 이 함수를 쓴다 (`mulTyped` 로 내보낸다).
- * 조립 규칙이 두 벌이 되면 모양·연산 판정이 어긋나므로 한 곳에 둔다.
+ * **정규화는 하지 않는다.** 중첩된 곱을 평탄화하거나, `neg`/숫자를 끌어올리거나,
+ * 이웃 인수를 거듭제곱으로 접는 건 전부 `normalize` 의 몫이다 (별도 패스). 여기서는
+ * 둘을 그대로 담기만 한다 — `elaborateJuxt(matMul(A,B), C)` 는 `matMul(matMul(A,B), C)`
+ * 로 중첩된 채 나온다.
  */
 function elaborateJuxt(left: TypedExpr, right: TypedExpr): Result<TypedExpr> {
-  // 부호는 곱 **밖으로** 끌어올린다. `A(-B)` = `-(AB)` 다 (부호는 스칼라라 자유롭게
-  // 움직인다). 이렇게 해두면 곱 안에 `neg` 가 남지 않아 아래 묶음 정규화가 걸리지 않고,
-  // 렌더도 `-AB` 한 가지로 수렴한다.
-  if (left.op === 'neg') return negated(elaborateJuxt(left.operand, right));
-  if (right.op === 'neg') return negated(elaborateJuxt(left, right.operand));
-
-  // 곱은 **결합법칙이 있으므로** 왼쪽으로 모아 정규화한다. `A(BC)` 와 `(AB)C` 가 같은
-  // 트리가 되어 렌더가 안정된다. (비가환과 혼동하지 말 것 — 인수의 **순서**는 그대로
-  // 두고 **묶음**만 편다. `AB ≠ BA` 는 여전히 지켜진다.)
-  //
-  // 단, **모양이 맞을 때만** 편다. `C(ru)` 에서 `ru` 가 `(1,3)(3,1)` = 스칼라라면
-  // `(Cr)u` 의 `Cr` 은 `(3,3)(1,3)` 이라 아예 존재하지 않는 곱이다. 차원이 맞아떨어질
-  // 때 결합법칙이 성립한다는 뜻이므로, 안 맞으면 원래 묶음 그대로 두는 게 옳다.
-  if (right.op === 'matMul' || right.op === 'scalarMul') {
-    const merged = elaborateJuxt(left, right.left);
-    if (merged.ok) {
-      const reassociated = elaborateJuxt(merged.value, right.right);
-      if (reassociated.ok) return reassociated;
-    }
-  }
   const a = left.shape;
   const b = right.shape;
-  if (isScalar(a) || isScalar(b)) {
-    return ok({ op: 'scalarMul', shape: nonScalarShape(a, b), left, right });
+  const aScalar = isScalar(a);
+  const bScalar = isScalar(b);
+
+  if (aScalar && bScalar) {
+    return ok({ op: 'scalarMul', shape: SCALAR, factors: [left, right] });
   }
+  if (aScalar !== bScalar) {
+    // 정확히 한쪽만 스칼라 — `mul(scalar, matrix)`. 스칼라는 자유롭게 움직이므로
+    // 어느 쪽에 썼는지(`kA` 든 `Ak` 든)는 `scalar`/`matrix` 필드 배정에 영향을 주지
+    // 않는다 — 값이 아니라 **모양**으로 역할을 정한다.
+    const [scalar, matrix] = aScalar ? [left, right] : [right, left];
+    return ok({ op: 'mul', shape: matrix.shape, scalar, matrix });
+  }
+  // 둘 다 비스칼라 — 행렬곱. (좌결합 재결합은 하지 않는다: 결과가 `matMul(A,B)` 처럼
+  // 중첩돼도 normalize가 나중에 평탄화한다.)
   return elaborateMatMul(left, right, 'product');
 }
 
@@ -196,6 +253,8 @@ export const crossTyped = elaborateTimes;
 
 /** 전치. 모양을 뒤집는다. 스칼라에는 쓰지 않는다 (그건 일반 지수다). */
 export function transposeTyped(operand: TypedExpr): Result<TypedExpr> {
+  // I^T = I — 미정이어도 정사각이 전제라 뒤집어도 그대로다.
+  if (operand.op === 'matIdentity') return ok(operand);
   if (isScalar(operand.shape)) return ok(operand);
   const s = operand.shape;
   return ok({ op: 'transpose', shape: shape(s.cols, s.rows), operand });
@@ -208,6 +267,10 @@ export function transposeTyped(operand: TypedExpr): Result<TypedExpr> {
 function elaboratePow(base: TypedExpr, exponent: SyntaxNode, env: Env): Result<TypedExpr> {
   // `^T`: 비스칼라면 전치, **스칼라면 그냥 지수연산**(사용자 요구).
   if (exponent.kind === 'sym' && TRANSPOSE_MARKS.has(exponent.name)) {
+    // I^T = I 그 자체 — 미정(unknown)이어도 정사각이 전제이므로 전치해도 안 바뀐다.
+    // 이 분기가 없으면 isScalar(unknown)이 false로 나와 아래에서 transpose(I) 를 만들고,
+    // 나중에 I가 스칼라로 굳어버릴 때(다른 문맥이 없으면) 안이 통째로 비어 모양이 깨진다.
+    if (base.op === 'matIdentity') return ok(base);
     if (!isScalar(base.shape)) {
       const s = base.shape;
       return ok({ op: 'transpose', shape: shape(s.cols, s.rows), operand: base });
@@ -229,8 +292,16 @@ function elaboratePow(base: TypedExpr, exponent: SyntaxNode, env: Env): Result<T
   if (exp.value.op !== 'num' || !Number.isInteger(exp.value.value)) {
     return shapeMismatch('A matrix can only be raised to an integer power');
   }
+  // 항등행렬은 미정이어도 정사각이 전제다 — 어떤 정수 지수든 I^n = I.
+  if (base.op === 'matIdentity') {
+    return ok(base);
+  }
   if (!isSquare(base.shape)) {
     return shapeMismatch(`Cannot raise a ${formatShape(base.shape)} to a power: not square`);
+  }
+  // A^0 은 그 자체로 항등원이다 — matPow(A,0) 으로 남겨두면 다른 데서 또 판단해야 한다.
+  if (exp.value.value === 0) {
+    return ok({ op: 'matIdentity', shape: base.shape });
   }
   return ok({ op: 'matPow', shape: base.shape, base, exponent: exp.value.value });
 }
@@ -247,6 +318,28 @@ function elaborateAdd(terms: readonly SyntaxNode[], env: Env): Result<TypedExpr>
 }
 
 /**
+ * 하위 트리의 **미정 항등원을 `target` 모양으로 채운다**.
+ *
+ * elaborate는 바닥에서 위로 진행하므로 `I` 는 스스로 크기를 알 수 없고, 곱하거나
+ * 더하는 상대가 알려줘야 한다. `mul`/`neg` 처럼 `I` 를 그대로 감싸고 있을 수 있는
+ * **얇은 래퍼만** 뚫는다 — 이미 완성된 matMul/add는 **그 자체 생성 시점에** 이미
+ * 해석이 끝나 있어야 정상이라(elaborateMatMul이 매번 처리) 더 파고들 필요가 없다.
+ */
+function resolveIdentities(e: TypedExpr, target: Shape): TypedExpr {
+  if (e.op === 'matIdentity') {
+    return isKnownShape(e.shape) ? e : { op: 'matIdentity', shape: target };
+  }
+  if (e.op === 'neg') {
+    return { ...e, operand: resolveIdentities(e.operand, target) };
+  }
+  if (e.op === 'mul' && !isKnownShape(e.matrix.shape)) {
+    const matrix = resolveIdentities(e.matrix, target);
+    return { ...e, matrix, shape: matrix.shape };
+  }
+  return e;
+}
+
+/**
  * 이미 elaborate된 항들을 더한다. 재작성이 항을 재조립할 때 **같은 규칙**을 쓰도록
  * 내보낸다 — 규칙이 두 벌이 되면 어긋난다.
  */
@@ -257,8 +350,17 @@ export function addTyped(values: readonly TypedExpr[]): Result<TypedExpr> {
   // 그대로 두면 안쪽 덧셈이 항으로 취급돼 렌더에 없던 괄호가 생긴다.
   const flat = values.flatMap((v) => (v.op === 'add' ? v.terms : [v]));
   if (flat.length !== values.length) return addTyped(flat);
-  const head = values[0].shape;
-  for (const term of values.slice(1)) {
+
+  // 항 중 **정사각으로 확정된** 모양이 있으면, 그걸 기준으로 미정 항등원(`I`)을 채운다.
+  // 정사각만 보는 이유: `I` 는 정사각이어야만 뜻이 있다 — `M+I`(M이 2×3 직사각)에서
+  // M의 모양으로 I를 억지로 맞추면 "2×3 항등원"이라는 말이 안 되는 게 조용히 통과한다.
+  // 정사각 기준이 없으면 미정인 채로 두고, 끝내 아무도 안 알려주면 normalize가
+  // (1,1)로 굳힌다 — 그러면 M(2×3)과 모양이 안 맞아 정상적으로 오류가 난다.
+  const known = flat.find((v) => isKnownShape(v.shape) && isSquare(v.shape));
+  const values2 = known === undefined ? flat : flat.map((v) => resolveIdentities(v, known.shape));
+
+  const head = values2[0].shape;
+  for (const term of values2.slice(1)) {
     // 모양이 **정확히 같아야** 한다. 행렬 + 스칼라는 오류다 (브로드캐스트하지 않는다).
     if (shapesConflict(head, term.shape) || isScalar(head) !== isScalar(term.shape)) {
       return shapeMismatch(
@@ -266,7 +368,7 @@ export function addTyped(values: readonly TypedExpr[]): Result<TypedExpr> {
       );
     }
   }
-  return ok({ op: 'add', shape: head, terms: values });
+  return ok({ op: 'add', shape: head, terms: values2 });
 }
 
 function elaborateMatrixLit(
@@ -314,8 +416,12 @@ export function elaborate(node: SyntaxNode, env: Env): Result<TypedExpr> {
       return ok({ op: 'num', shape: SCALAR, value: node.value });
 
     case 'sym': {
-      // 정의되지 않은 자유 심볼은 **스칼라로 가정**한다 (환경이 끄지 않는 한).
       const known = env.shapes[node.name];
+      // `I` 는 예약어처럼 다루되, env에 사용자 정의가 있으면 그쪽이 이긴다.
+      if (node.name === 'I' && known === undefined) {
+        return ok({ op: 'matIdentity', shape: shape('unknown', 'unknown') });
+      }
+      // 정의되지 않은 자유 심볼은 **스칼라로 가정**한다 (환경이 끄지 않는 한).
       if (known === undefined && env.assumeScalarForUnknown === false) {
         return fail('unknown-shape', `The shape of ${node.name} is not known yet`, node.name);
       }

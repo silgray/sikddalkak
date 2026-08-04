@@ -1,4 +1,5 @@
 import { elaborate, type Env, type TypedExpr } from './elaborate';
+import { normalize } from './normalize';
 import { fail, failWith, ok, type AlgebraError, type Result } from './result';
 import { render } from './render';
 import { expand, factor, simplify, substitute } from './rewrite';
@@ -22,6 +23,7 @@ export { expand, factor, simplify, substitute, isPureScalar } from './rewrite';
 export { evalNumeric, matricesClose, type Assignment, type Matrix } from './numeric';
 export { sexpSyntax, sexpTyped, sexpTypedWithShapes } from './debug';
 export { OP_PROPERTIES, type BinaryOp, type OpProperties } from './ops';
+export { normalize } from './normalize';
 
 export type TransformOp = 'expand' | 'simplify' | 'factor' | 'substitute';
 
@@ -32,11 +34,19 @@ const OPERATIONS: Record<TransformOp, (e: TypedExpr, env: Env) => Result<TypedEx
   substitute,
 };
 
-/** LaTeX → Typed IR. 모양이 안 맞거나 순서가 모호하면 오류를 낸다. */
+/**
+ * LaTeX → Typed IR. 모양이 안 맞거나 순서가 모호하면 오류를 낸다.
+ *
+ * elaborate 다음에 `normalize` 를 돌려 늘 정규화된(평탄화·스칼라 호이스팅·정렬·거듭제곱
+ * 접기가 끝난) 트리를 돌려준다 — 공개 API를 거친 트리는 중첩된 곱이나 흩어진 스칼라가
+ * 남아 있지 않다는 게 이 함수의 계약이다.
+ */
 export function parse(latex: string, env: Env): Result<TypedExpr> {
   const syntax = parseSyntax(latex);
   if (!syntax.ok) return syntax;
-  return elaborate(syntax.value, env);
+  const typed = elaborate(syntax.value, env);
+  if (!typed.ok) return typed;
+  return normalize(typed.value);
 }
 
 export const shapeOf = (e: TypedExpr): Shape => e.shape;
@@ -138,13 +148,20 @@ export type Diagnostics = {
 /**
  * 한 식을 단계별로 뜯어본다. **어느 단계에서 무엇이 정해졌는지**를 보이는 게 목적이다:
  * 구조(우선순위·그룹) → 연산 해석과 모양 → 오류.
+ *
+ * `typed` 는 `parse()` 가 실제로 내보내는 것과 같은 정규화된 트리다 — elaborate 직후의
+ * 중첩된 모습을 보여주면 진단 패널이 `transform()` 이 실제로 받는 입력과 달라진다.
  */
 export function analyze(latex: string, env: Env): Diagnostics {
   const syntax = parseSyntax(latex);
   if (!syntax.ok) {
     return { latex, syntax: null, typed: null, shape: null, errors: syntax.errors };
   }
-  const typed = elaborate(syntax.value, env);
+  const elaborated = elaborate(syntax.value, env);
+  if (!elaborated.ok) {
+    return { latex, syntax: syntax.value, typed: null, shape: null, errors: elaborated.errors };
+  }
+  const typed = normalize(elaborated.value);
   if (!typed.ok) {
     return { latex, syntax: syntax.value, typed: null, shape: null, errors: typed.errors };
   }

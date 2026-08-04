@@ -2,6 +2,13 @@ import { ComputeEngine } from '@cortex-js/compute-engine';
 import type { MathJsonExpression } from '@cortex-js/compute-engine';
 import { fail, failWith, ok, type AlgebraError, type Result } from './result';
 
+/** 
+ * parseSyntax:다음 2단계로 구성
+ * 1. preprocess: latex -> latex
+ * 2. translateToTree: ce MathJsonExpression -> SyntaxNode 번역
+ *   - 아직 모양 분석 및 연산자 종류는 확정하지 않음(juxt/cdot/times로 놔둠)
+ */
+
 /**
  * Syntax IR — **사용자가 쓴 것을 그대로 보존**하는 층. 모양을 모른다.
  *
@@ -148,7 +155,7 @@ function foldMultiplyRun(items: readonly SyntaxNode[], markers: readonly (string
 // CE JSON -> Syntax IR
 // ---------------------------------------------------------------------------
 
-function translateMultiply(args: readonly unknown[]): Result<SyntaxNode> {
+function translateMultiplyToTree(args: readonly unknown[]): Result<SyntaxNode> {
   // 인수열을 [피연산자, 마커, 피연산자, …] 로 읽는다. 마커가 없는 인접은 병치.
   const items: SyntaxNode[] = [];
   const markers: (string | null)[] = [];
@@ -168,7 +175,7 @@ function translateMultiply(args: readonly unknown[]): Result<SyntaxNode> {
       expectOperand = true;
       continue;
     }
-    const node = translate(arg);
+    const node = translateToTree(arg);
     if (!node.ok) {
       errors.push(...node.errors);
       continue;
@@ -188,7 +195,7 @@ function translateMultiply(args: readonly unknown[]): Result<SyntaxNode> {
   return foldMultiplyRun(items, markers);
 }
 
-function translateMatrix(body: unknown): Result<SyntaxNode> {
+function translateMatrixToTree(body: unknown): Result<SyntaxNode> {
   if (!Array.isArray(body) || body[0] !== 'List') {
     return fail('malformed', 'Malformed matrix');
   }
@@ -197,14 +204,14 @@ function translateMatrix(body: unknown): Result<SyntaxNode> {
   for (const row of body.slice(1)) {
     if (!Array.isArray(row) || row[0] !== 'List') {
       // 1열 행렬은 셀이 List로 감싸이지 않고 바로 올 수 있다.
-      const cell = translate(row);
+      const cell = translateToTree(row);
       if (cell.ok) rows.push([cell.value]);
       else errors.push(...cell.errors);
       continue;
     }
     const cells: SyntaxNode[] = [];
     for (const cell of row.slice(1)) {
-      const node = translate(cell);
+      const node = translateToTree(cell);
       if (node.ok) cells.push(node.value);
       else errors.push(...node.errors);
     }
@@ -232,12 +239,12 @@ function asUppercaseApplication(json: unknown): { head: string; args: unknown[] 
 }
 
 /** `A`, `B`, … 뒤에 붙은 인수들을 병치 사슬로 되돌린다. */
-function foldUppercaseApplication(
+function foldUppercaseApplicationToTree(
   head: string,
   args: readonly unknown[],
   wrapLast: (node: SyntaxNode) => SyntaxNode = (n) => n,
 ): Result<SyntaxNode> {
-  const parsed = args.map(translate);
+  const parsed = args.map(translateToTree);
   const errors = parsed.flatMap((a) => (a.ok ? [] : a.errors));
   if (errors.length > 0) return failWith(errors);
   const values = parsed.map((a) => (a as { value: SyntaxNode }).value);
@@ -261,20 +268,20 @@ function foldUppercaseApplication(
  * 강하므로 `A·(X^T)` 다 (설계 §3). 이걸 안 하면 `A\left(B+C\right)^2` 같은 식이
  * 조용히 다른 뜻으로 읽힌다.
  */
-function translatePostfix(
+function translatePostfixToTree(
   baseJson: unknown,
   wrap: (base: SyntaxNode) => SyntaxNode,
 ): Result<SyntaxNode> {
   const application = asUppercaseApplication(baseJson);
   if (application !== null) {
-    return foldUppercaseApplication(application.head, application.args, wrap);
+    return foldUppercaseApplicationToTree(application.head, application.args, wrap);
   }
-  const base = translate(baseJson);
+  const base = translateToTree(baseJson);
   return base.ok ? ok(wrap(base.value)) : base;
 }
 
 /** CE JSON 한 노드를 Syntax IR로. */
-function translate(json: unknown): Result<SyntaxNode> {
+function translateToTree(json: unknown): Result<SyntaxNode> {
   if (typeof json === 'number') return ok({ kind: 'num', value: json });
   if (typeof json === 'object' && json !== null && 'num' in json) {
     const value = Number((json as { num: unknown }).num);
@@ -293,52 +300,52 @@ function translate(json: unknown): Result<SyntaxNode> {
 
   // 괄호는 트리 구조로 이미 표현되므로 껍데기만 벗긴다.
   if (head === 'Delimiter') {
-    return args.length >= 1 ? translate(args[0]) : fail('malformed', 'Empty parentheses');
+    return args.length >= 1 ? translateToTree(args[0]) : fail('malformed', 'Empty parentheses');
   }
-  if (MULTIPLY_HEADS.has(head)) return translateMultiply(args);
-  if (head === 'Matrix') return translateMatrix(args[0]);
-  if (head === 'List') return translateMatrix(json);
+  if (MULTIPLY_HEADS.has(head)) return translateMultiplyToTree(args);
+  if (head === 'Matrix') return translateMatrixToTree(args[0]);
+  if (head === 'List') return translateMatrixToTree(json);
 
   if (head === 'Add') {
-    const terms = args.map(translate);
+    const terms = args.map(translateToTree);
     const errors = terms.flatMap((t) => (t.ok ? [] : t.errors));
     if (errors.length > 0) return failWith(errors);
     return ok({ kind: 'add', terms: terms.map((t) => (t as { value: SyntaxNode }).value) });
   }
   if (head === 'Subtract' && args.length === 2) {
-    const left = translate(args[0]);
-    const right = translate(args[1]);
+    const left = translateToTree(args[0]);
+    const right = translateToTree(args[1]);
     if (!left.ok || !right.ok) {
       return failWith([...(left.ok ? [] : left.errors), ...(right.ok ? [] : right.errors)]);
     }
     return ok({ kind: 'add', terms: [left.value, { kind: 'neg', operand: right.value }] });
   }
   if (head === 'Negate' && args.length === 1) {
-    const inner = translate(args[0]);
+    const inner = translateToTree(args[0]);
     return inner.ok ? ok({ kind: 'neg', operand: inner.value }) : inner;
   }
   // CE는 `v^T` 를 `Transpose` 로 알아본다(실측) — 스칼라든 아니든 똑같이. 하지만 스칼라의
   // `a^T` 는 전치가 아니라 **일반 지수연산**이어야 하므로, 여기서는 `^T` 라는 표기 그대로
   // 되돌려두고 의미 판단은 모양을 아는 elaborate에 맡긴다.
   if (head === 'Transpose' && args.length === 1) {
-    return translatePostfix(args[0], (base) => ({
+    return translatePostfixToTree(args[0], (base) => ({
       kind: 'pow',
       base,
       exponent: { kind: 'sym', name: 'T' },
     }));
   }
   if (head === 'Power' && args.length === 2) {
-    const exponent = translate(args[1]);
+    const exponent = translateToTree(args[1]);
     if (!exponent.ok) return exponent;
-    return translatePostfix(args[0], (base) => ({
+    return translatePostfixToTree(args[0], (base) => ({
       kind: 'pow',
       base,
       exponent: exponent.value,
     }));
   }
   if ((head === 'Divide' || head === 'Rational') && args.length === 2) {
-    const numerator = translate(args[0]);
-    const denominator = translate(args[1]);
+    const numerator = translateToTree(args[0]);
+    const denominator = translateToTree(args[1]);
     if (!numerator.ok || !denominator.ok) {
       return failWith([
         ...(numerator.ok ? [] : numerator.errors),
@@ -349,7 +356,7 @@ function translate(json: unknown): Result<SyntaxNode> {
   }
   const fnName = SCALAR_FUNCTIONS[head];
   if (fnName !== undefined) {
-    const parsed = args.map(translate);
+    const parsed = args.map(translateToTree);
     const errors = parsed.flatMap((a) => (a.ok ? [] : a.errors));
     if (errors.length > 0) return failWith(errors);
     return ok({
@@ -370,7 +377,7 @@ function translate(json: unknown): Result<SyntaxNode> {
   // 보고 갈라야 하는데, 그 판단은 parse 다음의 전개 패스 몫이다.
   const application = asUppercaseApplication(json);
   if (application !== null) {
-    return foldUppercaseApplication(application.head, application.args);
+    return foldUppercaseApplicationToTree(application.head, application.args);
   }
 
   return fail('unsupported', `Unsupported operation: ${head}`);
@@ -390,7 +397,7 @@ function translate(json: unknown): Result<SyntaxNode> {
  * MathJSON 자체는 멀쩡하므로 그쪽을 받는 게 안전하고, 왕복도 한 번 줄어든다.
  */
 export function parseCeJson(json: unknown): Result<SyntaxNode> {
-  return translate(json);
+  return translateToTree(json);
 }
 
 export function parseSyntax(latex: string): Result<SyntaxNode> {
@@ -404,7 +411,7 @@ export function parseSyntax(latex: string): Result<SyntaxNode> {
   } catch {
     return fail('malformed', 'Could not parse the expression');
   }
-  return translate(json);
+  return translateToTree(json);
 }
 
 /** 테스트·진단용. 프런트엔드가 무엇을 봤는지 확인할 때 쓴다. */

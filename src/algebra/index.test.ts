@@ -17,9 +17,11 @@ describe('transform — LaTeX 들어가고 LaTeX 나온다', () => {
       ok: true,
       value: String.raw`A\left(B+C\right)`,
     });
+    // A,B,C 가 전부 스칼라라면 곱은 교환 가능하다 — normalize가 스칼라 인수를
+    // exprKey 순으로 정렬하므로 `A(B+C)` 가 아니라 `(B+C)A` 로 나온다. 값은 같다.
     expect(transform('AB+AC', 'factor', { shapes: {} })).toEqual({
       ok: true,
-      value: String.raw`A\left(B+C\right)`,
+      value: String.raw`\left(B+C\right)A`,
     });
   });
 

@@ -67,7 +67,9 @@ describe('expand — 사용자가 요구한 전개', () => {
 describe('simplify — 괄호를 함부로 풀지 않는다', () => {
   it('동류항은 합친다', () => {
     expect(simplifiedLatex('2A+3A')).toBe('5A');
-    expect(simplifiedLatex('AB+AB')).toBe('2AB');
+    // `mul(2, matMul(A,B))` 에서 두 번째 자리(행렬 부분)는 렌더의 왕복 안전장치 때문에
+    // 항상 괄호가 붙는다 (POW 문턱) — `matMul` 이 그 자리에 오면 무조건 감싼다. 값은 같다.
+    expect(simplifiedLatex('AB+AB')).toBe(String.raw`2\left(AB\right)`);
   });
 
   it('비가환 항은 합치지 않는다', () => {
@@ -119,7 +121,8 @@ describe('factor — 비가환이라 좌·우 공통인수만', () => {
   });
 
   it('순수 스칼라 식은 CE가 인수분해한다', () => {
-    expect(factoredLatex('x^2-y^2')).toBe(String.raw`\left(x+y\right)\left(x-y\right)`);
+    // 두 인수 다 스칼라라 순서가 안 중요하다 — normalize가 exprKey 순으로 정렬한다.
+    expect(factoredLatex('x^2-y^2')).toBe(String.raw`\left(x-y\right)\left(x+y\right)`);
   });
 });
 
