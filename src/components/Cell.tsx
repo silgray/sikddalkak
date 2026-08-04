@@ -1,12 +1,15 @@
 import { useRef, useState } from 'react';
 import type { FormulaObject, EvalResult } from '../types';
 import { MathField, type MathFieldHandle } from './MathField';
-import { transformSelection, type TransformOp } from '../engine/transform';
+import { expand, factor, parse, render, simplify, type Env } from '../algebra';
+import { repairLatex } from '../editor/wellformed';
 import { SelectionToolbar } from './SelectionToolbar';
 
 type Props = {
   object: FormulaObject;
   result: EvalResult;
+  /** 심볼 모양 환경 — 변환이 `A` 가 행렬인지 스칼라인지 알려면 필요하다. */
+  env: Env;
   /** 이 셀이 드래그 중인지 (반투명 표시). */
   dragging: boolean;
   focusToken: number | null;
@@ -38,35 +41,91 @@ type Props = {
 /** 공백 차이는 MathLive 재직렬화 재량이라 "달라졌다" 판정에서 뺀다. */
 const norm = (s: string) => s.replace(/\s+/g, '');
 
-const TRANSFORM_OPS: readonly TransformOp[] = ['expand', 'simplify', 'factor'];
+/**
+ * 선택 위에서 제공하는 변환. algebra의 `TransformOp` 은 `substitute` 까지 포함하지만
+ * 버튼으로 내보내는 건 이 셋뿐이다.
+ */
+type SelectionOp = 'expand' | 'simplify' | 'factor';
+
+const TRANSFORM_OPS: readonly SelectionOp[] = ['expand', 'simplify', 'factor'];
+
+const OPS: Record<SelectionOp, typeof simplify> = { expand, simplify, factor };
 
 /** 현재 선택 상태: 어느 필드에서, 무엇이 선택됐고, 어떤 변환이 가능한지. */
 type SelectionInfo = {
   field: 'input' | 'result';
   latex: string;
-  replacements: Partial<Record<TransformOp, string>>;
+  replacements: Partial<Record<SelectionOp, string>>;
+  /**
+   * algebra가 이 선택을 아예 못 읽었을 때의 이유 (모양 불일치·모호한 순서·미지원).
+   * 버튼 대신 이걸 보여준다 — 무엇을 아직 못 하는지가 보여야 다음에 뭘 깎을지 안다.
+   */
+  error: string | null;
 };
 
-function readSelection(field: 'input' | 'result', selected: string): SelectionInfo {
-  const replacements: Partial<Record<TransformOp, string>> = {};
-  for (const op of TRANSFORM_OPS) {
-    const out = transformSelection(selected, op);
-    if (out !== null) replacements[op] = out;
+/**
+ * 변환 결과를 주변 LaTeX에 끼워 넣을 수 있는 꼴로 만든다.
+ *
+ * `x^3+3x^2+3x+1` 에서 `+3x^2+3x` 를 선택해 변환하면 결과가 `3x(x+1)` 처럼 연산자 없이
+ * 시작할 수 있다. 그대로 넣으면 앞의 `x^3` 과 붙어 곱셈이 돼버리므로, 선택이 부호로
+ * 시작했다면 치환도 부호로 시작하게 한다. (선행 `-` 의 의미는 이미 파싱된 식에
+ * 들어 있어서, 결과가 `-` 로 시작하지 않으면 `+` 합류가 수학적으로 옳다.)
+ *
+ * **끼워 넣기는 앱의 문제라 algebra가 아니라 여기 있다** — 그 모듈은 주변 문맥을 모른다.
+ */
+function joinSign(source: string, out: string): string {
+  const needsJoin = source.startsWith('+') || source.startsWith('-');
+  const startsWithSign = out.startsWith('+') || out.startsWith('-');
+  return needsJoin && !startsWithSign ? `+${out}` : out;
+}
+
+/**
+ * 선택 조각을 **한 번만** 파싱하고, 그 Typed IR 위에서 세 변환을 각각 돌린다.
+ * (기존 engine 경로는 op마다 CE 왕복을 따로 했다.)
+ *
+ * op 하나가 실패해도 나머지는 살린다 — factor는 못 해도 expand는 되는 식이 흔하다.
+ */
+function readSelection(field: 'input' | 'result', selected: string, env: Env): SelectionInfo {
+  const replacements: Partial<Record<SelectionOp, string>> = {};
+  // 방어선 2: 선택 조각에 파손된 구조가 섞여 있어도 파싱은 되게.
+  const raw = repairLatex(selected.trim()).latex;
+  if (raw === '') return { field, latex: selected, replacements, error: null };
+
+  const parsed = parse(raw, env);
+  if (!parsed.ok) {
+    return { field, latex: selected, replacements, error: parsed.errors[0].message };
   }
-  return { field, latex: selected, replacements };
+
+  // 기준선은 원본 LaTeX이 아니라 **다시 렌더한 것**이다 — 그래야 표기 차이(괄호 꼴,
+  // 공백)가 "달라졌다"로 잡히지 않는다.
+  const baseline = render(parsed.value);
+  for (const op of TRANSFORM_OPS) {
+    const out = OPS[op](parsed.value, env);
+    if (!out.ok) continue;
+    const latex = render(out.value);
+    if (norm(latex) !== norm(baseline)) replacements[op] = joinSign(raw, latex);
+  }
+  return { field, latex: selected, replacements, error: null };
 }
 
 /**
  * 변환 버튼 묶음. 선택이 있는 필드 바로 옆에 렌더한다.
  * mousedown preventDefault로 포커스(=선택)를 뺏지 않는다.
+ *
+ * algebra가 선택을 못 읽었으면 버튼 대신 그 이유를 같은 자리에 보여준다. 조용히
+ * 사라지면 "안 바뀐 것"과 "못 읽은 것"을 구분할 수 없다 — 지금은 후자를 봐야 하는
+ * 시기다. 메시지는 algebra가 영어로 낸 것을 그대로 쓴다.
  */
 function TransformButtons({
   selection,
   onApply,
 }: {
   selection: SelectionInfo;
-  onApply: (op: TransformOp) => void;
+  onApply: (op: SelectionOp) => void;
 }) {
+  if (selection.error !== null) {
+    return <span className="result-error">⚠ {selection.error}</span>;
+  }
   return (
     <>
       {TRANSFORM_OPS.filter((op) => selection.replacements[op] !== undefined).map((op) => (
@@ -99,10 +158,10 @@ function ResultRow({
   syncKey: number;
   fieldRef: React.Ref<MathFieldHandle>;
   selection: SelectionInfo | null;
-  onApply: (op: TransformOp) => void;
+  onApply: (op: SelectionOp) => void;
   onDetach: (latex: string, caret?: number) => void;
   onSelectionChange: (selectedLatex: string | null) => void;
-  onTransformShortcut: (op: TransformOp) => void;
+  onTransformShortcut: (op: SelectionOp) => void;
 }) {
   if (result.kind === 'empty') return null;
   if (result.kind === 'error') {
@@ -148,6 +207,7 @@ function ResultRow({
 export function Cell({
   object,
   result,
+  env,
   dragging,
   focusToken,
   focusOffset,
@@ -170,7 +230,7 @@ export function Cell({
 
   const trackSelection = (field: 'input' | 'result') => (selected: string | null) => {
     setSelection((current) => {
-      const next = selected === null ? null : readSelection(field, selected);
+      const next = selected === null ? null : readSelection(field, selected, env);
       // 다른 필드의 선택 상태를 지우지 않도록, null 갱신은 같은 필드일 때만.
       if (next === null && current !== null && current.field !== field) return current;
       return next;
@@ -201,7 +261,7 @@ export function Cell({
    */
   const transformsBlocked = result.kind === 'error';
 
-  const applyTransform = (op: TransformOp) => {
+  const applyTransform = (op: SelectionOp) => {
     if (selection === null || transformsBlocked) return;
     const replacement = selection.replacements[op];
     if (replacement === undefined) return;

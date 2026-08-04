@@ -69,6 +69,8 @@ export function sexpTyped(e: TypedExpr): string {
       return `(scalarPow ${sexpTyped(e.base)} ${sexpTyped(e.exponent)})`;
     case 'call':
       return `(${e.name} ${e.args.map(sexpTyped).join(' ')})`;
+    case 'frac':
+      return `(frac ${sexpTyped(e.numerator)} ${sexpTyped(e.denominator)})`;
     case 'matIdentity':
       return 'I';
   }
@@ -106,6 +108,8 @@ export function sexpTypedWithShapes(e: TypedExpr): string {
         return `(scalarPow ${sexpTypedWithShapes(e.base)} ${sexpTypedWithShapes(e.exponent)})`;
       case 'call':
         return `(${e.name} ${e.args.map(sexpTypedWithShapes).join(' ')})`;
+      case 'frac':
+        return `(frac ${sexpTypedWithShapes(e.numerator)} ${sexpTypedWithShapes(e.denominator)})`;
       case 'matIdentity':
         return 'I';
     }

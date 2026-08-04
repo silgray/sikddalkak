@@ -9,6 +9,19 @@ import {
 } from './matrixPipeline';
 import { repairLatex } from '../editor/wellformed';
 
+/**
+ * ⚠ **이 파일은 `src/algebra` 의 `transform()` 으로 대체됐다. 삭제 예정.**
+ *
+ * 더 이상 호출자가 없다 (`Cell.tsx` 는 이제 algebra를 쓴다). 남겨둔 이유는 이식이
+ * 끝났는지 테스트로 확인하는 동안 비교 대상이 필요해서다.
+ *
+ * 대체된 근본 이유: 여기 있는 `transformSelection(latex, op)` 은 **문맥이 없어서** 심볼이
+ * 스칼라인지 행렬인지 모른다. 그래서 `ABA` 를 `A²B` 로 만든다. CE의 무타입 `Multiply`
+ * 위에 얹힌 구조라 이 파일 안에서는 못 고친다 — algebra는 `env` 로 모양을 받으므로
+ * 그 오판이 구조적으로 불가능하다.
+ */
+
+/** @deprecated `src/algebra` 의 `TransformOp` 을 쓴다. 삭제 예정. */
 export type TransformOp = 'expand' | 'simplify' | 'factor';
 
 const norm = (s: string) => s.replace(/\s+/g, '');
@@ -245,6 +258,10 @@ function transformMatrixSelection(raw: string, op: TransformOp): string | null {
  * 변환 결과가 `-` 로 시작하지 않으면 `+` 합류가 수학적으로 옳다.)
  *
  * expand/factor는 CE 0.90에서 free function이다 ([[compute-engine-docs-unreliable]]).
+ *
+ * @deprecated `src/algebra` 의 `transform(latex, op, env)` 으로 대체됐다 — 그쪽은 심볼의
+ * 모양을 `env` 로 알기 때문에 비가환 곱을 교환법칙으로 잘못 재배열하지 않는다.
+ * 호출자는 이미 전부 옮겼다. 삭제 예정.
  */
 export function transformSelection(selectedLatex: string, op: TransformOp): string | null {
   // 방어선 2: 선택 조각에 파손된 구조가 섞여 있어도 파싱은 되게.

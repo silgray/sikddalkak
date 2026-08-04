@@ -4,6 +4,7 @@ import {
   crossTyped,
   dotTyped,
   elaborate,
+  fracTyped,
   mulTyped,
   transposeTyped,
   type Env,
@@ -73,6 +74,8 @@ export function isPureScalar(e: TypedExpr): boolean {
       return isPureScalar(e.base) && isPureScalar(e.exponent);
     case 'call':
       return e.args.every(isPureScalar);
+    case 'frac':
+      return isPureScalar(e.numerator) && isPureScalar(e.denominator);
     // 미정 항등원은 `isScalar(e.shape)` 관문에서 대부분 걸러지지만(정사각 미정 크기는
     // 스칼라가 아니다), CE는 애초에 `I` 를 모른다 — 넘기면 그냥 미지 심볼로 읽어 무슨
     // 정리를 할지 알 수 없다. 절대 위임하지 않는다.
@@ -238,6 +241,14 @@ function mapChildren(
       }
       return ok({ op: 'call', shape: SCALAR, name: e.name, args });
     }
+
+    case 'frac': {
+      const numerator = f(e.numerator);
+      if (!numerator.ok) return numerator;
+      const denominator = f(e.denominator);
+      if (!denominator.ok) return denominator;
+      return fracTyped(numerator.value, denominator.value);
+    }
   }
 }
 
@@ -309,11 +320,16 @@ function expandRaw(e: TypedExpr, env: Env): Result<TypedExpr> {
  * 재귀는 `simplifyRaw` 안에서만 돌고, **normalize는 맨 바깥에서 한 번만** 건다 —
  * 재귀할 때마다 정규화하면 트리 깊이만큼 중복 작업이 쌓인다 (정규화 자체는 몇 번을
  * 걸어도 값은 안 바뀌지만, 굳이 반복할 이유가 없다).
+ *
+ * **`foldPowers=true`** — simplify는 이웃한 같은 인수를 `matPow` 로 접는다
+ * (`AAAA` → `A⁴`) 그리고 역행렬을 소거한다(`AA^{-1}` → `I`). "정리해 달라"는 요청에서
+ * 자연스러운 기대이기 때문. parse/expand/factor/substitute는 안 그런다 —
+ * 사용자가 쓴 곱의 모양을 임의로 바꾸지 않는다는 결정은 그대로다 (`normalize.ts` 참고).
  */
 export function simplify(e: TypedExpr, env: Env): Result<TypedExpr> {
   const result = simplifyRaw(e, env);
   if (!result.ok) return result;
-  return normalize(result.value);
+  return normalize(result.value, true);
 }
 
 function simplifyRaw(e: TypedExpr, env: Env): Result<TypedExpr> {

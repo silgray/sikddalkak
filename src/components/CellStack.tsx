@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type Dispatch } from 'react';
 import type { Action, Tab } from '../state/workspace';
 import { evaluateGraph } from '../engine/evaluate';
+import { buildCellEnv } from '../cellEnv';
 import { Cell } from './Cell';
 
 type Props = {
@@ -33,6 +34,10 @@ export function CellStack({ tab, dispatch }: Props) {
     () => evaluateGraph(evalObjects.map((o) => ({ id: o.id, latex: o.latex, mode: o.mode }))),
     [evalObjects],
   );
+
+  // 선택 변환이 쓰는 심볼 모양 환경. 평가와 **같은 소스**(디바운스된 evalObjects)를 쓰므로
+  // 타이핑 중간의 미완성 정의로 환경이 요동치지 않는다.
+  const env = useMemo(() => buildCellEnv(evalObjects), [evalObjects]);
 
   // --- 드래그 재정렬 (라이브러리 없이 pointer 이벤트로) ---
   const containerRef = useRef<HTMLDivElement>(null);
@@ -81,6 +86,7 @@ export function CellStack({ tab, dispatch }: Props) {
           {drag !== null && drag.insertAt === index && <div className="drop-line" />}
           <Cell
             object={object}
+            env={env}
             dragging={drag?.id === object.id}
             result={object.resultDetached ? { kind: 'empty' } : (results.get(object.id) ?? { kind: 'empty' })}
             focusToken={tab.focus?.id === object.id ? tab.focus.token : null}

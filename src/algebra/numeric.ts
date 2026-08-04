@@ -194,6 +194,16 @@ export function evalNumeric(e: TypedExpr, assignment: Assignment): Result<Matrix
       const x = scalarValue(arg.value);
       return x === null ? fail('shape-mismatch', 'Expected a scalar argument') : ok([[fn(x)]]);
     }
+
+    case 'frac': {
+      const numerator = evalNumeric(e.numerator, assignment);
+      if (!numerator.ok) return numerator;
+      const denominator = evalNumeric(e.denominator, assignment);
+      if (!denominator.ok) return denominator;
+      const d = scalarValue(denominator.value);
+      if (d === null) return fail('shape-mismatch', 'frac denominator must be a scalar');
+      return ok(scale(1 / d, numerator.value));
+    }
   }
 }
 

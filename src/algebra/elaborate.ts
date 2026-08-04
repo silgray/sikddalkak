@@ -58,6 +58,14 @@ export type TypedExpr =
   | { readonly op: 'scalarPow'; readonly shape: Shape; readonly base: TypedExpr; readonly exponent: TypedExpr }
   | { readonly op: 'call'; readonly shape: Shape; readonly name: string; readonly args: readonly TypedExpr[] }
   /**
+   * `\frac{p}{q}` — **나눗셈 표기 자체를 보존**한다. `p·q^{-1}` 로 바꿔버리면
+   * `\frac{x^2+2x+1}{x+1}` 이 `\left(x^2+2x+1\right)\left(x+1\right)^{-1}` 로 렌더돼
+   * 원문 형태를 잃는다(렌더 멱등성 위반). `denominator` 는 스칼라여야 한다 — 행렬
+   * 나눗셈은 정의하지 않고 역행렬을 명시적으로 쓰게 한다. `shape` 는 분자를 따른다
+   * (`\frac{A}{2}` 처럼 분자가 행렬이어도 통과한다).
+   */
+  | { readonly op: 'frac'; readonly shape: Shape; readonly numerator: TypedExpr; readonly denominator: TypedExpr }
+  /**
    * 항등행렬 `I`. 모양은 미정(`{rows:'unknown',cols:'unknown'}`)일 수 있다 — elaborate가
    * 바닥에서 위로 훑는 동안은 `I` 혼자서 크기를 알 길이 없고, 곱하거나 더하는 **상대**가
    * 알려줘야 한다(`resolveIdentities`). 끝까지 아무도 안 알려주면 normalize가 `(1,1)`
@@ -258,6 +266,19 @@ export function transposeTyped(operand: TypedExpr): Result<TypedExpr> {
   if (isScalar(operand.shape)) return ok(operand);
   const s = operand.shape;
   return ok({ op: 'transpose', shape: shape(s.cols, s.rows), operand });
+}
+
+/**
+ * `\frac{numerator}{denominator}`. 분모는 스칼라여야 한다 — 행렬 나눗셈은 정의하지
+ * 않는다(역행렬을 명시적으로 쓰게 한다). elaborate와 재작성이 같은 함수를 쓴다.
+ */
+export function fracTyped(numerator: TypedExpr, denominator: TypedExpr): Result<TypedExpr> {
+  if (!isScalar(denominator.shape)) {
+    return shapeMismatch(
+      `Cannot divide by a ${formatShape(denominator.shape)}: use an inverse instead`,
+    );
+  }
+  return ok({ op: 'frac', shape: numerator.shape, numerator, denominator });
 }
 
 // ---------------------------------------------------------------------------
@@ -467,21 +488,7 @@ export function elaborate(node: SyntaxNode, env: Env): Result<TypedExpr> {
           ...(denominator.ok ? [] : denominator.errors),
         ]);
       }
-      // 행렬 나눗셈은 정의하지 않는다 — 역행렬을 명시적으로 쓰게 한다.
-      if (!isScalar(denominator.value.shape)) {
-        return shapeMismatch(
-          `Cannot divide by a ${formatShape(denominator.value.shape)}: use an inverse instead`,
-        );
-      }
-      const reciprocal: TypedExpr = {
-        op: 'scalarPow',
-        shape: SCALAR,
-        base: denominator.value,
-        exponent: { op: 'num', shape: SCALAR, value: -1 },
-      };
-      // `\frac{1}{x}` 을 `1·x^{-1}` 로 두면 곱 안에 의미 없는 `1` 이 남아 렌더가 지저분해진다.
-      if (numerator.value.op === 'num' && numerator.value.value === 1) return ok(reciprocal);
-      return mulTyped(numerator.value, reciprocal);
+      return fracTyped(numerator.value, denominator.value);
     }
 
     case 'call': {

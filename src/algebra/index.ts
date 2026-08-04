@@ -23,7 +23,7 @@ export { render } from './render';
 export { expand, factor, simplify, substitute, isPureScalar } from './rewrite';
 export { evalNumeric, matricesClose, type Assignment, type Matrix } from './numeric';
 export { sexpSyntax, sexpTyped, sexpTypedWithShapes } from './debug';
-export { OP_PROPERTIES, type BinaryOp, type OpProperties } from './types-ops';
+export { OP_PROPERTIES, type BinaryOp, type OpProperties } from './opers';
 export { normalize } from './normalize';
 
 export type TransformOp = 'expand' | 'simplify' | 'factor' | 'substitute';

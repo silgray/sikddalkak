@@ -14,6 +14,15 @@ import {
 } from './matrixPipeline';
 import { repairLatex } from '../editor/wellformed';
 
+/**
+ * ⚠ **이 모듈(`src/engine`)은 `src/algebra` 로 대체 중이다. 이식 완료 후 삭제 예정.**
+ *
+ * 단 **이 파일은 아직 대체물이 없다.** `src/algebra` 는 식 하나와 심볼 환경만 알고,
+ * 셀 사이 의존 그래프·위상 정렬·관계식 불리언 판정이 없다 (`numeric.ts` 는 재작성 전후
+ * 대조 전용이라 역행렬조차 일부러 빠져 있다). 그래서 `CellStack` 은 여전히
+ * `evaluateGraph` 를 부른다 — **지우기 전에 그 층을 algebra 위에 새로 세워야 한다.**
+ */
+
 type Bindings = Record<string, Expression>;
 
 /**
@@ -84,6 +93,8 @@ const asMessage = (err: unknown) => (err instanceof Error ? err.message : String
 /**
  * 엔진이 보는 최소 단위. 뷰(셀 스택, 캔버스)의 타입에 의존하지 않는다 —
  * 배치 정보(순서, 좌표)는 의미에 영향을 주지 않으므로 여기 없다.
+ *
+ * @deprecated `src/engine` 은 `src/algebra` 로 대체 중. 삭제 예정.
  */
 export type EvalInput = {
   id: string;
@@ -140,7 +151,11 @@ function remember<T>(cache: Map<string, T>, key: string, value: T): T {
   return value;
 }
 
-/** 테스트용. 캐시가 결과에 영향을 주지 않는지 확인할 때 쓴다. */
+/**
+ * 테스트용. 캐시가 결과에 영향을 주지 않는지 확인할 때 쓴다.
+ *
+ * @deprecated `src/engine` 은 `src/algebra` 로 대체 중. 삭제 예정.
+ */
 export function clearEvaluationCache(): void {
   structures.clear();
   computed.clear();
@@ -327,6 +342,10 @@ function applyBinding(
  *
  * 결과는 id로 찾는 Map이다. 위상 순서는 입력 순서와 다르고, 두 뷰 모두
  * 배열 인덱스가 아니라 id로 결과를 찾기 때문이다.
+ *
+ * @deprecated `src/engine` 은 `src/algebra` 로 대체 중. **단 아직 대체물이 없어
+ * `CellStack` 이 계속 호출한다** — algebra는 식 하나와 심볼 환경만 알고 셀 사이 의존
+ * 그래프가 없다. 이 함수를 지우려면 그 그래프 층을 algebra 위에 먼저 세워야 한다.
  */
 export function evaluateGraph(inputs: readonly EvalInput[]): Map<string, EvalResult> {
   const results = new Map<string, EvalResult>();

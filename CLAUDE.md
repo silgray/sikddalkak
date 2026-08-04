@@ -53,20 +53,33 @@
 심볼이 스칼라인지 행렬인지 모른다. 그래서 `ABA` 를 `A²B` 로 만드는 등 교환법칙을 잘못
 적용한다. CE의 무타입 `Multiply` 위에 얹힌 구조라 우회로는 못 고친다.
 
-- **`shape.ts`** — 모양 도메인. **모든 것이 `(rows, cols)` 이고 `(1,1)` 이 스칼라다.**
+- **`types-shape.ts`** — 모양 도메인. **모든 것이 `(rows, cols)` 이고 `(1,1)` 이 스칼라다.**
   벡터는 파생 술어. 이 한 선택으로 `v^Tv → 스칼라` 가 하드코딩 없이 나온다.
-- **`syntax.ts`** — Syntax IR + CE JSON 번역. `·`/`×`/병치를 **구분해 보존**한다
-  (CE는 셋 다 `Multiply` 로 뭉갠다). 우선순위(후위 > 병치 > `·``×` > `+`)와
-  **모호성 → 오류** 판정. CE quirk 우회는 전부 이 파일 안에 갇힌다.
+- **`types-SyntaxNode.ts`** — Syntax IR 타입. `·`/`×`/병치를 **구분해 보존**한다
+  (CE는 셋 다 `Multiply` 로 뭉갠다). 어느 쪽이 내적/스칼라곱인지는 이 층에서 안 정한다
+  (그건 elaborate 몫).
+- **`preprocess.ts`** / **`parseSymbol.ts`** / **`translateToTree.ts`** — CE 프런트엔드.
+  `preprocess`가 `\cdot`/`\times` 를 마커 심볼로 바꿔 CE 파싱에서 살아남게 하고
+  (CE는 파싱하면서 뭉개버린다, 실측), `parseSymbol`이 축소 정규화 폼(`Number`만)으로
+  CE에 파싱을 맡긴 뒤, `translateToTree`가 그 MathJSON을 Syntax IR로 번역한다(우선순위
+  후위 > 병치 > `·`/`×` > `+`, **모호성 → 오류** 판정 포함). CE quirk 우회는 이 세
+  파일 안에 갇힌다. `parseCeJson`(=`translateToTree`)은 재작성이 CE 결과를 되받을 때도 쓴다.
 - **`elaborate.ts`** — **설계의 심장.** 연산자 해석 + 차원 검사 + 모양 계산을 **한 패스로**
   한다 (`·` 가 내적인지 스칼라곱인지는 모양을 알아야 정해지고, 결과 모양은 연산자가
-  정해져야 나오는 상호 의존이라 나눌 수 없다). 곱의 좌결합 정규화·부호 끌어올리기도 여기.
-- **`ops.ts`** — 대수 성질 **표**(교환/결합/분배). 코드 분기가 아니라 데이터.
+  정해져야 나오는 상호 의존이라 나눌 수 없다). 정규화는 하지 않는다 — 곱을 둘씩만
+  중첩해서 담아둔다 (`normalize.ts` 몫). `\frac{p}{q}` 는 `p·q^{-1}` 로 풀어버리지 않고
+  전용 `frac` 노드로 남긴다 — 그래야 `\frac{x^2+2x+1}{x+1}` 이 원문 형태로 렌더된다.
+- **`normalize.ts`** — elaborate 직후에 도는 별도 정규화 패스. 평탄화·스칼라 호이스팅·
+  `neg`/숫자 접기·정렬·항등원 제거. **이웃 인수를 거듭제곱으로 자동으로 접지는 않는다**
+  (`AA` 는 `AA` 로 남는다) — 사용자가 쓴 곱의 모양을 임의로 바꾸지 않는다는 결정.
+- **`opers.ts`** — 대수 성질 **표**(교환/결합/분배). 코드 분기가 아니라 데이터.
 - **`normal.ts`** — 정규형. 단항식 = (수치 계수, 스칼라 인수 **집합**, 비스칼라 인수 **열**).
   비스칼라 열의 순서를 지키는 게 비가환을 지키는 지점.
 - **`rewrite.ts`** — expand/simplify/factor/substitute. **순수 스칼라 부분식만** CE에 위임.
 - **`render.ts`** — Typed IR → LaTeX. 계약은 **렌더 멱등성**(낸 걸 다시 읽어 또 내면 같다).
 - **`numeric.ts`** — 수치 평가기. 재작성 전후 값 대조 **전용**(역행렬은 일부러 뺐다).
+- **`debug.ts`** — Syntax/Typed IR → 사람이 읽는 s-식. 테스트 기대값과 랩 진단 패널이 공유.
+- **`types-result.ts`** — `Result<T>` / `AlgebraError` 등 공용 결과 타입.
 - **`index.ts`** — 공개 API (`parse`/`transform`/`buildEnv`/`analyze`/`solveFor` 자리).
 
 ⚠ **CE 0.90 실측 함정** (전부 테스트에 핀으로 고정돼 있다):
@@ -115,14 +128,17 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 - **`App.tsx`** / **`main.tsx`** — 진입점. main.tsx에서 MathLive 전역 설정
   (폰트/로케일/CE 비활성화).
 
-### `lab/` — `src/algebra` 검증용 랩 (배포 안 함)
+### `lab/` — `src/algebra` 검증용 랩 (배포 안 함, ⚠ 당분간 미사용)
 
 `npm run lab` (localhost:5174). 주 앱 빌드·Pages 워크플로와 **완전히 분리**돼 있다
 (`vite.lab.config.ts`). 랩이 깨져도 제품은 영향 없다.
 
-자동 테스트가 보는 건 "값이 바뀌지 않았는가"뿐이라, **정리된 꼴이 쓸 만한가**는 사람이
-본다. 정의 패널(`v=벡터`, `A=행렬`, `a=3`)을 바꿔가며 같은 식이 다르게 해석되는지 확인하고,
-진단 패널에서 Syntax IR → Typed IR → 노드별 모양 → CE 위임 여부를 눈으로 본다.
+**지금은 이 워크플로를 안 쓰고 있다** — 코드는 지우지 않았지만 당분간 돌릴 일이 없다.
+아래는 쓰던 때의 설계 의도이고, 재개 전까지 `src/algebra` 검증은 단위 테스트
+(`*.test.ts`)와 퍼즈(`rewrite.fuzz.test.ts`)만으로 돈다: 자동 테스트가 보는 건
+"값이 바뀌지 않았는가"뿐이라, 원래는 **정리된 꼴이 쓸 만한가**를 랩에서 사람이 눈으로
+봤다 — 정의 패널(`v=벡터`, `A=행렬`, `a=3`)을 바꿔가며 같은 식이 다르게 해석되는지
+확인하고, 진단 패널에서 Syntax IR → Typed IR → 노드별 모양 → CE 위임 여부를 보는 식.
 판정(OK/NG/보류)은 케이스로 localStorage에 남고 JSON으로 내보낼 수 있다.
 
 ### 기타
@@ -165,7 +181,7 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 ```bash
 npm run dev            # 개발 서버 (Vite, localhost:5173)
 npm run preview        # build 결과물 로컬 프리뷰
-npm run lab            # src/algebra 검증용 랩 (localhost:5174, 배포 안 함)
+npm run lab            # src/algebra 검증용 랩 (localhost:5174, 배포 안 함, ⚠ 당분간 미사용)
 ```
 
 ### 테스트

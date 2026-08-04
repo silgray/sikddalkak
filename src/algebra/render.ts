@@ -2,7 +2,7 @@ import { ComputeEngine } from '@cortex-js/compute-engine';
 import type { TypedExpr } from './elaborate';
 
 /**
- * Typed IR → LaTeX.
+ * Typed IR → string(LaTeX).
  *
  * **왕복(round-trip)이 이 렌더러의 계약이다**: `render(e)` 를 다시 파싱·elaborate하면
  * 같은 연산 트리가 나와야 한다. 재작성 결과를 다시 읽어들이는 게 이 모듈의 일상이라,
@@ -50,6 +50,7 @@ function precedence(e: TypedExpr): number {
     case 'matrix':
     case 'call':
     case 'matIdentity':
+    case 'frac':
       return ATOM;
     case 'transpose':
     case 'matPow':
@@ -194,5 +195,8 @@ export function render(e: TypedExpr): string {
       const command = CALL_LATEX[e.name] ?? `\\operatorname{${e.name}}`;
       return `${command}${paren(arg)}`;
     }
+
+    case 'frac':
+      return `\\frac{${render(e.numerator)}}{${render(e.denominator)}}`;
   }
 }

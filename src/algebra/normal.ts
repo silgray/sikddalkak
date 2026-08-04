@@ -6,9 +6,9 @@ import {
   transposeTyped,
   type TypedExpr,
 } from './elaborate';
-import { OP_PROPERTIES } from './types-ops';
+import { OP_PROPERTIES } from './opers';
 import { fail, ok, type Result } from './types-result';
-import { SCALAR, formatShape, isKnownShape, isScalar, isSquare, type Shape } from './types-shape';
+import { SCALAR, formatShape, isKnownShape, isScalar, type Shape } from './types-shape';
 
 /**
  * 정규형 — **단항식 = (수치 계수, 스칼라 인수 집합, 비스칼라 인수 열)**.
@@ -76,6 +76,8 @@ export function exprKey(e: TypedExpr): string {
       return `p(${exprKey(e.base)},${exprKey(e.exponent)})`;
     case 'call':
       return `${e.name}(${e.args.map(exprKey).join(',')})`;
+    case 'frac':
+      return `f(${exprKey(e.numerator)},${exprKey(e.denominator)})`;
     case 'matIdentity':
       return `I(${formatShape(e.shape)})`;
   }
@@ -177,9 +179,11 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
     case 'matrix':
     case 'call':
     case 'scalarPow':
+    case 'frac':
     case 'matIdentity':
       // 순수 스칼라 부분식은 CE 몫이라(§7) 여기서는 통째로 원자 취급한다.
-      // matIdentity도 여기서는 그냥 원자다 — 소거는 normalize의 몫이다.
+      // matIdentity도 여기서는 그냥 원자다 — 소거는 normalize의 몫이다. `frac` 도
+      // 나눗셈을 다항식으로 펼치지 않고 통째로 둔다 — 분배 여부는 CE 위임 몫이다.
       return ok([atom(e)]);
 
     case 'neg': {
@@ -280,35 +284,18 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
 // 되돌리기 — Polynomial -> TypedExpr
 // ---------------------------------------------------------------------------
 
-/**
- * 이웃한 같은 인수를 거듭제곱으로 접는다. **이웃한 것만** 접는 게 요점이다 —
- * `ABA` 의 두 `A` 는 붙어 있지 않으므로 합쳐지지 않는다.
- */
-function collapseRuns(factors: readonly TypedExpr[]): TypedExpr[] {
-  const out: TypedExpr[] = [];
-  let i = 0;
-  while (i < factors.length) {
-    const current = factors[i];
-    const key = exprKey(current);
-    let run = 1;
-    while (i + run < factors.length && exprKey(factors[i + run]) === key) run += 1;
-    if (run > 1 && isSquare(current.shape)) {
-      out.push({ op: 'matPow', shape: current.shape, base: current, exponent: run });
-    } else {
-      for (let k = 0; k < run; k += 1) out.push(current);
-    }
-    i += run;
-  }
-  return out;
-}
-
 const num = (value: number): TypedExpr => ({ op: 'num', shape: SCALAR, value });
 
-/** 단항식 하나를 식으로. 부호는 밖에서 `neg` 로 붙이므로 여기서는 절댓값만 쓴다. */
+/**
+ * 단항식 하나를 식으로. 부호는 밖에서 `neg` 로 붙이므로 여기서는 절댓값만 쓴다.
+ *
+ * **이웃한 같은 인수를 `matPow` 로 접지 않는다** — `m.factors` 를 그대로 곱해나간다.
+ * `AA` 는 `AA` 로 남는다.
+ */
 function monomialToExpr(m: Monomial): Result<TypedExpr> {
   const magnitude = Math.abs(m.numeric);
   const parts: TypedExpr[] = [];
-  const body = [...m.scalars, ...collapseRuns(m.factors)];
+  const body = [...m.scalars, ...m.factors];
   if (magnitude !== 1 || body.length === 0) parts.push(num(magnitude));
   parts.push(...body);
   return parts

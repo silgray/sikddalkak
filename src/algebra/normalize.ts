@@ -2,6 +2,7 @@ import {
   addTyped,
   crossTyped,
   dotTyped,
+  fracTyped,
   transposeTyped,
   type TypedExpr,
 } from './elaborate';
@@ -20,12 +21,18 @@ import { SCALAR, isKnownShape, isScalar, isSquare, shape, type Shape } from './t
  *  2. 스칼라 끌어올리기 — `dot`/`cross`/`transpose`/곱을 뚫고 스칼라를 최상단으로
  *  3. `neg` 흡수 — 부호를 스칼라 계수의 부호로 바꾼다
  *  4. 숫자 접기 + 정렬 — 숫자 리터럴을 하나로 묶어 맨 앞에, 나머지 스칼라는 `exprKey` 순
- *  5. 거듭제곱 접기 — **이웃한** 같은 인수만 `matPow` 로 (`ABA` 는 안 접힘)
+ *  5. 항등원 제거 — 인수 열에서 `I` 를 걷어낸다
  *  6. 축약 — 1원소 `scalarMul`/`matMul` 은 그 원소 자체로
  *
  * `parse()` 가 elaborate 직후 이 함수를 호출하므로, 공개 API를 거친 트리는 항상
  * 정규화돼 있다. `matPow` 의 밑은 일부러 뚫지 않는다 — `(kA)^2` 을 `k^2A^2` 으로
  * 바꾸려면 지수가 스칼라 거듭제곱까지 만들어야 해서 범위 밖으로 남겨둔다.
+ *
+ * **거듭제곱 접기는 기본으로 꺼져 있다.** `parse`/`expand`/`factor`/`substitute` 는
+ * 사용자가 쓴 곱의 모양을 임의로 바꾸지 않는다 — `AA` 는 `AA` 로 남는다. `simplify` 만
+ * `foldPowers=true` 로 이 함수를 불러서 이웃한 같은 인수를 `matPow` 로 접고
+ * (`AAAA` → `A⁴`), 지수 합이 0이 되는 소거(`AA^{-1}` → `I`)까지 한다 — "정리하라"는
+ * 요청에서는 이게 자연스러운 기대이기 때문. `A^2` 처럼 직접 쓴 거듭제곱은 항상 그대로다.
  */
 
 // ---------------------------------------------------------------------------
@@ -119,6 +126,20 @@ const matMulShapeOf = (factors: readonly TypedExpr[]): Shape =>
   shape(factors[0].shape.rows, factors[factors.length - 1].shape.cols);
 
 /**
+ * 인수 열에서 항등원을 걷어낸다. 이웃한 같은 인수를 `matPow` 로 접지는 않는다 —
+ * `AA` 는 `AA` 로 남는다. `foldPowers=false` 경로(parse/expand/factor/substitute)가 쓴다.
+ *
+ * 전부 항등원이었다면 모양을 보존하려고 하나만 남긴다.
+ */
+function stripIdentities(factors: readonly TypedExpr[]): TypedExpr[] {
+  // 애초에 빈 목록(스칼라만 있는 곱이라 행렬 인수가 없는 경우)을 "전부 항등원이라
+  // 하나 남긴다" 분기와 헷갈리면 안 된다 — factors[0]이 undefined가 되어 터진다.
+  if (factors.length === 0) return [];
+  const stripped = factors.filter((f) => f.op !== 'matIdentity');
+  return stripped.length === 0 ? [factors[0]] : stripped;
+}
+
+/**
  * 인수 하나를 (밑, 지수)로 뜯는다. 벌거벗은 인수는 지수 1인 셈이다.
  *
  * `matPow` 는 **어떤 정수 지수든** 뜯는다 — 음수(역행렬)도 포함이라야
@@ -164,12 +185,11 @@ function combineAdjacentPowers(factors: readonly TypedExpr[]): TypedExpr[] {
 
 /**
  * **이웃한, 같은 밑을 가진** 인수들의 지수를 더해 하나의 `matPow` 로 접는다. 항등원도
- * 여기서 걷어낸다.
+ * 여기서 걷어낸다. `foldPowers=true` 경로(`simplify`)만 쓴다.
  *
  * `matPow(C,2)` 와 벌거벗은 `C` 처럼 **표현은 달라도 밑이 같은** 경우까지 합쳐야 한다 —
- * 그러지 않으면 `((C^2)^2)^T` 를 expand한 뒤 normalize를 걸어도 `C^2 C^2` 에서 멈추고
- * `C^4` 까지 못 간다 (퍼즈로 확인). `ABA` 의 두 `A` 는 붙어 있지 않으므로 여전히 안
- * 합쳐진다 — 이웃 검사 자체는 그대로다.
+ * 그러지 않으면 `((C^2)^2)^T` 를 simplify한 뒤에도 `C^2 C^2` 에서 멈추고 `C^4` 까지 못
+ * 간다. `ABA` 의 두 `A` 는 붙어 있지 않으므로 여전히 안 합쳐진다 — 이웃 검사 자체는 그대로다.
  *
  * **항등원을 먼저 버리고 나서 지수를 합친다** — `AIA` 는 `I` 를 지우면 두 `A` 가
  * 이웃해져 `A²` 로 접힌다. 나중에 버리면 이 기회를 놓친다. 합치는 과정에서 지수 합이
@@ -177,7 +197,7 @@ function combineAdjacentPowers(factors: readonly TypedExpr[]): TypedExpr[] {
  * 때까지 반복한다(`AA^{-1}B` → 걸러낼 것 없음 → 합치기로 `[I,B]` → 다시 걸러 `[B]`).
  * 전부 항등원이었다면 모양을 보존하려고 하나만 남긴다.
  */
-function collapseAdjacentRuns(factors: readonly TypedExpr[]): TypedExpr[] {
+function foldAdjacentPowers(factors: readonly TypedExpr[]): TypedExpr[] {
   // 애초에 빈 목록(스칼라만 있는 곱이라 행렬 인수가 없는 경우)을 "전부 항등원이라
   // 하나 남긴다" 분기와 헷갈리면 안 된다 — current[0]이 undefined가 되어 터진다.
   if (factors.length === 0) return [];
@@ -202,10 +222,11 @@ function buildProduct(
   numeric: number,
   scalars: readonly TypedExpr[],
   matrixFactors: readonly TypedExpr[],
+  foldPowers: boolean,
 ): TypedExpr {
   const magnitude = Math.abs(numeric);
   const sortedScalars = sortScalars(scalars);
-  const collapsedMatrix = collapseAdjacentRuns(matrixFactors);
+  const collapsedMatrix = foldPowers ? foldAdjacentPowers(matrixFactors) : stripIdentities(matrixFactors);
 
   const matrixNode: TypedExpr | null =
     collapsedMatrix.length === 0
@@ -261,8 +282,14 @@ function asSingleMatrix(factors: readonly TypedExpr[]): Result<TypedExpr> {
 // 본체
 // ---------------------------------------------------------------------------
 
-/** Typed IR을 받아 평탄화·스칼라 호이스팅·정렬·거듭제곱 접기를 적용한 Typed IR을 낸다. */
-export function normalize(e: TypedExpr): Result<TypedExpr> {
+/**
+ * Typed IR을 받아 평탄화·스칼라 호이스팅·정렬·항등원 제거를 적용한 Typed IR을 낸다.
+ *
+ * `foldPowers` 가 `true` 면 이웃한 같은 인수를 `matPow` 로 더 접는다 (`simplify` 전용,
+ * 파일 서두 참고). 기본은 `false` — parse/expand/factor/substitute는 곱의 모양을
+ * 그대로 둔다.
+ */
+export function normalize(e: TypedExpr, foldPowers = false): Result<TypedExpr> {
   switch (e.op) {
     case 'num':
     case 'sym':
@@ -278,7 +305,7 @@ export function normalize(e: TypedExpr): Result<TypedExpr> {
       for (const row of e.rows) {
         const newRow: TypedExpr[] = [];
         for (const cell of row) {
-          const r = normalize(cell);
+          const r = normalize(cell, foldPowers);
           if (!r.ok) return r;
           newRow.push(r.value);
         }
@@ -290,7 +317,7 @@ export function normalize(e: TypedExpr): Result<TypedExpr> {
     case 'add': {
       const terms: TypedExpr[] = [];
       for (const term of e.terms) {
-        const r = normalize(term);
+        const r = normalize(term, foldPowers);
         if (!r.ok) return r;
         terms.push(r.value);
       }
@@ -298,10 +325,10 @@ export function normalize(e: TypedExpr): Result<TypedExpr> {
     }
 
     case 'neg': {
-      const inner = normalize(e.operand);
+      const inner = normalize(e.operand, foldPowers);
       if (!inner.ok) return inner;
       const c = collect(inner.value);
-      return ok(buildProduct(-c.numeric, c.scalars, c.matrix));
+      return ok(buildProduct(-c.numeric, c.scalars, c.matrix, foldPowers));
     }
 
     case 'scalarMul':
@@ -309,15 +336,15 @@ export function normalize(e: TypedExpr): Result<TypedExpr> {
     case 'mul': {
       let children: readonly TypedExpr[];
       if (e.op === 'mul') {
-        const s = normalize(e.scalar);
+        const s = normalize(e.scalar, foldPowers);
         if (!s.ok) return s;
-        const m = normalize(e.matrix);
+        const m = normalize(e.matrix, foldPowers);
         if (!m.ok) return m;
         children = [s.value, m.value];
       } else {
         const normed: TypedExpr[] = [];
         for (const f of e.factors) {
-          const r = normalize(f);
+          const r = normalize(f, foldPowers);
           if (!r.ok) return r;
           normed.push(r.value);
         }
@@ -333,14 +360,14 @@ export function normalize(e: TypedExpr): Result<TypedExpr> {
         scalars.push(...c.scalars);
         matrixFactors.push(...c.matrix);
       }
-      return ok(buildProduct(numeric, scalars, matrixFactors));
+      return ok(buildProduct(numeric, scalars, matrixFactors, foldPowers));
     }
 
     case 'dot':
     case 'cross': {
-      const leftR = normalize(e.left);
+      const leftR = normalize(e.left, foldPowers);
       if (!leftR.ok) return leftR;
-      const rightR = normalize(e.right);
+      const rightR = normalize(e.right, foldPowers);
       if (!rightR.ok) return rightR;
       const cl = collect(leftR.value);
       const cr = collect(rightR.value);
@@ -359,36 +386,36 @@ export function normalize(e: TypedExpr): Result<TypedExpr> {
           cl.numeric * cr.numeric * merged.numeric,
           [...cl.scalars, ...cr.scalars, ...merged.scalars],
           merged.matrix,
+          foldPowers,
         ),
       );
     }
 
     case 'transpose': {
-      const inner = normalize(e.operand);
+      const inner = normalize(e.operand, foldPowers);
       if (!inner.ok) return inner;
       const c = collect(inner.value);
       const operand = asSingleMatrix(c.matrix);
       if (!operand.ok) return operand;
       const t = transposeTyped(operand.value);
       if (!t.ok) return t;
-      return ok(buildProduct(c.numeric, c.scalars, [t.value]));
+      return ok(buildProduct(c.numeric, c.scalars, [t.value], foldPowers));
     }
 
     // `matPow`의 밑은 일부러 뚫지 않는다 — `(kA)^n` 을 `k^n A^n` 으로 바꾸려면 지수가
     // 스칼라 거듭제곱까지 새로 만들어야 해서 이번 범위 밖이다 (설계 §다음 라운드).
     case 'matPow': {
-      const base = normalize(e.base);
+      const base = normalize(e.base, foldPowers);
       if (!base.ok) return base;
-      // I^n = I — elaboratePow에서 온 것뿐 아니라, normal.ts의 collapseRuns가
-      // `II` 를 matPow(I,2) 로 접어 넘기는 경우도 있어 여기서 한 번 더 잡는다.
+      // I^n = I.
       if (base.value.op === 'matIdentity') return ok(base.value);
       return ok({ op: 'matPow', shape: e.shape, base: base.value, exponent: e.exponent });
     }
 
     case 'scalarPow': {
-      const base = normalize(e.base);
+      const base = normalize(e.base, foldPowers);
       if (!base.ok) return base;
-      const exponent = normalize(e.exponent);
+      const exponent = normalize(e.exponent, foldPowers);
       if (!exponent.ok) return exponent;
       return ok({ op: 'scalarPow', shape: SCALAR, base: base.value, exponent: exponent.value });
     }
@@ -396,11 +423,19 @@ export function normalize(e: TypedExpr): Result<TypedExpr> {
     case 'call': {
       const args: TypedExpr[] = [];
       for (const a of e.args) {
-        const r = normalize(a);
+        const r = normalize(a, foldPowers);
         if (!r.ok) return r;
         args.push(r.value);
       }
       return ok({ op: 'call', shape: SCALAR, name: e.name, args });
+    }
+
+    case 'frac': {
+      const numerator = normalize(e.numerator, foldPowers);
+      if (!numerator.ok) return numerator;
+      const denominator = normalize(e.denominator, foldPowers);
+      if (!denominator.ok) return denominator;
+      return fracTyped(numerator.value, denominator.value);
     }
   }
 }

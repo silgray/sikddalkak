@@ -6,8 +6,15 @@ import { ce } from './ce';
  * 그래프 평가(evaluate.ts)와 선택 변환(transform.ts)이 같은 원칙을 공유한다:
  * CE 0.90은 곱셈을 교환법칙 가정으로 재배열하므로, 행렬이 섞인 식은
  * 축소 정규화 형식으로 파싱하고 fold를 거친 뒤 evaluate만 한다 (simplify 금지).
+ *
+ * ⚠ **이 모듈(`src/engine`)은 `src/algebra` 로 대체 중이다. 이식 완료 후 삭제 예정.**
+ *
+ * 여기 있는 것들은 전부 "CE가 행렬을 모른다"는 사실에 대한 **우회로**다. algebra는
+ * 모양(shape)을 1급으로 들고 있어서 우회가 아예 필요 없다 — 행렬 전용 경로라는 개념
+ * 자체가 없다. 그래서 이 파일은 대체가 아니라 **소멸**한다.
  */
 
+/** @deprecated `src/algebra` 로 대체 중. 삭제 예정. */
 export function isMatrixLike(expr: Expression): boolean {
   return expr.operator === 'Matrix' || String(expr.type).startsWith('matrix');
 }
@@ -27,6 +34,9 @@ export function isMatrixLike(expr: Expression): boolean {
  *
  * 그 대가로 곱셈의 머리가 `Multiply` 가 아니라 `InvisibleOperator` 로 온다 →
  * fold는 `MULTIPLY_HEADS` 로 둘 다 받는다.
+ *
+ * @deprecated `src/algebra` 로 대체 중. 삭제 예정. (algebra의 대응물은
+ * `parseSymbol.ts` 의 `CE_PARSE_FORMS` — 거기서는 `Number` 하나만 남긴다.)
  */
 export const GROUPED_FORMS = ['Number', 'Add', 'Power', 'Divide'] as const;
 
@@ -40,6 +50,8 @@ const MULTIPLY_HEADS = new Set(['Multiply', 'InvisibleOperator']);
  * 재정렬하고, 그 바람에 벡터 연산 마커가 피연산자에서 떨어진다(실측:
  * `["InvisibleOperator","b",마커,"b"]` → `["Multiply",마커,M,M]`). 마커가 짝을
  * 잃으면 일반 곱으로 되돌아가 쓰레기 값이 나온다. 트리를 그대로 두고 잎만 바꾼다.
+ *
+ * @deprecated `src/algebra` 로 대체 중. 삭제 예정.
  */
 export function substituteJson(
   json: MathJsonExpression,
@@ -58,7 +70,11 @@ export function substituteJson(
   ] as unknown as MathJsonExpression;
 }
 
-/** JSON 어딘가에 행렬 리터럴이 있는지 (행렬 파이프라인 선택용). */
+/**
+ * JSON 어딘가에 행렬 리터럴이 있는지 (행렬 파이프라인 선택용).
+ *
+ * @deprecated `src/algebra` 로 대체 중. 삭제 예정.
+ */
 export function jsonHasMatrix(json: unknown): boolean {
   if (json === 'Matrix') return true;
   if (Array.isArray(json)) return json.some(jsonHasMatrix);
@@ -72,6 +88,10 @@ export function jsonHasMatrix(json: unknown): boolean {
  */
 const DOT_MARKER = 'vecDotMarker';
 const CROSS_MARKER = 'vecCrossMarker';
+/**
+ * @deprecated `src/algebra` 로 대체 중. 삭제 예정. (algebra의 대응물은
+ * `preprocess.ts` — 같은 마커 우회를 쓰되 행렬 경로 여부와 무관하게 늘 적용한다.)
+ */
 export function preprocessVectorOps(latex: string): string {
   return latex
     .replace(/\\cdot(?![a-zA-Z])/g, ` \\mathrm{${DOT_MARKER}} `)
@@ -193,6 +213,8 @@ function resolveVectorMarkers(args: unknown[]): unknown[] {
  * 평가해 리터럴 행렬로 접고, `\cdot`/`\times` 마커를 Dot/Cross로 해석한다.
  * 이걸 안 하면 rebox(재정규화)가 incompatible-type 에러를 내거나 곱을
  * 계산하지 못한다.
+ *
+ * @deprecated `src/algebra` 로 대체 중. 삭제 예정.
  */
 export function foldMatrixFns(json: MathJsonExpression): MathJsonExpression {
   if (!Array.isArray(json)) return json;
@@ -254,6 +276,9 @@ function prefold(walked: unknown[]): MathJsonExpression {
 /**
  * 1×1 행렬 결과를 스칼라로 접는다: `b^Tb` = `[[14]]` → `14`.
  * 표시뿐 아니라 바인딩 값도 스칼라가 되므로 이후 스칼라 연산에 쓸 수 있다.
+ *
+ * @deprecated `src/algebra` 로 대체 중. 삭제 예정. (algebra에서는 이런 접기가 필요
+ * 없다 — 모양 도메인이 애초에 `(1,1)` 을 스칼라로 정의한다.)
  */
 export function collapseOneByOne(expr: Expression): Expression {
   const json: unknown = expr.json;
@@ -276,6 +301,8 @@ export function collapseOneByOne(expr: Expression): Expression {
  * 행렬 연산의 결과는 `Matrix`가 아니라 `List`의 `List`로 나온다.
  * 그대로 두면 `[[4, 4], [4, 4]]` 처럼 렌더되므로 다시 Matrix로 감싼다.
  * 진짜 리스트(`[1, 2, 3]`)는 원소가 List가 아니므로 건드리지 않는다.
+ *
+ * @deprecated `src/algebra` 로 대체 중. 삭제 예정.
  */
 export function asMatrixIfRows(expr: Expression): Expression {
   if (expr.operator !== 'List') return expr;
@@ -301,6 +328,8 @@ function hasUnevaluatedMatrixProduct(json: unknown): boolean {
  *    `[[1],[2]]` 같은 리스트가 셀에 박힌 채 조용히 렌더된다(실측).
  *  - 빈 셀(`Nothing`)이 있으면 미완성이다. 행렬 크기는 삽입 후 불변이라 빈 칸이
  *    남을 수 있는데, 그 상태로 계산하면 반쯤 채운 행렬로 엉뚱한 답이 나온다.
+ *
+ * @deprecated `src/algebra` 로 대체 중. 삭제 예정.
  */
 export function assertMatrixCellsValid(json: unknown): void {
   if (!Array.isArray(json)) return;
@@ -344,6 +373,8 @@ function matrixDimError(expr: Expression): boolean {
  * 차원이 안 맞으면 throw한다 — 호출자(computeNode/transformMatrixSelection)가
  * try/catch로 받아 에러 결과 또는 null로 만든다. 이걸 안 던지면 미평가 곱이나
  * CE Error LaTeX이 결과 셀에 쓰레기로 렌더된다.
+ *
+ * @deprecated `src/algebra` 로 대체 중. 삭제 예정.
  */
 export function reduceMatrixExpr(subbed: MathJsonExpression): Expression {
   assertMatrixCellsValid(subbed);
