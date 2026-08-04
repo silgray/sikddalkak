@@ -25,6 +25,7 @@ export { evalNumeric, matricesClose, type Assignment, type Matrix } from './nume
 export { sexpSyntax, sexpTyped, sexpTypedWithShapes } from './debug';
 export { OP_PROPERTIES, type BinaryOp, type OpProperties } from './opers';
 export { normalize } from './normalize';
+export { evaluate, freeSymbols, substituteDeep } from './evaluate';
 
 export type TransformOp = 'expand' | 'simplify' | 'factor' | 'substitute';
 

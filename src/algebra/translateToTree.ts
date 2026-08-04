@@ -271,6 +271,16 @@ export function translateToTree(json: unknown): Result<SyntaxNode> {
       exponent: exponent.value,
     }));
   }
+  // CE는 **리터럴 행렬**(`\begin{pmatrix}...\end{pmatrix}^{-1}`)의 밑을 `Power(M,-1)`
+  // 대신 `Inverse(M)` 로 정규화한다(실측) — 심볼 밑(`A^{-1}`)은 이 경로를 안 타고
+  // 그냥 `Power` 로 온다. `pow(base, -1)` 로 되돌려 elaborate가 똑같이 처리하게 한다.
+  if (head === 'Inverse' && args.length === 1) {
+    return translatePostfixToTree(args[0], (base) => ({
+      kind: 'pow',
+      base,
+      exponent: { kind: 'num', value: -1 },
+    }));
+  }
   if ((head === 'Divide' || head === 'Rational') && args.length === 2) {
     const numerator = translateToTree(args[0]);
     const denominator = translateToTree(args[1]);

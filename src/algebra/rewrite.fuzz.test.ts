@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TypedExpr } from './elaborate';
+import { evaluate } from './evaluate';
 import { evalNumeric, matricesClose } from './numeric';
 import { render } from './render';
 import { expand, factor, simplify } from './rewrite';
@@ -47,11 +48,11 @@ const LEAVES = ['u', 'v', 'w', 'r', 'p', 'A', 'B', 'C', 'M', 'a', 'b', 'k', '2',
  * **모양이 맞는 식만 골라내지 않는다** — 일부러 아무거나 만들고, elaborate를 통과한
  * 것만 검사 대상으로 삼는다(거부 표집). 이러면 파서와 모양 검사기도 같이 흔들린다.
  */
-function randomLatex(random: () => number, depth: number): string {
+function randomLatex(random: () => number, depth: number, leaves: readonly string[] = LEAVES): string {
   const pick = <T,>(items: readonly T[]): T => items[Math.floor(random() * items.length)];
-  if (depth <= 0) return pick(LEAVES);
+  if (depth <= 0) return pick(leaves);
 
-  const left = (): string => randomLatex(random, depth - 1);
+  const left = (): string => randomLatex(random, depth - 1, leaves);
   const group = (s: string): string => `\\left(${s}\\right)`;
 
   switch (Math.floor(random() * 12)) {
@@ -78,7 +79,7 @@ function randomLatex(random: () => number, depth: number): string {
     case 10:
       return `${group(left())}^{3}`;
     default:
-      return `${pick(LEAVES)}${group(left())}`;
+      return `${pick(leaves)}${group(left())}`;
   }
 }
 
@@ -122,6 +123,8 @@ function containsResolvedIdentity(e: TypedExpr): boolean {
       return containsResolvedIdentity(e.base) || containsResolvedIdentity(e.exponent);
     case 'call':
       return e.args.some(containsResolvedIdentity);
+    case 'frac':
+      return containsResolvedIdentity(e.numerator) || containsResolvedIdentity(e.denominator);
   }
 }
 
@@ -140,11 +143,11 @@ function usable(latex: string): Check | null {
   return { latex, typed: parsed.value };
 }
 
-function generate(count: number, seed: number): Check[] {
+function generate(count: number, seed: number, leaves: readonly string[] = LEAVES): Check[] {
   const random = rng(seed);
   const out: Check[] = [];
   for (let i = 0; out.length < count && i < count * 60; i += 1) {
-    const check = usable(randomLatex(random, 1 + Math.floor(random() * 3)));
+    const check = usable(randomLatex(random, 1 + Math.floor(random() * 3), leaves));
     if (check !== null) out.push(check);
   }
   return out;
@@ -157,6 +160,20 @@ declare const process: { readonly env: Readonly<Record<string, string | undefine
 const SEEDS = [0x5eed, 0x1234, 0xbeef];
 const PER_SEED = Number(process.env.ALGEBRA_FUZZ_SAMPLES ?? 250);
 const SAMPLES = SEEDS.flatMap((seed) => generate(PER_SEED, seed));
+
+/**
+ * `LEAVES` + 리터럴 행렬/벡터 몇 개. `evaluate` 전용 — 순수 심볼로만 된 `SAMPLES` 로는
+ * `matrixFold` 의 산술이 실제로 켜지는 경우가 없다(접을 리터럴이 없으니). `TEST_ENV`의
+ * `A`/`u` 등과 같은 모양(3×3, 3×1)으로 맞춰 조합될 확률을 높인다.
+ */
+const LITERAL_LEAVES = [
+  ...LEAVES,
+  String.raw`\begin{pmatrix}1&2&0\\3&-1&2\\0&1&1\end{pmatrix}`,
+  String.raw`\begin{pmatrix}2&0&1\\1&2&-1\\0&-2&3\end{pmatrix}`,
+  String.raw`\begin{pmatrix}3\\-2\\1\end{pmatrix}`,
+  String.raw`\begin{pmatrix}-1\\4\\2\end{pmatrix}`,
+];
+const LITERAL_SAMPLES = SEEDS.flatMap((seed) => generate(PER_SEED, seed, LITERAL_LEAVES));
 
 describe('무작위 식 대조', () => {
   it('충분한 표본이 모인다', () => {
@@ -200,6 +217,44 @@ describe('무작위 식 대조', () => {
       expect(failures.slice(0, 5)).toEqual([]);
     });
   }
+
+  /**
+   * `evaluate` = `foldMatrices` → `simplify` 대조. **리터럴 표본**(`LITERAL_SAMPLES`)을
+   * 쓰는 게 요점이다 — `matrixFold` 의 산술(`numeric.ts` 와 별개로 새로 짠 코드)이
+   * `numeric.ts` 와 어긋나지 않는다는 보증은 실제로 리터럴 행렬이 접혀야만 의미가 있다.
+   */
+  it('충분한 리터럴 표본이 모인다', () => {
+    expect(LITERAL_SAMPLES.length).toBe(SEEDS.length * PER_SEED);
+  });
+
+  it('evaluate 는 값·모양을 바꾸지 않는다', { timeout: 120_000 }, () => {
+    const failures: string[] = [];
+    for (const { latex, typed } of LITERAL_SAMPLES) {
+      const result = evaluate(typed, TEST_ENV);
+      if (!result.ok) {
+        failures.push(`${latex}: evaluate failed — ${result.errors[0].message}`);
+        continue;
+      }
+      if (formatShape(result.value.shape) !== formatShape(typed.shape)) {
+        failures.push(
+          `${latex}: shape ${formatShape(typed.shape)} -> ${formatShape(result.value.shape)}`,
+        );
+        continue;
+      }
+      const before = evalNumeric(typed, TEST_VALUES);
+      const after = evalNumeric(result.value, TEST_VALUES);
+      if (!before.ok || !after.ok) {
+        failures.push(`${latex}: not evaluable after evaluate`);
+        continue;
+      }
+      if (!matricesClose(before.value, after.value, 1e-7)) {
+        failures.push(
+          `${latex} -> ${render(result.value)}: ${JSON.stringify(before.value)} vs ${JSON.stringify(after.value)}`,
+        );
+      }
+    }
+    expect(failures.slice(0, 5)).toEqual([]);
+  });
 
   /**
    * 왕복은 **트리 동일성이 아니라 렌더 멱등성**으로 본다.
