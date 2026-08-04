@@ -20,10 +20,10 @@ import {
   type Polynomial,
 } from './normal';
 import { normalize } from './normalize';
-import { fail, ok, type Result } from './result';
+import { fail, ok, type Result } from './types-result';
 import { render } from './render';
-import { parseCeJson } from './syntax';
-import { SCALAR, isScalar, isSquare, type Shape } from './shape';
+import { parseCeJson } from './parseSymbol';
+import { SCALAR, isScalar, isSquare, type Shape } from './types-shape';
 
 /**
  * 구문 재작성 — expand / simplify / factor / substitute.

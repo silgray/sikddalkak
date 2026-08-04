@@ -3,7 +3,7 @@ import type { TypedExpr } from './elaborate';
 import { evalNumeric, matricesClose } from './numeric';
 import { render } from './render';
 import { expand, factor, simplify } from './rewrite';
-import { formatShape, isKnownShape, isScalar } from './shape';
+import { formatShape, isKnownShape, isScalar } from './types-shape';
 import { TEST_ENV, TEST_VALUES, typedOf } from './testEnv';
 import { parse } from './index';
 

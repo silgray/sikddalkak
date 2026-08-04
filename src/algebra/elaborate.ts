@@ -11,12 +11,12 @@ import {
   shapesConflict,
   vectorLength,
   type Shape,
-} from './shape';
-import { fail, failWith, ok, type AlgebraError, type Result } from './result';
-import type { SyntaxNode } from './syntax';
+} from './types-shape';
+import { fail, failWith, ok, type AlgebraError, type Result } from './types-result';
+import type { SyntaxNode } from './types-SyntaxNode';
 
 /**
- * Elaborate — **연산자 해석 + 차원 검사 + 모양 계산을 한 패스로** 한다.
+ * Elaborate — 연산자 해석 + 차원 검사 + 모양 계산을 한 패스로 한다.
  *
  * 셋을 나눌 수 없는 이유: `\cdot` 이 내적인지 스칼라곱인지는 피연산자 **모양**을 알아야
  * 정해지고, 결과 모양은 **연산자**가 정해져야 나온다. 상호 의존이라 분리하면 어긋난다.
@@ -106,7 +106,7 @@ const shapeMismatch = (message: string, where?: string): Result<TypedExpr> =>
 
 /**
  * `e` 가 (겉으로는 `mul`/`neg` 에 감싸여 있더라도) 안에 **아직 모양이 안 정해진
- * 항등원**을 품고 있는가. `kI`, `-I` 처럼 스칼라와 먼저 결합된 뒤에야 다른 피연산자를
+ * 행렬곱 항등원**을 품고 있는가. `kI`, `-I` 처럼 스칼라와 먼저 결합된 뒤에야 다른 피연산자를
  * 만나는 경우를 잡기 위해서다 — 그러지 않으면 `2 \cdot I \cdot a^{-1} \cdot v` 처럼
  * `I` 가 다른 스칼라와 먼저 묶여버린 식에서 상대(`v`)를 만나도 모양을 못 찾는다.
  */
@@ -120,7 +120,7 @@ function hasUnresolvedIdentity(e: TypedExpr): boolean {
 /**
  * 행렬곱. `(m,n)(n,p) -> (m,p)`. 안쪽 차원이 **확실히** 다를 때만 오류.
  *
- * 미정 항등원(`I`)이 (겉으로 `mul`/`neg` 에 감싸여 있어도) 한쪽에 있으면 **상대에게서
+ * 미정 행렬곱 항등원(`I`)이 (겉으로 `mul`/`neg` 에 감싸여 있어도) 한쪽에 있으면 **상대에게서
  * 모양을 유도**한다 — 정사각이므로 한 차원만 알면 결정된다(`AI` → I는 A.cols×A.cols,
  * `IA` → I는 A.rows×A.rows). 둘 다 미정 `I` 면 크기를 정하지 않아도 곱은 여전히 `I` 다.
  */
@@ -299,7 +299,7 @@ function elaboratePow(base: TypedExpr, exponent: SyntaxNode, env: Env): Result<T
   if (!isSquare(base.shape)) {
     return shapeMismatch(`Cannot raise a ${formatShape(base.shape)} to a power: not square`);
   }
-  // A^0 은 그 자체로 항등원이다 — matPow(A,0) 으로 남겨두면 다른 데서 또 판단해야 한다.
+  // A^0 은 그 자체로 행렬곱 항등원이다 — matPow(A,0) 으로 남겨두면 다른 데서 또 판단해야 한다.
   if (exp.value.value === 0) {
     return ok({ op: 'matIdentity', shape: base.shape });
   }
@@ -318,7 +318,7 @@ function elaborateAdd(terms: readonly SyntaxNode[], env: Env): Result<TypedExpr>
 }
 
 /**
- * 하위 트리의 **미정 항등원을 `target` 모양으로 채운다**.
+ * 하위 트리의 **미정 행렬곱 항등원을 `target` 모양으로 채운다**.
  *
  * elaborate는 바닥에서 위로 진행하므로 `I` 는 스스로 크기를 알 수 없고, 곱하거나
  * 더하는 상대가 알려줘야 한다. `mul`/`neg` 처럼 `I` 를 그대로 감싸고 있을 수 있는
@@ -351,9 +351,9 @@ export function addTyped(values: readonly TypedExpr[]): Result<TypedExpr> {
   const flat = values.flatMap((v) => (v.op === 'add' ? v.terms : [v]));
   if (flat.length !== values.length) return addTyped(flat);
 
-  // 항 중 **정사각으로 확정된** 모양이 있으면, 그걸 기준으로 미정 항등원(`I`)을 채운다.
+  // 항 중 **정사각으로 확정된** 모양이 있으면, 그걸 기준으로 미정 행렬곱 항등원(`I`)을 채운다.
   // 정사각만 보는 이유: `I` 는 정사각이어야만 뜻이 있다 — `M+I`(M이 2×3 직사각)에서
-  // M의 모양으로 I를 억지로 맞추면 "2×3 항등원"이라는 말이 안 되는 게 조용히 통과한다.
+  // M의 모양으로 I를 억지로 맞추면 "2×3 행렬곱 항등원"이라는 말이 안 되는 게 조용히 통과한다.
   // 정사각 기준이 없으면 미정인 채로 두고, 끝내 아무도 안 알려주면 normalize가
   // (1,1)로 굳힌다 — 그러면 M(2×3)과 모양이 안 맞아 정상적으로 오류가 난다.
   const known = flat.find((v) => isKnownShape(v.shape) && isSquare(v.shape));

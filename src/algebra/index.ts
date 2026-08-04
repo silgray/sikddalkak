@@ -1,10 +1,11 @@
 import { elaborate, type Env, type TypedExpr } from './elaborate';
 import { normalize } from './normalize';
-import { fail, failWith, ok, type AlgebraError, type Result } from './result';
+import { fail, failWith, ok, type AlgebraError, type Result } from './types-result';
 import { render } from './render';
 import { expand, factor, simplify, substitute } from './rewrite';
-import { SCALAR, type Shape } from './shape';
-import { parseSyntax, type SyntaxNode } from './syntax';
+import { SCALAR, type Shape } from './types-shape';
+import { parseSyntax } from './parseSymbol';
+import type { SyntaxNode } from './types-SyntaxNode';
 
 /**
  * 모듈 공개 API.
@@ -13,16 +14,16 @@ import { parseSyntax, type SyntaxNode } from './syntax';
  * `evaluateGraph` 같은 셀 사이 계산은 바깥에 남되, 이 코어 위에 세운다.
  */
 
-export type { Dim, Shape, ShapeKind } from './shape';
-export { SCALAR, classify, formatShape, isScalar, isVector, shape } from './shape';
-export type { AlgebraError, ErrorCode, Result } from './result';
+export type { Dim, Shape, ShapeKind } from './types-shape';
+export { SCALAR, classify, formatShape, isScalar, isVector, shape } from './types-shape';
+export type { AlgebraError, ErrorCode, Result } from './types-result';
 export type { Env, TypedExpr } from './elaborate';
-export type { SyntaxNode } from './syntax';
+export type { SyntaxNode } from './types-SyntaxNode';
 export { render } from './render';
 export { expand, factor, simplify, substitute, isPureScalar } from './rewrite';
 export { evalNumeric, matricesClose, type Assignment, type Matrix } from './numeric';
 export { sexpSyntax, sexpTyped, sexpTypedWithShapes } from './debug';
-export { OP_PROPERTIES, type BinaryOp, type OpProperties } from './ops';
+export { OP_PROPERTIES, type BinaryOp, type OpProperties } from './types-ops';
 export { normalize } from './normalize';
 
 export type TransformOp = 'expand' | 'simplify' | 'factor' | 'substitute';

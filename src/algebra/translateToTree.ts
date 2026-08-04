@@ -1,77 +1,7 @@
-import { ComputeEngine } from '@cortex-js/compute-engine';
-import type { MathJsonExpression } from '@cortex-js/compute-engine';
-import { fail, failWith, ok, type AlgebraError, type Result } from './result';
+import { fail, failWith, ok, type AlgebraError, type Result } from './types-result';
+import { DOT_MARKER, CROSS_MARKER, isMarker } from './preprocess';
+import type { SyntaxNode } from './types-SyntaxNode';
 
-/** 
- * parseSyntax:다음 2단계로 구성
- * 1. preprocess: latex -> latex
- * 2. translateToTree: ce MathJsonExpression -> SyntaxNode 번역
- *   - 아직 모양 분석 및 연산자 종류는 확정하지 않음(juxt/cdot/times로 놔둠)
- */
-
-/**
- * Syntax IR — **사용자가 쓴 것을 그대로 보존**하는 층. 모양을 모른다.
- *
- * 요점은 `·`(cdot) / `×`(times) / 병치(juxt)를 **구분해서 유지**하는 것이다. CE는 셋 다
- * `Multiply` 로 뭉개버려(실측) 의미가 사라지므로, 여기서 살려낸다. 어느 것이 내적이고
- * 어느 것이 스칼라곱인지는 **모양을 알아야** 정해지므로 이 층에서는 판단하지 않는다
- * (그 판단은 elaborate가 한다 — 연산자 결정과 모양 추론은 같은 패스여야 한다).
- *
- * CE에는 LaTeX에서 `Cross` 로 가는 경로가 없어(조사 확인) 마커 심볼로 우회하는데,
- * **그 우회는 이 파일 안에만 갇힌다.** 바깥 층은 마커의 존재를 모른다.
- */
-
-export type SyntaxNode =
-  | { readonly kind: 'num'; readonly value: number }
-  | { readonly kind: 'sym'; readonly name: string }
-  | { readonly kind: 'matrix'; readonly rows: readonly (readonly SyntaxNode[])[] }
-  | { readonly kind: 'juxt'; readonly left: SyntaxNode; readonly right: SyntaxNode }
-  | { readonly kind: 'cdot'; readonly left: SyntaxNode; readonly right: SyntaxNode }
-  | { readonly kind: 'times'; readonly left: SyntaxNode; readonly right: SyntaxNode }
-  | { readonly kind: 'add'; readonly terms: readonly SyntaxNode[] }
-  | { readonly kind: 'neg'; readonly operand: SyntaxNode }
-  | { readonly kind: 'pow'; readonly base: SyntaxNode; readonly exponent: SyntaxNode }
-  | { readonly kind: 'frac'; readonly numerator: SyntaxNode; readonly denominator: SyntaxNode }
-  | { readonly kind: 'call'; readonly name: string; readonly args: readonly SyntaxNode[] };
-
-// ---------------------------------------------------------------------------
-// CE 프런트엔드 — 마커 전처리 + 그룹 보존 파싱
-// ---------------------------------------------------------------------------
-
-/**
- * 파싱 전용 CE 인스턴스. 앱 전역 인스턴스와 분리해 이 모듈이 자립하도록 둔다
- * (모듈은 셀·문서·앱을 모른다는 경계).
- */
-const ce = new ComputeEngine();
-
-const DOT_MARKER = 'algDotMarker';
-const CROSS_MARKER = 'algCrossMarker';
-
-/**
- * `\cdot`/`\times` 는 CE 파싱에서 전부 `Multiply` 로 뭉개져 어느 쪽이었는지 사라진다.
- * 파싱 전에 마커 심볼로 바꿔 살려둔다. (`\cdots` 같은 다른 커맨드를 건드리지 않게
- * 토큰 경계를 확인한다.)
- */
-function preprocess(latex: string): string {
-  return latex
-    .replace(/\\cdot(?![a-zA-Z])/g, ` \\mathrm{${DOT_MARKER}} `)
-    .replace(/\\times(?![a-zA-Z])/g, ` \\mathrm{${CROSS_MARKER}} `);
-}
-
-/**
- * **괄호와 항·인수 순서를 함께 보존하는** 축소 정규화 형식 (전부 실측 근거).
- *  - `Flatten` 은 `\left(…\right)` 의 `Delimiter` 껍데기를 벗긴다 → 괄호 소실
- *  - `InvisibleOperator` 는 곱의 인수를 **재정렬**해 마커를 피연산자에서 떼어놓는다
- *    → "마커가 두 피연산자 사이"라는 전제가 깨진다
- *  - `Add` 는 **덧셈 항을 재정렬**한다 (`1+x` → `Add(x,1)`, `u·v+w` → `Add(w,…)`).
- *    의미는 같지만 사용자가 쓴 순서가 사라져 렌더가 원문과 달라진다.
- *  - `Power` 는 `A^{-1}` 을 `Divide(1,A)` 로 바꾼다 → **역행렬이 행렬 나눗셈이 되어버린다**
- *    (`A^{-2}` 는 그대로인데 `-1` 만 그러는 비대칭 동작).
- * 그래서 `Number` 만 남긴다. 남겨도 되는 이유: 숫자 리터럴 정규화(`Negate(1)` → `-1`)만
- * 하고 구조는 건드리지 않는다. 빼도 `\frac` 은 `Divide`/`Rational` 로, `x^2` 는 `Power` 로
- * 그대로 온다 (실측). `Add` 를 빼서 뺄셈이 `Subtract` 머리로 오는 것도 아래에서 받는다.
- */
-const GROUPED_FORMS = ['Number'] as const;
 
 /** 스칼라 전용으로 취급하는 CE 함수 머리 → 우리 `call` 이름. */
 const SCALAR_FUNCTIONS: Record<string, string> = {
@@ -81,8 +11,6 @@ const SCALAR_FUNCTIONS: Record<string, string> = {
   Exp: 'exp', Ln: 'ln', Log: 'log', Sqrt: 'sqrt', Abs: 'abs',
 };
 
-const isMarker = (json: unknown): json is string =>
-  json === DOT_MARKER || json === CROSS_MARKER;
 
 /** CE가 곱셈에 쓰는 머리들. 그룹 보존 파싱에서는 `InvisibleOperator` 로 온다. */
 const MULTIPLY_HEADS = new Set(['InvisibleOperator', 'Multiply']);
@@ -281,7 +209,7 @@ function translatePostfixToTree(
 }
 
 /** CE JSON 한 노드를 Syntax IR로. */
-function translateToTree(json: unknown): Result<SyntaxNode> {
+export function translateToTree(json: unknown): Result<SyntaxNode> {
   if (typeof json === 'number') return ok({ kind: 'num', value: json });
   if (typeof json === 'object' && json !== null && 'num' in json) {
     const value = Number((json as { num: unknown }).num);
@@ -381,40 +309,4 @@ function translateToTree(json: unknown): Result<SyntaxNode> {
   }
 
   return fail('unsupported', `Unsupported operation: ${head}`);
-}
-
-/**
- * LaTeX -> Syntax IR.
- *
- * 모양은 보지 않는다. 여기서 결정되는 것은 **구조**(우선순위·그룹)와 **어느 곱 기호를
- * 썼는가**뿐이고, 그 기호가 무슨 연산인지는 elaborate가 모양과 함께 정한다.
- */
-/**
- * CE MathJSON → Syntax IR. **CE에 넘겼던 식을 되받을 때 쓴다.**
- *
- * CE의 `.latex` 를 거치지 않는 이유: 0.90의 LaTeX 직렬화에 버그가 있다(실측).
- * `Power(Divide(X,a), 2)` 를 `\frac{1}{a}(X)^2` 로 내놓아 **지수의 적용 범위가 바뀐다**.
- * MathJSON 자체는 멀쩡하므로 그쪽을 받는 게 안전하고, 왕복도 한 번 줄어든다.
- */
-export function parseCeJson(json: unknown): Result<SyntaxNode> {
-  return translateToTree(json);
-}
-
-export function parseSyntax(latex: string): Result<SyntaxNode> {
-  const trimmed = latex.trim();
-  if (trimmed === '') return fail('malformed', 'Empty expression');
-  let json: MathJsonExpression;
-  try {
-    const parsed = ce.parse(preprocess(trimmed), { form: [...GROUPED_FORMS] });
-    if (!parsed.isValid) return fail('malformed', 'Could not parse the expression');
-    json = parsed.json;
-  } catch {
-    return fail('malformed', 'Could not parse the expression');
-  }
-  return translateToTree(json);
-}
-
-/** 테스트·진단용. 프런트엔드가 무엇을 봤는지 확인할 때 쓴다. */
-export function parseToCeJson(latex: string): unknown {
-  return ce.parse(preprocess(latex.trim()), { form: [...GROUPED_FORMS] }).json;
 }

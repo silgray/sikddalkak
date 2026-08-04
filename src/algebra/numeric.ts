@@ -1,6 +1,6 @@
 import type { TypedExpr } from './elaborate';
-import { fail, ok, type Result } from './result';
-import { isScalar } from './shape';
+import { fail, ok, type Result } from './types-result';
+import { isScalar } from './types-shape';
 
 /**
  * 수치 평가기 — **재작성이 값을 바꾸지 않았는지 대조하는 용도**다.

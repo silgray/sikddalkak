@@ -6,8 +6,8 @@ import {
   type TypedExpr,
 } from './elaborate';
 import { exprKey, sortScalars } from './normal';
-import { fail, ok, type Result } from './result';
-import { SCALAR, isKnownShape, isScalar, isSquare, shape, type Shape } from './shape';
+import { fail, ok, type Result } from './types-result';
+import { SCALAR, isKnownShape, isScalar, isSquare, shape, type Shape } from './types-shape';
 
 /**
  * Normalize — elaborate가 둘씩만 담아둔 곱을 대수적으로 정리하는 별도 패스.

@@ -6,9 +6,9 @@ import {
   transposeTyped,
   type TypedExpr,
 } from './elaborate';
-import { OP_PROPERTIES } from './ops';
-import { fail, ok, type Result } from './result';
-import { SCALAR, formatShape, isKnownShape, isScalar, isSquare, type Shape } from './shape';
+import { OP_PROPERTIES } from './types-ops';
+import { fail, ok, type Result } from './types-result';
+import { SCALAR, formatShape, isKnownShape, isScalar, isSquare, type Shape } from './types-shape';
 
 /**
  * 정규형 — **단항식 = (수치 계수, 스칼라 인수 집합, 비스칼라 인수 열)**.

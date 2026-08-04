@@ -1,6 +1,6 @@
 import type { TypedExpr } from './elaborate';
-import { formatShape } from './shape';
-import type { SyntaxNode } from './syntax';
+import { formatShape } from './types-shape';
+import type { SyntaxNode } from './types-SyntaxNode';
 
 /**
  * 사람이 읽는 트리 출력.
