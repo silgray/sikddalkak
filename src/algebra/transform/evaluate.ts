@@ -5,6 +5,8 @@ import { foldMatrices } from './matrixFold';
 import { simplify, substitute } from './transform';
 import { fail, ok, type Result } from '../types-Result';
 import { render } from '../render';
+import { SCALAR, isSquare, shape } from '../types-shape';
+import { ONE, ZERO } from '../types-Literal';
 
 /**
  * 셀 하나를 값으로 접는다. **치환은 안 한다** — 어떤 이름을 무엇으로 바꿀지는 호출자
@@ -82,6 +84,82 @@ function childrenOf(e: TypedExpr): readonly TypedExpr[] {
 /** 무한 루프 방어용 상한. 진짜 순환 검출(`a=b`, `b=a`)은 그래프 층이 이름 단위로 한다. */
 const MAX_SUBSTITUTION_DEPTH = 64;
 
+/** `n×n` 항등행렬을 리터럴 `matrix` 노드로. 대각선만 `1`, 나머지는 `0`. */
+function identityMatrixLiteral(n: number): TypedExpr {
+  const rows: TypedExpr[][] = [];
+  for (let i = 0; i < n; i += 1) {
+    const row: TypedExpr[] = [];
+    for (let j = 0; j < n; j += 1) {
+      row.push({ op: 'num', shape: SCALAR, value: i === j ? ONE : ZERO });
+    }
+    rows.push(row);
+  }
+  return { op: 'matrix', shape: shape(n, n), rows };
+}
+
+/**
+ * **모양이 확정된** `matIdentity` 를 실제 항등행렬 리터럴로 치환한다.
+ *
+ * `matIdentity` 는 그 자체로 이미 "항등행렬"이라는 뜻이라 값은 안 바뀐다 — 다만
+ * `matrixFold.ts` 의 리터럴 산술(`addMatrixLiterals`/`mulMatrixLiterals`/`invertLiteral`
+ * 등)은 `op === 'matrix'` 인 노드만 리터럴로 인식한다. 그래서 `A + I` 에서 `A` 가
+ * 치환으로 구체 행렬이 돼도 `I` 가 여전히 `matIdentity` 면 원소별 덧셈이 값으로
+ * 안 접히고 `add(literal, matIdentity)` 로 남는다.
+ *
+ * 모양이 아직 안 정해졌으면(`I` 혼자 문맥 없이 쓰인 경우) 손대지 않는다 — 크기를
+ * 모르는데 행렬을 지어낼 수는 없다.
+ */
+function materializeIdentities(e: TypedExpr): TypedExpr {
+  switch (e.op) {
+    case 'matIdentity': {
+      // `(1,1)` 은 제외한다 — 그건 "판명된 항등행렬"이 아니라 문맥 없는 `I` 가 떨어지는
+      // 기본값이다(`normalize.ts` "I 혼자 쓰면 … (1,1)=스칼라로 굳는다"). 여기까지
+      // 치환하면 셀 에디터의 모든 셀이 거치는 substituteDeep+evaluate 경로에서
+      // 단독 `"I"` 가 `\begin{pmatrix}1\end{pmatrix}` 로 보이게 된다.
+      const n = e.shape.rows;
+      return isSquare(e.shape) && n !== 1 ? identityMatrixLiteral(n as number) : e;
+    }
+    case 'num':
+    case 'sym':
+      return e;
+    case 'matrix':
+      return { ...e, rows: e.rows.map((row) => row.map(materializeIdentities)) };
+    case 'add':
+      return { ...e, terms: e.terms.map(materializeIdentities) };
+    case 'neg':
+      return { ...e, operand: materializeIdentities(e.operand) };
+    case 'scalarMul':
+    case 'matMul':
+      return { ...e, factors: e.factors.map(materializeIdentities) };
+    case 'mul':
+      return {
+        ...e,
+        scalar: materializeIdentities(e.scalar),
+        matrix: materializeIdentities(e.matrix),
+      };
+    case 'dot':
+    case 'cross':
+      return { ...e, left: materializeIdentities(e.left), right: materializeIdentities(e.right) };
+    case 'transpose':
+      return { ...e, operand: materializeIdentities(e.operand) };
+    case 'matPow':
+    case 'scalarPow':
+      return {
+        ...e,
+        base: materializeIdentities(e.base),
+        exponent: materializeIdentities(e.exponent),
+      };
+    case 'call':
+      return { ...e, args: e.args.map(materializeIdentities) };
+    case 'frac':
+      return {
+        ...e,
+        numerator: materializeIdentities(e.numerator),
+        denominator: materializeIdentities(e.denominator),
+      };
+  }
+}
+
 /**
  * 정의된 심볼을 그 정의로 **끝까지** 바꾼다.
  *
@@ -91,18 +169,22 @@ const MAX_SUBSTITUTION_DEPTH = 64;
  *
  * `exprKey` 로 구조가 안 바뀌었는지 본다 — 값을 비교하는 게 아니라 **더 치환할 게
  * 없다**는 뜻이라 정확하다.
+ *
+ * **끝에 `materializeIdentities` 를 한 번 건다** — `evaluate` 가 바로 뒤따르므로,
+ * 여기서 모양이 확정된 `I` 를 실제 행렬로 미리 박아둬야 `foldMatrices` 의 리터럴
+ * 산술이 그걸 붙잡을 수 있다.
  */
 export function substituteDeep(e: TypedExpr, env: Env): Result<TypedExpr> {
   let current = e;
   for (let i = 0; i < MAX_SUBSTITUTION_DEPTH; i += 1) {
     const next = substitute(current, env);  // TODO: optimize
     if (!next.ok) return next;
-    if (exprKey(next.value) === exprKey(current)) return ok(next.value);
+    if (exprKey(next.value) === exprKey(current)) return ok(materializeIdentities(next.value));
     current = next.value;
   }
   // 상한에 닿았다 — 순환일 가능성이 높지만, 순환 판정은 이름 단위 그래프의 몫이라
   // 여기서는 지금까지 치환된 상태를 조용히 돌려준다 (무한 루프만 막으면 된다).
-  return ok(current);
+  return ok(materializeIdentities(current));
 }
 
 /** `sym` 노드 이름을 전부 모은다. 그래프 층의 의존 간선이 될 값이다. */

@@ -188,3 +188,54 @@ describe('substituteDeep — 전이 참조까지 끝까지 치환', () => {
     expect(render(sub.value)).toBe(String.raw`\begin{pmatrix}1&2\\3&4\end{pmatrix}^Tv`);
   });
 });
+
+describe('substituteDeep — 모양이 확정된 I 를 실제 항등행렬로 치환한다', () => {
+  /**
+   * `matIdentity` 는 그 자체로 이미 항등행렬이라는 뜻이지만, `matrixFold.ts` 의 리터럴
+   * 산술(`addMatrixLiterals` 등)은 `op === 'matrix'` 인 노드만 리터럴로 인식한다. `A` 가
+   * 치환으로 구체 행렬이 돼도 `I` 가 여전히 `matIdentity` 면 원소별 덧셈이 값으로 안
+   * 접히고 `add(literal, matIdentity)` 로 남는다 — 그래서 substituteDeep 이 미리 박아둔다.
+   */
+  it('A+I 가 원소별 값으로 정확히 접힌다', () => {
+    const built = buildEnv({ A: String.raw`\begin{pmatrix}1&2&3\\4&5&6\\7&8&9\end{pmatrix}` });
+    expect(built.unresolved).toEqual([]);
+    const sub = substituteDeep(typedOf('A+I', built.env), built.env);
+    if (!sub.ok) throw new Error(sub.errors[0].message);
+    const result = evaluate(sub.value, built.env);
+    if (!result.ok) throw new Error(result.errors[0].message);
+    expect(render(result.value)).toBe(
+      String.raw`\begin{pmatrix}2&2&3\\4&6&6\\7&8&10\end{pmatrix}`,
+    );
+  });
+
+  it('substituteDeep 결과 자체가 이미 리터럴 항등행렬을 담고 있다', () => {
+    const built = buildEnv({ A: String.raw`\begin{pmatrix}1&2\\3&4\end{pmatrix}` });
+    const sub = substituteDeep(typedOf('A+I', built.env), built.env);
+    if (!sub.ok) throw new Error(sub.errors[0].message);
+    // 항 순서는 exprKey 정렬이 정한다(둘 다 리터럴 행렬이라 원소 나열로 비교된다) —
+    // 여기서 중요한 건 순서가 아니라 I 가 진짜 리터럴 행렬로 바뀌어 있다는 것이다.
+    expect(render(sub.value)).toBe(
+      String.raw`\begin{pmatrix}1&0\\0&1\end{pmatrix}+\begin{pmatrix}1&2\\3&4\end{pmatrix}`,
+    );
+  });
+
+  it('문맥 없이 홀로 쓴 I 는 (1,1)로 굳어도 손대지 않는다', () => {
+    // (1,1) 은 "판명된 항등행렬"이 아니라 문맥 없는 I 의 기본값이다. 여기까지 치환하면
+    // 셀 에디터의 모든 셀이 거치는 경로에서 단독 "I" 가 \begin{pmatrix}1\end{pmatrix} 로
+    // 보이게 된다 — 그래서 일부러 제외한다.
+    const sub = substituteDeep(typedOf('I', { shapes: {} }), { shapes: {} });
+    if (!sub.ok) throw new Error(sub.errors[0].message);
+    expect(render(sub.value)).toBe('I');
+  });
+
+  it('모양이 안 정해진 I 는 matPow 안에 있어도 손대지 않는다', () => {
+    // `typedOf` 는 normalize 를 안 거치므로 `I^{-1} → I` 축약은 여기서 안 일어난다
+    // (그건 normalize 의 몫이다). 여기서 보는 건 materializeIdentities 가 모양 미정
+    // I 를 matPow 안까지 파고들어도 잘못 건드리지 않는가 하는 것뿐이다.
+    const sub = substituteDeep(typedOf('I^{-1}', { shapes: { A: shape(2, 2) } }), {
+      shapes: { A: shape(2, 2) },
+    });
+    if (!sub.ok) throw new Error(sub.errors[0].message);
+    expect(render(sub.value)).toBe('I^{-1}');
+  });
+});
