@@ -11,6 +11,22 @@ const SCALAR_FUNCTIONS: Record<string, string> = {
   Exp: 'exp', Ln: 'ln', Log: 'log', Sqrt: 'sqrt', Abs: 'abs',
 };
 
+/**
+ * `\sin^{-1}` 계열 → 이미 있는 arc- 이름.
+ *
+ * CE는 이걸 `Apply(InverseFunction(Sin), x)` 로 준다(실측) — 막히던 머리는
+ * `InverseFunction` 이 아니라 **`Apply`** 다. `\arcsin` 이 도착하는 곳과 같은 `call` 로
+ * 보내면 `numeric`·`render` 테이블을 건드릴 필요가 없고, `\sin^{-1}(x)` 는
+ * `\arcsin\left(x\right)` 로 렌더된다 (문자열은 바뀌지만 다시 읽어도 같은 트리라 멱등).
+ *
+ * **셋뿐인 이유**: `\ln^{-1}`·`\log^{-1}`·`\exp^{-1}` 은 CE가 이미 `Exp`/`Power(10,x)`/`Ln`
+ * 으로 풀어줘서 `Apply` 로 오지도 않는다(실측). `\sinh^{-1}` 계열은 우리 테이블에 arsinh가
+ * 없으므로 일부러 `unsupported` 로 남긴다 — 조용히 틀린 답을 내느니 못 한다고 하는 게 낫다.
+ */
+const INVERSE_FUNCTIONS: Record<string, string> = {
+  Sin: 'arcsin', Cos: 'arccos', Tan: 'arctan',
+};
+
 
 /** CE가 곱셈에 쓰는 머리들. 그룹 보존 파싱에서는 `InvisibleOperator` 로 온다. */
 const MULTIPLY_HEADS = new Set(['InvisibleOperator', 'Multiply']);
@@ -292,6 +308,28 @@ export function translateToTree(json: unknown): Result<SyntaxNode> {
     }
     return ok({ kind: 'frac', numerator: numerator.value, denominator: denominator.value });
   }
+  // `\sin^{-1}(x)` — CE는 `Apply(InverseFunction(Sin), x)` 로 준다(실측).
+  // **여기서 반드시 끊는다** — 아래 홑 대문자 되돌리기로 새면 `Apply` 가 곱으로 둔갑한다.
+  if (head === 'Apply') {
+    const [callee, ...callArgs] = args;
+    const inverseOf =
+      Array.isArray(callee) && callee.length === 2 && callee[0] === 'InverseFunction'
+        ? callee[1]
+        : null;
+    const invName = typeof inverseOf === 'string' ? INVERSE_FUNCTIONS[inverseOf] : undefined;
+    if (invName === undefined) {
+      return fail('unsupported', `Unsupported operation: ${head}`);
+    }
+    const parsed = callArgs.map(translateToTree);
+    const errors = parsed.flatMap((a) => (a.ok ? [] : a.errors));
+    if (errors.length > 0) return failWith(errors);
+    return ok({
+      kind: 'call',
+      name: invName,
+      args: parsed.map((a) => (a as { value: SyntaxNode }).value),
+    });
+  }
+
   const fnName = SCALAR_FUNCTIONS[head];
   if (fnName !== undefined) {
     const parsed = args.map(translateToTree);

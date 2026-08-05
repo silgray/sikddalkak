@@ -109,6 +109,21 @@ describe('기타 구성', () => {
     expect(parsed(String.raw`A_1\left(v\right)`)).toBe('(juxt A_1 v)');
   });
 
+  it('역삼각함수는 \\sin^{-1} 로 써도 \\arcsin 과 같은 곳에 도착한다', () => {
+    // CE는 `Apply(InverseFunction(Sin), x)` 로 준다(실측) — 막히던 머리는 `Apply` 였다.
+    expect(parsed(String.raw`\sin^{-1}(x)`)).toBe('(arcsin x)');
+    expect(parsed(String.raw`\arcsin(x)`)).toBe('(arcsin x)');
+    expect(parsed(String.raw`\cos^{-1}(x)`)).toBe('(arccos x)');
+    expect(parsed(String.raw`\tan^{-1}(x)`)).toBe('(arctan x)');
+    // `\sin^2` 은 `Apply` 경로를 안 탄다 — 일반 거듭제곱이다.
+    expect(parsed(String.raw`\sin^2(x)`)).toBe('(^ (sin x) 2)');
+  });
+
+  it('대응하는 arc- 이름이 없는 역함수는 오류다', () => {
+    // arsinh 를 우리 테이블에 안 두었으므로 조용히 틀리느니 못 한다고 한다.
+    expect(errorCode(String.raw`\sinh^{-1}(x)`)).toBe('unsupported');
+  });
+
   it('모르는 머리는 곱으로 둔갑시키지 않고 오류를 낸다', () => {
     // 위의 병치 되돌리기가 너무 넓어지면 여기서 조용한 오답이 생긴다.
     expect(errorCode(String.raw`\int x`)).toBe('unsupported');
