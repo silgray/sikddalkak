@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { sexpTyped } from './debug';
 import { render } from './render';
 import { formatShape, shape } from './types-shape';
-import { normalizedOf, sameValue, TEST_ENV, typedOf } from './testEnv';
+import { normalizedOf, sameValue, simplifiedOf, TEST_ENV, typedOf } from './testEnv';
 
 /**
  * 항등행렬 `I` (matIdentity) 테스트.
@@ -31,8 +31,11 @@ describe('모양 해석 — elaborate가 I 를 채운다', () => {
     expect(sexpTyped(normalizedOf('MI'))).toBe('M'); // M: 2x3 직사각
   });
 
-  it('AIA 는 I 를 먼저 버려야 두 A 가 이웃해져 A² 로 접힌다', () => {
-    const t = normalizedOf('AIA');
+  it('AIA 는 I 를 먼저 버려야 두 A 가 이웃해진다', () => {
+    // 소거는 normalize 몫이라 여기서 이미 `AA` 가 된다.
+    expect(sexpTyped(normalizedOf('AIA'))).toBe('(matMul A A)');
+    // 접기는 simplify 몫이다 (normalize 기본값은 안 접는다).
+    const t = simplifiedOf('AIA');
     expect(sexpTyped(t)).toBe('(matPow A 2)');
     expect(render(t)).toBe('A^{2}');
   });
@@ -48,17 +51,18 @@ describe('모양 해석 — elaborate가 I 를 채운다', () => {
   });
 });
 
+// 소거는 거듭제곱 접기와 같은 패스(`foldAdjacentPowers`)에 있어 `simplify` 에서만 돈다.
 describe('역행렬 소거 — 퍼즈가 못 보는 자리, 표 테스트로만 검증', () => {
   it('A^{-1}A 는 I 다', () => {
-    expect(sexpTyped(normalizedOf(String.raw`A^{-1}A`))).toBe('I');
+    expect(sexpTyped(simplifiedOf(String.raw`A^{-1}A`))).toBe('I');
   });
 
   it('AA^{-1}B 는 B 다 (소거로 새로 생긴 I 를 다시 걷어낸다)', () => {
-    expect(sexpTyped(normalizedOf(String.raw`AA^{-1}B`))).toBe('B');
+    expect(sexpTyped(simplifiedOf(String.raw`AA^{-1}B`))).toBe('B');
   });
 
   it('BA^{-1}A 도 대칭적으로 성립한다', () => {
-    expect(sexpTyped(normalizedOf(String.raw`BA^{-1}A`))).toBe('B');
+    expect(sexpTyped(simplifiedOf(String.raw`BA^{-1}A`))).toBe('B');
   });
 });
 

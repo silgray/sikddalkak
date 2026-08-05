@@ -57,10 +57,17 @@ describe('expand — 사용자가 요구한 전개', () => {
 
   it('같은 스칼라가 겹치면 거듭제곱으로 접힌다', () => {
     // 스칼라 인수를 하나씩 CE에 넘기면 `aa` 인 채로 남는다 — 묶어서 넘겨야 접힌다.
+    // (스칼라는 CE 위임 경로라 expand 에서도 접힌다.)
     expect(expandedLatex('aaA')).toBe('a^{2}A');
-    // 행렬은 이웃할 때만 접힌다 (교환할 수 없으므로).
-    expect(expandedLatex('AAB')).toBe('A^{2}B');
+  });
+
+  it('행렬 인수는 expand 가 접지 않는다 — 접기는 simplify 몫이다', () => {
+    // `expand` 는 `normalize(_, false)` 로 끝나므로 사용자가 쓴 곱의 모양을 유지한다.
+    expect(expandedLatex('AAB')).toBe('AAB');
     expect(expandedLatex('ABA')).toBe('ABA');
+    // 이웃할 때만 접힌다 (교환할 수 없으므로) — 그건 simplify 가 한다.
+    expect(simplifiedLatex('AAB')).toBe('A^{2}B');
+    expect(simplifiedLatex('ABA')).toBe('ABA');
   });
 });
 

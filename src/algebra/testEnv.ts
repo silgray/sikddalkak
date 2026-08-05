@@ -1,5 +1,5 @@
 import { elaborate } from './parse/elaborate';
-import { parse } from './index';
+import { parse, simplify } from './index';
 import { evalNumeric, matricesClose, type Assignment } from './numeric';
 import { shape } from './types-shape';
 import type { TypedExpr, Env } from './index';
@@ -42,6 +42,19 @@ export function typedOf(latex: string, env: Env = TEST_ENV): TypedExpr {
 export function normalizedOf(latex: string, env: Env = TEST_ENV): TypedExpr {
   const r = parse(latex, env);
   if (!r.ok) throw new Error(`parse failed: ${r.errors[0].message}`);
+  return r.value;
+}
+
+/**
+ * LaTeX → **정리까지 끝난** Typed IR (`parse` + `simplify`).
+ *
+ * 거듭제곱 접기(`AA` → `A²`)와 역행렬 소거(`A^{-1}A` → `I`)를 보는 테스트는 이걸 써야
+ * 한다. `normalize` 는 기본값이 `foldPowers=false` 라 **접지 않는다** — 사용자가 쓴 곱의
+ * 모양을 임의로 바꾸지 않는다는 결정이고, `foldPowers=true` 로 부르는 건 `simplify` 뿐이다.
+ */
+export function simplifiedOf(latex: string, env: Env = TEST_ENV): TypedExpr {
+  const r = simplify(normalizedOf(latex, env), env);
+  if (!r.ok) throw new Error(`simplify failed: ${r.errors[0].message}`);
   return r.value;
 }
 

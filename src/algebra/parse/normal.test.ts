@@ -63,7 +63,9 @@ describe('분배 — 사용자가 요구한 전개', () => {
   });
 
   it('정수 거듭제곱을 풀어쓴다', () => {
-    expect(render(expanded(String.raw`\left(A+B\right)^2`))).toBe('A^{2}+AB+BA+B^{2}');
+    // `monomialToExpr` 는 이웃한 같은 인수를 접지 않는다 (`normal.ts` 서두 참고) —
+    // `AA` 를 `A^{2}` 로 만드는 건 `simplify` 의 몫이라 여기선 풀어쓴 그대로다.
+    expect(render(expanded(String.raw`\left(A+B\right)^2`))).toBe('AA+AB+BA+BB');
   });
 });
 
@@ -73,8 +75,9 @@ describe('비가환 — 여기가 이 설계의 핵심', () => {
     expect(render(expanded('ABA'))).toBe('ABA');
   });
 
-  it('이웃한 같은 인수만 거듭제곱으로 접힌다', () => {
-    expect(render(expanded('AAB'))).toBe('A^{2}B');
+  it('인수 열의 순서를 그대로 보존한다 (접기는 simplify 몫)', () => {
+    expect(render(expanded('AAB'))).toBe('AAB');
+    // 여기가 핵심 — 정렬했다면 `ABA` 도 `AAB` 가 됐을 것이다.
     expect(render(expanded('ABA'))).toBe('ABA');
   });
 
