@@ -1,5 +1,5 @@
-import type { TypedExpr } from './elaborate';
-import { fail, ok, type Result } from './types-result';
+import type { TypedExpr } from './types-TypedExpr';
+import { fail, ok, type Result } from './types-Result';
 import { isScalar } from './types-shape';
 
 /**

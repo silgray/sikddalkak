@@ -4,11 +4,11 @@ import {
   dotTyped,
   fracTyped,
   transposeTyped,
-  type TypedExpr,
 } from './elaborate';
 import { exprKey, sortScalars } from './normal';
-import { fail, ok, type Result } from './types-result';
-import { SCALAR, isKnownShape, isScalar, isSquare, shape, type Shape } from './types-shape';
+import { fail, ok, type Result } from '../types-Result';
+import { SCALAR, isKnownShape, isScalar, isSquare, shape, type Shape } from '../types-shape';
+import type { TypedExpr } from '../types-TypedExpr';
 
 /**
  * Normalize — elaborate가 둘씩만 담아둔 곱을 대수적으로 정리하는 별도 패스.

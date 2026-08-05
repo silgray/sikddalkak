@@ -1,8 +1,9 @@
-import { elaborate, type Env, type TypedExpr } from './elaborate';
+import { elaborate } from './parse/elaborate';
 import { parse } from './index';
 import { evalNumeric, matricesClose, type Assignment } from './numeric';
 import { shape } from './types-shape';
-import { parseSyntax } from './parseSymbol';
+import type { TypedExpr, Env } from './index';
+import { parseSyntax } from './parse/parseSymbol';
 
 /**
  * 테스트가 공유하는 심볼 환경과 파이프라인 헬퍼.

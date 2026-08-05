@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sexpSyntax } from './debug';
+import { sexpSyntax } from '../debug';
 import { parseSyntax } from './parseSymbol';
 
 /**

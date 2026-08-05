@@ -14,7 +14,9 @@
     "test:browser": "vitest run --config vitest.browser.config.ts",
     "test:watch": "vitest",
     "prelab": "node scripts/copy-mathlive-assets.mjs",
-    "lab": "vite --config vite.lab.config.ts"
+    "lab": "vite --config vite.lab.config.ts",
+    "prealgebra-test": "node scripts/copy-mathlive-assets.mjs",
+    "algebra-test": "vite --config vite.algebra-test.config.ts"
   },
   "dependencies": {
     "@cortex-js/compute-engine": "0.90.0",

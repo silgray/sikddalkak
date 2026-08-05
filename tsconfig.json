@@ -17,5 +17,5 @@
     "noEmit": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "lab", "vite.config.ts", "vite.lab.config.ts"]
+  "include": ["src", "lab", "vite.config.ts", "vite.lab.config.ts", "vite.algebra-test.config.ts"]
 }

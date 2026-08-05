@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { sexpTyped } from './debug';
+import { sexpTyped } from '../debug';
 import { elaborate } from './elaborate';
-import { formatShape } from './types-shape';
+import { formatShape } from '../types-shape';
 import { parseSyntax } from './parseSymbol';
-import { TEST_ENV, typedOf } from './testEnv';
+import { TEST_ENV, typedOf } from '../testEnv';
 
 /**
  * §4 표 테스트 — **표가 곧 명세**다.

@@ -1,5 +1,5 @@
 import { ComputeEngine } from '@cortex-js/compute-engine';
-import type { TypedExpr } from './elaborate';
+import type { TypedExpr } from './types-TypedExpr';
 
 /**
  * Typed IR → string(LaTeX).

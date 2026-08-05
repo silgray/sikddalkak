@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { TypedExpr } from './elaborate';
+import type { TypedExpr } from '../types-TypedExpr';
 import { evaluate } from './evaluate';
-import { evalNumeric, matricesClose } from './numeric';
-import { render } from './render';
-import { expand, factor, simplify } from './rewrite';
-import { formatShape, isKnownShape, isScalar } from './types-shape';
-import { TEST_ENV, TEST_VALUES, typedOf } from './testEnv';
-import { parse } from './index';
+import { evalNumeric, matricesClose } from '../numeric';
+import { render } from '../render';
+import { expand, factor, simplify } from './transform';
+import { formatShape, isKnownShape, isScalar } from '../types-shape';
+import { TEST_ENV, TEST_VALUES, typedOf } from '../testEnv';
+import { parse } from '../index';
 
 /**
  * 무작위 식으로 재작성을 대조한다 (설계 §10②).

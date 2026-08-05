@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { Env, TypedExpr } from './elaborate';
-import { render } from './render';
-import { expand, factor, isPureScalar, simplify, substitute } from './rewrite';
-import { evalNumeric, matricesClose } from './numeric';
-import { formatShape, shape } from './types-shape';
-import { TEST_ENV, TEST_VALUES, sameValue, typedOf } from './testEnv';
+import type { Env, TypedExpr } from '../types-TypedExpr';
+import { render } from '../render';
+import { expand, factor, isPureScalar, simplify, substitute } from './transform';
+import { evalNumeric, matricesClose } from '../numeric';
+import { formatShape, shape } from '../types-shape';
+import { TEST_ENV, TEST_VALUES, sameValue, typedOf } from '../testEnv';
 
 /**
  * 재작성 테스트.

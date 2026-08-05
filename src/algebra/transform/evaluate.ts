@@ -1,9 +1,9 @@
-import type { Env, TypedExpr } from './elaborate';
-import { exprKey } from './normal';
-import { normalize } from './normalize';
+import type { Env, TypedExpr } from '../types-TypedExpr';
+import { exprKey } from '../parse/normal';
+import { normalize } from '../parse/normalize';
 import { foldMatrices } from './matrixFold';
-import { simplify, substitute } from './rewrite';
-import { ok, type Result } from './types-result';
+import { simplify, substitute } from './transform';
+import { ok, type Result } from '../types-Result';
 
 /**
  * 셀 하나를 값으로 접는다. **치환은 안 한다** — 어떤 이름을 무엇으로 바꿀지는 호출자

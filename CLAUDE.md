@@ -30,7 +30,12 @@
 
 ## 프로젝트 구조
 
-### `src/engine/` — 계산 로직 (UI 의존성 없음, 순수 함수)
+### `src/engine/` — 계산 로직 구 버전 (⚠ 대체됨, 대부분 죽은 코드)
+
+`src/algebra/` 로 교체 완료. 주 앱(`cellGraph.ts`/`cellEnv.ts`/`Cell.tsx`)은 더 이상
+이 디렉터리를 쓰지 않는다. 남은 참조는 `src/editor/editor.browser.test.tsx` 하나뿐
+(파싱 유효성 오라클로 `ce` 를 빌려 쓴다) — 이것도 걷어내면 디렉터리째 지울 수 있다.
+삭제 전까지는 아래 설명을 참고용으로만 남겨둔다.
 
 - **`ce.ts`** — 앱 전역 단일 CE 인스턴스. 버전 격리 규칙의 근거.
 - **`evaluate.ts`** — 핵심 평가기. `evaluateGraph(inputs)`가 셀들을 받아
@@ -44,10 +49,10 @@
   op ∈ expand/simplify/factor. 다변수·비다항 공통인자 추출(CE factor 보강),
   행렬 선택 변환, 부동소수점 부스러기 chop.
 
-### `src/algebra/` — 모양(shape) 기반 심볼릭 대수 (신규, 아직 주 앱 미연결)
+### `src/algebra/` — 모양(shape) 기반 심볼릭 대수 (주 앱에 연결됨)
 
-`src/engine/` 의 후계로 만드는 중. **아직 어디서도 쓰이지 않는다** — 주 앱은 그대로
-`src/engine/` 을 쓴다. 붙이는 건 별건.
+`src/engine/` 의 후계. **`src/cellGraph.ts`/`src/cellEnv.ts`/`src/components/Cell.tsx`
+가 이걸 쓴다** — `src/engine/` 은 대체됐다(위 참고).
 
 만든 이유: `src/engine/transform.ts` 의 `transformSelection(latex, op)` 은 **문맥이 없어서**
 심볼이 스칼라인지 행렬인지 모른다. 그래서 `ABA` 를 `A²B` 로 만드는 등 교환법칙을 잘못
@@ -118,7 +123,7 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 
 - **`Workspace.tsx`** — 최상위. reducer 보유, 전역 Ctrl+Z/Y, 탭 전환.
 - **`CellStack.tsx`** — 셀 목록 + 평가 디바운스(타이핑 300ms/구조 변경 즉시) +
-  드래그 재정렬. `evaluateGraph` 호출 지점.
+  드래그 재정렬. `evaluateCells`(`src/cellGraph.ts`) 호출 지점.
 - **`Cell.tsx`** — 셀 하나 (입력행 + 결과행). 선택 추적, 변환 버튼, 구분 기호 툴바.
 - **`MathField.tsx`** — `<math-field>` React 래퍼. **UI↔에디터 경계.** input마다
   `repairLatex` 게이트, selection-change마다 `normalizeSelection` 게이트,
@@ -143,14 +148,22 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 
 ### 기타
 
+- **`cellGraph.ts`** — 셀 사이 층. 이름 기반 의존성 그래프로 `src/algebra` 를 셀 목록에
+  얹는다(`src/engine/evaluate.ts` 의 `evaluateGraph` 후계). 위상정렬은 순환 감지·캐시
+  지문 전파 전용, 실제 계산은 algebra의 `substituteDeep`/`evaluate`. `evaluateCells`가
+  결과와 선택 변환용 `Env` 를 한 번에 돌려준다.
+- **`cellEnv.ts`** — 정의 판정(`splitDefinition`: `a=3` 의 좌변/우변 분리)과 `Env` 조립
+  (`buildCellEnv`, algebra의 `buildEnv` 얇은 재노출). 그래프 구성 자체는 안 한다 —
+  그건 `cellGraph.ts` 몫.
 - **`types.ts`** — `FormulaObject`(정본), `EvalResult`, `CellMode` 등 공용 타입.
 - **`styles.css`** — 전역 CSS (라이트/다크 자동, CSS 변수).
 - **`scripts/copy-mathlive-assets.mjs`** — 빌드 전 MathLive 폰트를 public으로 복사.
 
 ## UI ↔ 계산 경계
 
-- **UI(components)는 계산을 모른다.** `CellStack`이 `evaluateGraph`에 `{id, latex, mode}`
-  만 넘기고 `EvalResult`를 받는다. 엔진은 React·DOM에 의존하지 않는 순수 함수.
+- **UI(components)는 계산을 모른다.** `CellStack`이 `evaluateCells`(`cellGraph.ts`)에
+  오브젝트 목록을 넘기고 `{results, env}`를 받는다. 엔진은 React·DOM에 의존하지 않는
+  순수 함수.
 - **문서 정본은 LaTeX 문자열.** 편집 중인 draft는 mathfield DOM 안에만 있고,
   디바운스/blur/Enter 시점에 `onEdit`으로 문서에 flush된다.
 - **에디터 레이어(editor/)가 MathLive와 계산 사이의 완충.** 파손된 LaTeX이
@@ -160,7 +173,7 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 
 - **전역**: `workspaceReducer` 하나뿐. 탭·문서·실행취소·포커스 전부 여기. (`useReducer`)
 - **로컬**: 컴포넌트별 UI 상태만 (선택 영역, 드래그, 도움말 열림 등 `useState`).
-- **파생값**: 계산 결과는 상태가 아니라 `useMemo(evaluateGraph)` — 엔진 캐시가 담당.
+- **파생값**: 계산 결과는 상태가 아니라 `useMemo(evaluateCells)` — 엔진 캐시가 담당.
 
 ## 코딩 컨벤션
 

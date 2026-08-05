@@ -1,6 +1,6 @@
-import { fail, failWith, ok, type AlgebraError, type Result } from './types-result';
+import { fail, failWith, ok, type AlgebraError, type Result } from '../types-Result';
 import { DOT_MARKER, CROSS_MARKER, isMarker } from './preprocess';
-import type { SyntaxNode } from './types-SyntaxNode';
+import type { SyntaxNode } from '../types-SyntaxNode';
 
 
 /** 스칼라 전용으로 취급하는 CE 함수 머리 → 우리 `call` 이름. */

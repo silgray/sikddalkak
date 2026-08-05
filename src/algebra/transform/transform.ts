@@ -7,9 +7,7 @@ import {
   fracTyped,
   mulTyped,
   transposeTyped,
-  type Env,
-  type TypedExpr,
-} from './elaborate';
+} from '../parse/elaborate';
 import {
   combineLikeTerms,
   exprKey,
@@ -19,12 +17,13 @@ import {
   toPolynomial,
   type Monomial,
   type Polynomial,
-} from './normal';
-import { normalize } from './normalize';
-import { fail, ok, type Result } from './types-result';
-import { render } from './render';
-import { parseCeJson } from './parseSymbol';
-import { SCALAR, isScalar, isSquare, type Shape } from './types-shape';
+} from '../parse/normal';
+import { normalize } from '../parse/normalize';
+import { fail, ok, type Result } from '../types-Result';
+import { render } from '../render';
+import { parseCeJson } from '../parse/parseSymbol';
+import { SCALAR, isScalar, isSquare, type Shape } from '../types-shape';
+import type { TypedExpr, Env } from '../types-TypedExpr';
 
 /**
  * 구문 재작성 — expand / simplify / factor / substitute.

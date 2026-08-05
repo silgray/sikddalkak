@@ -1,4 +1,4 @@
-import type { TypedExpr } from './elaborate';
+import type { TypedExpr } from './types-TypedExpr';
 import { formatShape } from './types-shape';
 import type { SyntaxNode } from './types-SyntaxNode';
 

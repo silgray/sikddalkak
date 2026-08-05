@@ -1,9 +1,10 @@
 import { ComputeEngine } from '@cortex-js/compute-engine';
 import type { MathJsonExpression } from '@cortex-js/compute-engine';
-import { addTyped, elaborate, mulTyped, type Env, type TypedExpr } from './elaborate';
-import { parseCeJson } from './parseSymbol';
-import { ok, type Result } from './types-result';
-import { SCALAR } from './types-shape';
+import { addTyped, elaborate, mulTyped } from '../parse/elaborate';
+import { parseCeJson } from '../parse/parseSymbol';
+import { ok, type Result } from '../types-Result';
+import { SCALAR } from '../types-shape';
+import type { TypedExpr, Env } from '../types-TypedExpr';
 
 /**
  * 구체 행렬 산술 — 리터럴 행렬끼리의 덧셈·곱셈·거듭제곱·전치·내적·외적을 값으로 접는다.

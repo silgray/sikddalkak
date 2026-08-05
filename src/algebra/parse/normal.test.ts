@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { sexpTyped } from './debug';
-import type { TypedExpr } from './elaborate';
+import { sexpTyped } from '../debug';
+import type { TypedExpr } from '../types-TypedExpr';
 import { combineLikeTerms, fromPolynomial, monomialKey, toPolynomial } from './normal';
-import { render } from './render';
-import { formatShape } from './types-shape';
-import { TEST_ENV, sameValue, typedOf } from './testEnv';
+import { render } from '../render';
+import { formatShape } from '../types-shape';
+import { TEST_ENV, sameValue, typedOf } from '../testEnv';
 
 /**
  * 정규형 테스트.

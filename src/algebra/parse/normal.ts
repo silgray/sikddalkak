@@ -4,11 +4,11 @@ import {
   dotTyped,
   mulTyped,
   transposeTyped,
-  type TypedExpr,
 } from './elaborate';
-import { OP_PROPERTIES } from './opers';
-import { fail, ok, type Result } from './types-result';
-import { SCALAR, formatShape, isKnownShape, isScalar, type Shape } from './types-shape';
+import { OP_PROPERTIES } from '../opers';
+import { fail, ok, type Result } from '../types-Result';
+import { SCALAR, formatShape, isKnownShape, isScalar, type Shape } from '../types-shape';
+import type { TypedExpr } from '../types-TypedExpr';
 
 /**
  * 정규형 — **단항식 = (수치 계수, 스칼라 인수 집합, 비스칼라 인수 열)**.

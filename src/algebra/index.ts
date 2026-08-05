@@ -1,10 +1,11 @@
-import { elaborate, type Env, type TypedExpr } from './elaborate';
-import { normalize } from './normalize';
-import { fail, failWith, ok, type AlgebraError, type Result } from './types-result';
+import { elaborate } from './parse/elaborate';
+import { type Env, type TypedExpr } from './types-TypedExpr';
+import { normalize } from './parse/normalize';
+import { fail, failWith, ok, type AlgebraError, type Result } from './types-Result';
 import { render } from './render';
-import { expand, factor, simplify, substitute } from './rewrite';
+import { expand, factor, simplify, substitute } from './transform/transform';
 import { SCALAR, type Shape } from './types-shape';
-import { parseSyntax } from './parseSymbol';
+import { parseSyntax } from './parse/parseSymbol';
 import type { SyntaxNode } from './types-SyntaxNode';
 
 /**
@@ -16,16 +17,16 @@ import type { SyntaxNode } from './types-SyntaxNode';
 
 export type { Dim, Shape, ShapeKind } from './types-shape';
 export { SCALAR, classify, formatShape, isScalar, isVector, shape } from './types-shape';
-export type { AlgebraError, ErrorCode, Result } from './types-result';
-export type { Env, TypedExpr } from './elaborate';
+export type { AlgebraError, ErrorCode, Result } from './types-Result';
+export type { Env, TypedExpr } from './types-TypedExpr';
 export type { SyntaxNode } from './types-SyntaxNode';
 export { render } from './render';
-export { expand, factor, simplify, substitute, isPureScalar } from './rewrite';
+export { expand, factor, simplify, substitute, isPureScalar } from './transform/transform';
 export { evalNumeric, matricesClose, type Assignment, type Matrix } from './numeric';
 export { sexpSyntax, sexpTyped, sexpTypedWithShapes } from './debug';
 export { OP_PROPERTIES, type BinaryOp, type OpProperties } from './opers';
-export { normalize } from './normalize';
-export { evaluate, freeSymbols, substituteDeep } from './evaluate';
+export { normalize } from './parse/normalize';
+export { evaluate, freeSymbols, substituteDeep } from './transform/evaluate';
 
 export type TransformOp = 'expand' | 'simplify' | 'factor' | 'substitute';
 
