@@ -156,7 +156,12 @@ function renderProduct(factors: readonly TypedExpr[]): string {
     // `\cdot` 는 병치보다 느슨해서 `2\cdot 3x` 가 `2·(3x)` 로 읽힌다. 괄호로 떼어놓는 게
     // 유일하게 안전한 방법이다. (매 접합마다 확인해야 한다 — n-항이라 중간에도 숫자끼리
     // 만날 수 있다.)
-    return /\d$/.test(acc) && /^\d/.test(r) ? `${acc}${paren(r)}` : `${acc}${r}`;
+    //
+    // 분수도 같다 — 숫자 뒤에 분수가 그냥 붙으면 **대분수로 읽힌다**. CE 자유 함수
+    // (`viaCe` 가 쓰는 `simplify`)는 `2\frac{1}{3}` 을 `Rational(7,3)` 으로 준다(실측:
+    // `2·1/3 = 2/3` 이 아니라 `2+1/3 = 7/3`). 값이 달라지는 자리라 반드시 떼어놓는다.
+    const collides = /\d$/.test(acc) && (/^\d/.test(r) || r.startsWith('\\frac'));
+    return collides ? `${acc}${paren(r)}` : `${acc}${r}`;
   }, '');
 }
 

@@ -26,8 +26,8 @@ describe('파싱 — i 가 심볼로 새지 않는다', () => {
   it('허수 단위는 숫자 리터럴이지 변수가 아니다', () => {
     // 심볼로 새면 "i 라는 미지수" 가 되어 조용한 오답이 된다.
     expect(sexpTyped(normalizedOf('i'))).toBe('c(0,1)');
-    // 계수는 곱에서 접힌다 (`4·i` → `c(0,4)`). 항끼리 합치는 건 normalize 몫이 아니다.
-    expect(sexpTyped(normalizedOf('3+4i'))).toBe('(add 3 c(0,4))');
+    // 계수는 곱에서 접히고(`4·i` → `c(0,4)`), 동류항 합치기가 실수부까지 묶는다.
+    expect(sexpTyped(normalizedOf('3+4i'))).toBe('c(3,4)');
     expect(sexpTyped(normalizedOf('4i'))).toBe('c(0,4)');
   });
 

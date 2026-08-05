@@ -40,9 +40,14 @@ const OPERATIONS: Record<TransformOp, (e: TypedExpr, env: Env) => Result<TypedEx
 /**
  * LaTeX → Typed IR. 모양이 안 맞거나 순서가 모호하면 오류를 낸다.
  *
- * elaborate 다음에 `normalize` 를 돌려 늘 정규화된(평탄화·스칼라 호이스팅·정렬·거듭제곱
- * 접기가 끝난) 트리를 돌려준다 — 공개 API를 거친 트리는 중첩된 곱이나 흩어진 스칼라가
- * 남아 있지 않다는 게 이 함수의 계약이다.
+ * elaborate 다음에 `normalize` 를 돌려 늘 정규화된(평탄화·스칼라 호이스팅·정렬) 트리를
+ * 돌려준다 — 공개 API를 거친 트리는 중첩된 곱이나 흩어진 스칼라가 남아 있지 않다는 게
+ * 이 함수의 계약이다.
+ *
+ * ⚠ **동류항은 합쳐진다.** `parse("A+A")` 는 `2A`, `parse("1+2")` 는 `3` 이다. 값을
+ * 보존하는 재작성이지만 사용자가 쓴 글자 그대로는 아니다 (`normalize.ts` 서두 참고).
+ * 분배는 하지 않으므로 `(A+B)C+(A+B)C` 는 `2(A+B)C` 로 남는다. 거듭제곱 접기(`AA`→`A²`)는
+ * 여전히 `simplify` 전용이다.
  */
 export function parse(latex: string, env: Env): Result<TypedExpr> {
   const syntax = parseSyntax(latex);

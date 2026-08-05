@@ -5,9 +5,16 @@ import {
   fracTyped,
   transposeTyped,
 } from './elaborate';
-import { exprKey, sortScalars } from './normal';
+import {
+  combineLikeTerms,
+  exprKey,
+  fromPolynomial,
+  sortScalars,
+  toPolynomial,
+  type Monomial,
+} from './normal';
 import { asInteger, isOne, splitSign, ONE as ONE_LIT, type Literal } from '../types-Literal';
-import { mulLit, negLit, powLit } from '../literalMath';
+import { divideByInt, mulLit, negLit, powLit } from '../literalMath';
 import { fail, ok, type Result } from '../types-Result';
 import { SCALAR, isKnownShape, isScalar, isSquare, shape, type Shape } from '../types-shape';
 import type { TypedExpr } from '../types-TypedExpr';
@@ -25,6 +32,12 @@ import type { TypedExpr } from '../types-TypedExpr';
  *  4. 숫자 접기 + 정렬 — 숫자 리터럴을 하나로 묶어 맨 앞에, 나머지 스칼라는 `exprKey` 순
  *  5. 항등원 제거 — 인수 열에서 `I` 를 걷어낸다
  *  6. 축약 — 1원소 `scalarMul`/`matMul` 은 그 원소 자체로
+ *  7. **덧셈 항 합치기 + 정렬** — 동류항을 합치고(`2A+3A` → `5A`) 항 순서를 고정한다
+ *
+ * ⚠ **7 때문에 `parse()` 는 더 이상 순수한 구조 정규화가 아니다.** `parse("A+A")` 는
+ * `2A` 를, `parse("1+2")` 는 `3` 을 돌려준다 — 의미를 보존하는 재작성이지만 사용자가
+ * 쓴 글자 그대로는 아니다. 대신 **분배는 절대 하지 않는다**(`combineTerms` 참고):
+ * `(A+B)C + (A+B)C` 는 `2(A+B)C` 이지 `2AC+2BC` 가 아니다.
  *
  * `parse()` 가 elaborate 직후 이 함수를 호출하므로, 공개 API를 거친 트리는 항상
  * 정규화돼 있다. `matPow` 의 밑은 일부러 뚫지 않는다 — `(kA)^2` 을 `k^2A^2` 으로
@@ -129,6 +142,106 @@ function collect(e: TypedExpr): Collected {
         ? { numeric: ONE_LIT, scalars: [e], matrix: [] }
         : { numeric: ONE_LIT, scalars: [], matrix: [e] };
   }
+}
+
+// ---------------------------------------------------------------------------
+// 덧셈 항 — 합치기와 정렬
+// ---------------------------------------------------------------------------
+
+/**
+ * 항 하나에서 부호를 벗겨낸다. 정렬 키가 부호를 1순위로 보기 위해서다.
+ *
+ * `renderProduct`/`buildProduct` 와 같은 "부호는 바깥" 관례를 읽는 쪽이다.
+ */
+/**
+ * 노드가 순수 숫자 리터럴이면 그 값. **`neg(num)` 도 받는다** — `buildProduct` 가 부호를
+ * 바깥 `neg` 로 내보내므로 정규화 뒤의 음수는 `num(-3)` 이 아니라 `neg(num 3)` 이다.
+ */
+function literalOf(e: TypedExpr): Literal | null {
+  if (e.op === 'num') return e.value;
+  if (e.op === 'neg' && e.operand.op === 'num') return negLit(e.operand.value);
+  return null;
+}
+
+function stripTermSign(t: TypedExpr): { negative: boolean; core: TypedExpr } {
+  if (t.op === 'neg') return { negative: true, core: t.operand };
+  if (t.op === 'num') {
+    const { negative, magnitude } = splitSign(t.value);
+    if (negative) return { negative: true, core: numAtom(magnitude) };
+  }
+  return { negative: false, core: t };
+}
+
+/**
+ * 덧셈 항 정렬. 덧셈은 교환 가능하므로 순서를 고정해도 되고, 고정해야 `parse` 와
+ * `expand` 가 같은 값에 같은 LaTeX 을 낸다 (퍼즈 ③).
+ *
+ * **부호를 1순위로 두는 이유**: `exprKey` 만 쓰면 `-(…)` 의 `-`(0x2D)가 모든 글자보다
+ * 앞서서 `A-B` 가 `-B+A` 로 뒤집힌다. 렌더가 첫 항의 `-` 를 그대로 내보내므로 사용자에게
+ * 보이는 문자열이 나빠진다. 양수를 먼저 두면 `A-B` 가 유지되고, 항이 전부 음수일 때만
+ * `-` 로 시작한다.
+ */
+function sortTerms(terms: readonly TypedExpr[]): TypedExpr[] {
+  const keyed = terms.map((t) => {
+    const { negative, core } = stripTermSign(t);
+    return { term: t, rank: negative ? 1 : 0, key: exprKey(core) };
+  });
+  keyed.sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  return keyed.map((k) => k.term);
+}
+
+/**
+ * 동류항을 합친다 (`AcB + cAB` → `2cAB`, `\frac{3}{7}A + \frac{1}{5}A` → `\frac{22}{35}A`).
+ *
+ * ❗ **분배는 하지 않는다.** `toPolynomial` 은 곱을 합 위로 완전히 분배하므로, 단항식이
+ * 여럿 나오는 항(= 괄호가 풀리는 항)은 펼치지 않고 통째로 원자 하나로 둔다. 이 가드가
+ * 없으면 `(A+B)C + (A+B)C` 가 `2AC+2BC` 가 된다 — `parse` 가 사용자 괄호를 푸는 셈이다.
+ * (`simplifyRaw` 가 쓰는 것과 같은 가드다.)
+ *
+ * ❗ **실패를 새로 만들지 않는다.** 어느 단계든 실패하면 원래 항을 그대로 돌려준다.
+ * 여기서 실패를 전파하면 `parse()` 가 지금까지 받던 식을 거부하기 시작하고, 그건
+ * 퍼즈가 아니라 주 앱에서 터진다 (`viaCe`/`invertLiteral` 과 같은 방어 관례).
+ *
+ * 아무것도 안 합쳐졌으면 **원래 항을 그대로 유지한다** — `toPolynomial` 왕복은 합칠 게
+ * 없어도 트리를 바꾸므로(정렬·좌결합 재조립), 굳이 통과시키면 렌더 멱등만 위태로워진다.
+ */
+function combineTerms(
+  terms: readonly TypedExpr[],
+  target: Shape,
+  foldPowers: boolean,
+): readonly TypedExpr[] {
+  if (terms.length < 2) return terms;
+
+  const monomials: Monomial[] = [];
+  for (const term of terms) {
+    const p = toPolynomial(term);
+    if (p.ok && p.value.length === 1) {
+      monomials.push(p.value[0]);
+    } else {
+      monomials.push(
+        isScalar(term.shape)
+          ? { numeric: ONE_LIT, scalars: [term], factors: [] }
+          : { numeric: ONE_LIT, scalars: [], factors: [term] },
+      );
+    }
+  }
+
+  const combined = combineLikeTerms(monomials);
+  // 개수가 그대로면 합쳐진 게 없다 — 원본을 건드리지 않는다.
+  if (combined.length === monomials.length) return terms;
+
+  const rebuilt = fromPolynomial(combined, target);
+  if (!rebuilt.ok) return terms;
+  // 재조립된 트리는 `mulTyped` 좌결합이라 정규화 모양이 아니다. 항 단위로만 다시 다진다
+  // (`add` 로 재귀하면 여기로 되돌아와 무한 재귀가 된다).
+  const out = rebuilt.value.op === 'add' ? rebuilt.value.terms : [rebuilt.value];
+  const normalized: TypedExpr[] = [];
+  for (const t of out) {
+    const r = normalize(t, foldPowers);
+    if (!r.ok) return terms;
+    normalized.push(r.value);
+  }
+  return normalized;
 }
 
 // ---------------------------------------------------------------------------
@@ -337,7 +450,7 @@ export function normalize(e: TypedExpr, foldPowers = false): Result<TypedExpr> {
         if (!r.ok) return r;
         terms.push(r.value);
       }
-      return addTyped(terms);
+      return addTyped(sortTerms(combineTerms(terms, e.shape, foldPowers)));
     }
 
     case 'neg': {
@@ -468,6 +581,17 @@ export function normalize(e: TypedExpr, foldPowers = false): Result<TypedExpr> {
       if (!numerator.ok) return numerator;
       const denominator = normalize(e.denominator, foldPowers);
       if (!denominator.ok) return denominator;
+      // 정수/정수 는 **분수 표기가 아니라 유리수 리터럴**이다. 사용자가 직접 쓴
+      // `\frac{3}{9}` 는 CE가 이미 `Rational` 로 주므로(그래서 리터럴로 들어온다) 여기 안
+      // 걸리고, 재작성이 만들어낸 `\frac{-3}{9}` 같은 것만 걸린다. 안 접으면 렌더가
+      // `\frac{-3}{9}` 를 내고 다시 읽으면 CE가 `Rational(-1,3)` 으로 줄여버려
+      // **멱등이 깨진다**(퍼즈로 확인).
+      const n = literalOf(numerator.value);
+      const dLit = literalOf(denominator.value);
+      const d = dLit === null ? null : asInteger(dLit);
+      if (n !== null && d !== null && d !== 0 && asInteger(n) !== null) {
+        return ok(numAtom(divideByInt(n, d)));
+      }
       return fracTyped(numerator.value, denominator.value);
     }
   }

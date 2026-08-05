@@ -48,7 +48,8 @@ describe('expand — 사용자가 요구한 전개', () => {
 
   it('순수 스칼라 식은 CE가 전개한다', () => {
     // 항 순서는 CE가 정한다 — 스칼라는 교환 가능하므로 순서를 강제할 이유가 없다.
-    expect(expandedLatex(String.raw`\left(x+y\right)^2`)).toBe('x^{2}+y^{2}+2xy');
+    // 항 순서는 이제 CE가 아니라 normalize 의 정렬이 정한다 (`*`0x2A < `p`0x70).
+    expect(expandedLatex(String.raw`\left(x+y\right)^2`)).toBe('2xy+x^{2}+y^{2}');
   });
 
   it('스칼라 계수가 섞인 식', () => {
@@ -124,7 +125,7 @@ describe('factor — 비가환이라 좌·우 공통인수만', () => {
 
   it('단위행렬이 필요한 경우는 뽑지 않는다', () => {
     // `A + AB = A(I+B)` 인데 우리 표현엔 단위행렬이 없다.
-    expect(factoredLatex('A+AB')).toBe('A+AB');
+    expect(factoredLatex('A+AB')).toBe('AB+A');
   });
 
   it('순수 스칼라 식은 CE가 인수분해한다', () => {

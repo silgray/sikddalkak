@@ -251,6 +251,18 @@ export function foldMatrices(e: TypedExpr): Result<TypedExpr> {
         if (!r.ok) return r;
         factors.push(r.value);
       }
+      // 1x1 리터럴 행렬은 **모양이 스칼라**라 `mul` 이 아니라 여기로 온다
+      // (`2\begin{pmatrix}\frac{1}{3}\end{pmatrix}`). 그대로 두면 셀 안으로 안 들어가
+      // `2[1/3]` 로 남으므로, 아래 `mul` 케이스와 같이 셀에 곱해 넣는다.
+      const literalAt = factors.findIndex(isMatrixLiteral);
+      if (literalAt !== -1) {
+        const rest = factors.filter((_, i) => i !== literalAt);
+        if (rest.length > 0) {
+          const scalar =
+            rest.length === 1 ? rest[0] : { op: 'scalarMul' as const, shape: SCALAR, factors: rest };
+          return scaleMatrixLiteral(scalar, factors[literalAt] as MatrixLiteral);
+        }
+      }
       return ok({ op: 'scalarMul', shape: SCALAR, factors });
     }
 

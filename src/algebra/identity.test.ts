@@ -17,7 +17,8 @@ import { normalizedOf, sameValue, simplifiedOf, TEST_ENV, typedOf } from './test
 describe('모양 해석 — elaborate가 I 를 채운다', () => {
   it('A+I 는 I 를 A의 모양으로 해석한다', () => {
     const t = normalizedOf('A+I');
-    expect(sexpTyped(t)).toBe('(add A I)');
+    // 항 순서는 normalize 가 정한다 (`I(3x3)` 가 `sA` 보다 앞선다).
+    expect(sexpTyped(t)).toBe('(add I A)');
     expect(formatShape(t.shape)).toBe('3x3');
   });
 
@@ -73,10 +74,10 @@ describe('I 단독·덧셈', () => {
     expect(formatShape(t.shape)).toBe('scalar');
   });
 
-  it('I+I 는 2I 다', () => {
+  it('I+I 는 둘 다 (1,1)로 굳어 2 가 된다', () => {
     const t = normalizedOf('I+I');
-    expect(render(t)).toBe('I+I');
-    // 둘 다 (1,1)로 굳어 값은 2다.
+    // 동류항 합치기가 `1+1` 을 접는다 — (1,1) 항등원은 스칼라 1과 같기 때문.
+    expect(render(t)).toBe('2');
     expect(sameValue(t, typedOf('2'))).toBe(true);
   });
 });
