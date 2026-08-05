@@ -177,17 +177,30 @@ function stripTermSign(t: TypedExpr): { negative: boolean; core: TypedExpr } {
  * 덧셈 항 정렬. 덧셈은 교환 가능하므로 순서를 고정해도 되고, 고정해야 `parse` 와
  * `expand` 가 같은 값에 같은 LaTeX 을 낸다 (퍼즈 ③).
  *
- * **부호를 1순위로 두는 이유**: `exprKey` 만 쓰면 `-(…)` 의 `-`(0x2D)가 모든 글자보다
- * 앞서서 `A-B` 가 `-B+A` 로 뒤집힌다. 렌더가 첫 항의 `-` 를 그대로 내보내므로 사용자에게
- * 보이는 문자열이 나빠진다. 양수를 먼저 두면 `A-B` 가 유지되고, 항이 전부 음수일 때만
- * `-` 로 시작한다.
+ * 키는 세 겹이다. **순수 `exprKey` 하나로는 사람이 읽기 나쁜 순서가 나온다:**
+ *  1. **상수항은 맨 뒤로** — `n`(0x6E) < `s`(0x73) 라 `exprKey` 만 쓰면 `a+1` 이 `1+a` 가 된다
+ *  2. **양수 먼저** — `-`(0x2D)가 모든 글자보다 앞서서 `A-B` 가 `-B+A` 로 뒤집힌다.
+ *     렌더가 첫 항의 `-` 를 그대로 내보내므로 사용자에게 보이는 문자열이 나빠진다
+ *  3. 나머지는 `exprKey` 순 — 안정적이기만 하면 되므로 임의로 정한다
+ *
+ * 순서를 고정해야 `parse` 와 `expand` 가 같은 값에 같은 LaTeX 을 낸다 (퍼즈 ③).
  */
 function sortTerms(terms: readonly TypedExpr[]): TypedExpr[] {
   const keyed = terms.map((t) => {
     const { negative, core } = stripTermSign(t);
-    return { term: t, rank: negative ? 1 : 0, key: exprKey(core) };
+    return {
+      term: t,
+      constant: core.op === 'num' ? 1 : 0,
+      sign: negative ? 1 : 0,
+      key: exprKey(core),
+    };
   });
-  keyed.sort((a, b) => (a.rank !== b.rank ? a.rank - b.rank : a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  keyed.sort(
+    (a, b) =>
+      a.constant - b.constant ||
+      a.sign - b.sign ||
+      (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
+  );
   return keyed.map((k) => k.term);
 }
 
