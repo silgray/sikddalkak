@@ -1,9 +1,10 @@
 import type { Env, TypedExpr } from '../types-TypedExpr';
-import { exprKey } from '../parse/normal';
+import { constantInteger, exprKey } from '../parse/normal';
 import { normalize } from '../parse/normalize';
 import { foldMatrices } from './matrixFold';
 import { simplify, substitute } from './transform';
-import { ok, type Result } from '../types-Result';
+import { fail, ok, type Result } from '../types-Result';
+import { render } from '../render';
 
 /**
  * 셀 하나를 값으로 접는다. **치환은 안 한다** — 어떤 이름을 무엇으로 바꿀지는 호출자
@@ -18,9 +19,64 @@ import { ok, type Result } from '../types-Result';
 export function evaluate(e: TypedExpr, env: Env): Result<TypedExpr> {
   const normalized = normalize(e);
   if (!normalized.ok) return normalized;
+  const badExponent = findNonIntegerMatPow(normalized.value);
+  if (badExponent !== null) {
+    return fail('unsupported', `A matrix can only be raised to an integer power: ${badExponent}`);
+  }
   const folded = foldMatrices(normalized.value);
   if (!folded.ok) return folded;
   return simplify(folded.value, env);
+}
+
+/**
+ * `A^{0.5}` 처럼 **값이 확정됐는데 정수가 아닌** 행렬 지수를 찾는다.
+ *
+ * `elaborate` 는 지수가 스칼라 모양인지만 보므로(`A^{1+2}` 를 받으려면 그래야 한다)
+ * 여기까지 흘러올 수 있다. 값이 확정된 시점에서 정수가 아니면 뜻이 없으니 정직하게
+ * 거절한다 — `A^{n}` 처럼 **아직 미정인 지수는 통과시킨다**(치환 뒤에 정해질 수 있다).
+ */
+function findNonIntegerMatPow(e: TypedExpr): string | null {
+  if (e.op === 'matPow') {
+    const lit = e.exponent.op === 'num' ? e.exponent.value : null;
+    if (lit !== null && constantInteger(e.exponent) === null) return render(e.exponent);
+  }
+  for (const child of childrenOf(e)) {
+    const found = findNonIntegerMatPow(child);
+    if (found !== null) return found;
+  }
+  return null;
+}
+
+function childrenOf(e: TypedExpr): readonly TypedExpr[] {
+  switch (e.op) {
+    case 'num':
+    case 'sym':
+    case 'matIdentity':
+      return [];
+    case 'matrix':
+      return e.rows.flat();
+    case 'add':
+      return e.terms;
+    case 'neg':
+      return [e.operand];
+    case 'scalarMul':
+    case 'matMul':
+      return e.factors;
+    case 'mul':
+      return [e.scalar, e.matrix];
+    case 'dot':
+    case 'cross':
+      return [e.left, e.right];
+    case 'transpose':
+      return [e.operand];
+    case 'matPow':
+    case 'scalarPow':
+      return [e.base, e.exponent];
+    case 'call':
+      return e.args;
+    case 'frac':
+      return [e.numerator, e.denominator];
+  }
 }
 
 /** 무한 루프 방어용 상한. 진짜 순환 검출(`a=b`, `b=a`)은 그래프 층이 이름 단위로 한다. */
@@ -87,6 +143,8 @@ export function freeSymbols(e: TypedExpr): readonly string[] {
         return;
       case 'matPow':
         walk(node.base);
+        // 지수도 식이 될 수 있다 (`A^{n}`) — 그 심볼도 셀 의존 간선이다.
+        walk(node.exponent);
         return;
       case 'scalarPow':
         walk(node.base);

@@ -235,7 +235,7 @@ export function render(e: TypedExpr): string {
       return `${at(e.operand, ATOM)}^T`;
 
     case 'matPow':
-      return `${at(e.base, ATOM)}^{${String(e.exponent)}}`;
+      return `${at(e.base, ATOM)}^{${render(e.exponent)}}`;
 
     case 'scalarPow':
       return `${at(e.base, ATOM)}^{${render(e.exponent)}}`;

@@ -1,5 +1,6 @@
 import type { TypedExpr } from './types-TypedExpr';
 import { toRealNumber } from './types-Literal';
+import { constantInteger } from './parse/normal';
 import { fail, ok, type Result } from './types-Result';
 import { isScalar } from './types-shape';
 
@@ -167,7 +168,13 @@ export function evalNumeric(e: TypedExpr, assignment: Assignment): Result<Matrix
     }
 
     case 'matPow': {
-      if (e.exponent < 0) {
+      // 지수가 상수 정수가 아니면 대조하지 않는다 (`A^n`). 정직하게 실패해야 퍼즈가
+      // 그 표본을 버린다 — 값을 찍으면 대조 자체를 못 믿는다.
+      const power = constantInteger(e.exponent);
+      if (power === null) {
+        return fail('unsupported', 'Numeric check needs a constant integer exponent');
+      }
+      if (power < 0) {
         // 역행렬은 일부러 뺐다. 이 평가기는 **대조용**이라, 특이행렬 처리와 수치 오차까지
         // 떠안으면 대조 자체를 믿기 어려워진다. 역행렬이 낀 식은 속성 테스트에서 건너뛴다.
         return fail('unsupported', 'Numeric check does not cover matrix inverses');
@@ -178,7 +185,7 @@ export function evalNumeric(e: TypedExpr, assignment: Assignment): Result<Matrix
       let acc: Matrix = Array.from({ length: n }, (_, i) =>
         Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)),
       );
-      for (let i = 0; i < e.exponent; i += 1) acc = matMul(acc, v.value);
+      for (let i = 0; i < power; i += 1) acc = matMul(acc, v.value);
       return ok(acc);
     }
 

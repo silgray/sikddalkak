@@ -216,7 +216,18 @@ function mapChildren(
       if (!isSquare(base.value.shape)) {
         return fail('shape-mismatch', 'A matrix power needs a square base');
       }
-      return ok({ op: 'matPow', shape: base.value.shape, base: base.value, exponent: e.exponent });
+      // 지수도 재작성을 태운다 — 이걸 해야 `simplify` 가 `A^{1+2}` 의 지수를 접는다.
+      const exponent = f(e.exponent);
+      if (!exponent.ok) return exponent;
+      if (!isScalar(exponent.value.shape)) {
+        return fail('shape-mismatch', 'An exponent must be a scalar');
+      }
+      return ok({
+        op: 'matPow',
+        shape: base.value.shape,
+        base: base.value,
+        exponent: exponent.value,
+      });
     }
 
     case 'scalarPow': {

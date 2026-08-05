@@ -29,7 +29,13 @@ export type TypedExpr =
   | { readonly op: 'dot'; readonly shape: Shape; readonly left: TypedExpr; readonly right: TypedExpr }
   | { readonly op: 'cross'; readonly shape: Shape; readonly left: TypedExpr; readonly right: TypedExpr }
   | { readonly op: 'transpose'; readonly shape: Shape; readonly operand: TypedExpr }
-  | { readonly op: 'matPow'; readonly shape: Shape; readonly base: TypedExpr; readonly exponent: number }
+  /**
+   * 행렬의 거듭제곱. **지수는 `scalarPow` 와 같이 `TypedExpr`** — `A^{1+2}` 처럼 지수가
+   * 식일 수 있어야 한다. elaborate는 지수가 **스칼라 모양인지만** 보고, "정수인가·양수인가"
+   * 판정은 `constantInteger` 로 값이 확정된 뒤에 한다 (치환 후에도 다시 걸리도록
+   * `normalize` 가 그 자리다).
+   */
+  | { readonly op: 'matPow'; readonly shape: Shape; readonly base: TypedExpr; readonly exponent: TypedExpr }
   | { readonly op: 'scalarPow'; readonly shape: Shape; readonly base: TypedExpr; readonly exponent: TypedExpr }
   | { readonly op: 'call'; readonly shape: Shape; readonly name: string; readonly args: readonly TypedExpr[] }
   /**

@@ -10,6 +10,7 @@ import { fail, ok, type Result } from '../types-Result';
 import { SCALAR, formatShape, isKnownShape, isScalar, type Shape } from '../types-shape';
 import type { TypedExpr } from '../types-TypedExpr';
 import {
+  asInteger,
   isOne,
   isZero,
   literalKey,
@@ -86,7 +87,7 @@ export function exprKey(e: TypedExpr): string {
     case 'transpose':
       return `T(${exprKey(e.operand)})`;
     case 'matPow':
-      return `P(${exprKey(e.base)},${String(e.exponent)})`;
+      return `P(${exprKey(e.base)},${exprKey(e.exponent)})`;
     case 'scalarPow':
       return `p(${exprKey(e.base)},${exprKey(e.exponent)})`;
     case 'call':
@@ -96,6 +97,24 @@ export function exprKey(e: TypedExpr): string {
     case 'matIdentity':
       return `I(${formatShape(e.shape)})`;
   }
+}
+
+/**
+ * 지수를 **알려진 정수**로 줄일 수 있으면 그 값, 아니면 `null`.
+ *
+ * `matPow.exponent` 가 `TypedExpr` 이 되면서 "정수인가" 판정이 여러 곳(normalize의 접기,
+ * toPolynomial의 전개, matrixFold의 역행렬, numeric)에 필요해졌다. 한 곳에 둔다.
+ *
+ * `neg(num)` 도 받는다 — `buildProduct` 가 부호를 바깥 `neg` 로 내보내므로 정규화 뒤의
+ * 음수 지수는 `num(-1)` 이 아니라 `neg(num 1)` 일 수 있다.
+ */
+export function constantInteger(e: TypedExpr): number | null {
+  if (e.op === 'num') return asInteger(e.value);
+  if (e.op === 'neg' && e.operand.op === 'num') {
+    const n = asInteger(e.operand.value);
+    return n === null ? null : -n;
+  }
+  return null;
 }
 
 /** 동류항 키 — 수치 계수는 뺀다 (그게 합쳐질 대상이므로). */
@@ -298,12 +317,14 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
     }
 
     case 'matPow': {
-      // `(A+B)²` 를 풀어써야 expand가 뜻대로 동작한다. 음수·과대 지수는 접은 채로 둔다.
-      if (e.exponent < 1 || e.exponent > MAX_POWER_EXPANSION) return ok([atom(e)]);
+      // `(A+B)²` 를 풀어써야 expand가 뜻대로 동작한다. 음수·과대 지수, 그리고 **값이
+      // 확정되지 않은 지수**(`A^n`)는 접은 채로 둔다.
+      const n = constantInteger(e.exponent);
+      if (n === null || n < 1 || n > MAX_POWER_EXPANSION) return ok([atom(e)]);
       const base = toPolynomial(e.base);
       if (!base.ok) return base;
       let acc: Polynomial = [ONE];
-      for (let i = 0; i < e.exponent; i += 1) acc = polyMul(acc, base.value);
+      for (let i = 0; i < n; i += 1) acc = polyMul(acc, base.value);
       return ok(acc);
     }
   }

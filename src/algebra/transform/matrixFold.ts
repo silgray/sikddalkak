@@ -3,6 +3,7 @@ import type { MathJsonExpression } from '@cortex-js/compute-engine';
 import { addTyped, elaborate, mulTyped } from '../parse/elaborate';
 import { parseCeJson } from '../parse/parseSymbol';
 import { toCeJson } from '../literalMath';
+import { constantInteger } from '../parse/normal';
 import { ok, type Result } from '../types-Result';
 import { SCALAR } from '../types-shape';
 import type { TypedExpr, Env } from '../types-TypedExpr';
@@ -311,15 +312,20 @@ export function foldMatrices(e: TypedExpr): Result<TypedExpr> {
       if (!isMatrixLiteral(base.value)) {
         return ok({ op: 'matPow', shape: e.shape, base: base.value, exponent: e.exponent });
       }
-      if (e.exponent < 0) {
-        const inverted = invertLiteral(base.value, e.exponent);
+      // 지수가 상수 정수가 아니면(`A^n`) 접을 수 없다 — 그대로 둔다.
+      const power = constantInteger(e.exponent);
+      if (power === null) {
+        return ok({ op: 'matPow', shape: e.shape, base: base.value, exponent: e.exponent });
+      }
+      if (power < 0) {
+        const inverted = invertLiteral(base.value, power);
         return ok(inverted ?? { op: 'matPow', shape: e.shape, base: base.value, exponent: e.exponent });
       }
       // exponent === 0은 elaboratePow가 이미 matIdentity로 내보내 여기 오지 않는다
       // (정상 입력이라면). 방어적으로만 남겨둔다.
-      if (e.exponent === 0) return ok({ op: 'matIdentity', shape: e.shape });
+      if (power === 0) return ok({ op: 'matIdentity', shape: e.shape });
       let acc: MatrixLiteral = base.value;
-      for (let i = 1; i < e.exponent; i += 1) {
+      for (let i = 1; i < power; i += 1) {
         const next = mulMatrixLiterals(acc, base.value);
         if (!next.ok) return next;
         acc = next.value;

@@ -52,6 +52,36 @@ describe('모양 해석 — elaborate가 I 를 채운다', () => {
   });
 });
 
+describe('matPow 지수는 식이어도 된다', () => {
+  it('A^{1+2} 는 A^3 이다 — 지수도 정규화된다', () => {
+    const t = normalizedOf('A^{1+2}');
+    expect(sexpTyped(t)).toBe('(matPow A 3)');
+    expect(render(t)).toBe('A^{3}');
+  });
+
+  it('직접 쓴 정수 지수의 모습은 그대로다', () => {
+    // 지수를 일반 normalize 에 맡기면 `num -1` 이 `neg(num 1)` 이 되어 s-식이 달라진다.
+    // 정수로 확정되면 단일 리터럴로 되돌려 담는 게 그 방어다.
+    expect(sexpTyped(normalizedOf(String.raw`A^{-1}`))).toBe('(matPow A -1)');
+    expect(sexpTyped(normalizedOf('A^{2}'))).toBe('(matPow A 2)');
+  });
+
+  it('값이 안 정해진 지수도 통과한다 (치환 뒤에 정해질 수 있다)', () => {
+    const t = normalizedOf('A^{k}');
+    expect(sexpTyped(t)).toBe('(matPow A k)');
+    // 렌더 왕복이 성립해야 한다.
+    expect(render(normalizedOf(render(t)))).toBe(render(t));
+  });
+
+  it('지수가 비스칼라면 오류다', () => {
+    expect(() => normalizedOf('A^{v}')).toThrow();
+  });
+
+  it('simplify 는 지수까지 접는다', () => {
+    expect(render(simplifiedOf('A^{2}A^{3}'))).toBe('A^{5}');
+  });
+});
+
 // 소거는 거듭제곱 접기와 같은 패스(`foldAdjacentPowers`)에 있어 `simplify` 에서만 돈다.
 describe('역행렬 소거 — 퍼즈가 못 보는 자리, 표 테스트로만 검증', () => {
   it('A^{-1}A 는 I 다', () => {

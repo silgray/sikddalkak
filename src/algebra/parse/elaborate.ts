@@ -15,7 +15,7 @@ import {
 import { fail, failWith, ok, type AlgebraError, type Result } from '../types-Result';
 import type { SyntaxNode } from '../types-SyntaxNode';
 import type { TypedExpr, Env } from '../types-TypedExpr';
-import { asInteger } from '../types-Literal';
+import { constantInteger } from './normal';
 
 /**
  * Elaborate — 연산자 해석 + 차원 검사 + 모양 계산을 한 패스로 한다.
@@ -237,11 +237,16 @@ function elaboratePow(base: TypedExpr, exponent: SyntaxNode, env: Env): Result<T
   if (isScalar(base.shape)) {
     return ok({ op: 'scalarPow', shape: SCALAR, base, exponent: exp.value });
   }
-  // 비스칼라 밑 — 정사각 행렬의 정수 거듭제곱만 뜻이 있다.
-  const power = exp.value.op === 'num' ? asInteger(exp.value.value) : null;
-  if (power === null) {
-    return shapeMismatch('A matrix can only be raised to an integer power');
-  }
+  // 비스칼라 밑 — 정사각 행렬만 거듭제곱할 수 있다.
+  //
+  // **여기서는 "정수인가"를 보지 않는다.** `A^{1+2}` 처럼 지수가 식일 수 있어야 하고,
+  // 그 값은 정리·치환을 거쳐야 확정되기 때문이다. 판정은 값이 확정된 뒤에(`normalize`
+  // 의 `constantInteger`) 한다.
+  //
+  // ⚠ 그 대가로 `A^{0.5}`·`A^{x}` 같은 **뜻이 정해지지 않은 식이 여기를 통과한다.**
+  // 조용히 틀리지는 않는다 — `numeric`/`matrixFold` 가 상수 정수가 아니면 각각
+  // `unsupported`/무변경으로 빠지고, `evaluate` 가 상수 비정수 지수를 걸러낸다.
+  const power = constantInteger(exp.value);
   // 항등행렬은 미정이어도 정사각이 전제다 — 어떤 정수 지수든 I^n = I.
   if (base.op === 'matIdentity') {
     return ok(base);
@@ -253,7 +258,7 @@ function elaboratePow(base: TypedExpr, exponent: SyntaxNode, env: Env): Result<T
   if (power === 0) {
     return ok({ op: 'matIdentity', shape: base.shape });
   }
-  return ok({ op: 'matPow', shape: base.shape, base, exponent: power });
+  return ok({ op: 'matPow', shape: base.shape, base, exponent: exp.value });
 }
 
 // ---------------------------------------------------------------------------

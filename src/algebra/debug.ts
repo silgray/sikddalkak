@@ -66,7 +66,7 @@ export function sexpTyped(e: TypedExpr): string {
     case 'transpose':
       return `(transpose ${sexpTyped(e.operand)})`;
     case 'matPow':
-      return `(matPow ${sexpTyped(e.base)} ${String(e.exponent)})`;
+      return `(matPow ${sexpTyped(e.base)} ${sexpTyped(e.exponent)})`;
     case 'scalarPow':
       return `(scalarPow ${sexpTyped(e.base)} ${sexpTyped(e.exponent)})`;
     case 'call':
@@ -105,7 +105,7 @@ export function sexpTypedWithShapes(e: TypedExpr): string {
       case 'transpose':
         return `(transpose ${sexpTypedWithShapes(e.operand)})`;
       case 'matPow':
-        return `(matPow ${sexpTypedWithShapes(e.base)} ${String(e.exponent)})`;
+        return `(matPow ${sexpTypedWithShapes(e.base)} ${sexpTypedWithShapes(e.exponent)})`;
       case 'scalarPow':
         return `(scalarPow ${sexpTypedWithShapes(e.base)} ${sexpTypedWithShapes(e.exponent)})`;
       case 'call':

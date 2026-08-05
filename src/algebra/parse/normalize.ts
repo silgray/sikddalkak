@@ -7,13 +7,14 @@ import {
 } from './elaborate';
 import {
   combineLikeTerms,
+  constantInteger,
   exprKey,
   fromPolynomial,
   sortScalars,
   toPolynomial,
   type Monomial,
 } from './normal';
-import { asInteger, isOne, splitSign, ONE as ONE_LIT, type Literal } from '../types-Literal';
+import { asInteger, intLit, isOne, splitSign, ONE as ONE_LIT, type Literal } from '../types-Literal';
 import { divideByInt, mulLit, negLit, powLit } from '../literalMath';
 import { fail, ok, type Result } from '../types-Result';
 import { SCALAR, isKnownShape, isScalar, isSquare, shape, type Shape } from '../types-shape';
@@ -149,11 +150,6 @@ function collect(e: TypedExpr): Collected {
 // ---------------------------------------------------------------------------
 
 /**
- * 항 하나에서 부호를 벗겨낸다. 정렬 키가 부호를 1순위로 보기 위해서다.
- *
- * `renderProduct`/`buildProduct` 와 같은 "부호는 바깥" 관례를 읽는 쪽이다.
- */
-/**
  * 노드가 순수 숫자 리터럴이면 그 값. **`neg(num)` 도 받는다** — `buildProduct` 가 부호를
  * 바깥 `neg` 로 내보내므로 정규화 뒤의 음수는 `num(-3)` 이 아니라 `neg(num 3)` 이다.
  */
@@ -163,6 +159,11 @@ function literalOf(e: TypedExpr): Literal | null {
   return null;
 }
 
+/**
+ * 항 하나에서 부호를 벗겨낸다. 정렬 키가 부호를 1순위로 보기 위해서다.
+ *
+ * `renderProduct`/`buildProduct` 와 같은 "부호는 바깥" 관례를 읽는 쪽이다.
+ */
 function stripTermSign(t: TypedExpr): { negative: boolean; core: TypedExpr } {
   if (t.op === 'neg') return { negative: true, core: t.operand };
   if (t.op === 'num') {
@@ -274,8 +275,13 @@ function stripIdentities(factors: readonly TypedExpr[]): TypedExpr[] {
  * `matPow` 는 **어떤 정수 지수든** 뜯는다 — 음수(역행렬)도 포함이라야
  * `A \cdot A^{-1}` 처럼 이웃한 지수를 더해서 소거(항등원)까지 갈 수 있다.
  */
-function powerParts(f: TypedExpr): { readonly base: TypedExpr; readonly exponent: number } {
-  return f.op === 'matPow' ? { base: f.base, exponent: f.exponent } : { base: f, exponent: 1 };
+function powerParts(
+  f: TypedExpr,
+): { readonly base: TypedExpr; readonly exponent: number } | null {
+  if (f.op !== 'matPow') return { base: f, exponent: 1 };
+  // 값이 확정되지 않은 지수(`A^n`)는 더할 수 없다 — 그 구간은 접지 않는다.
+  const n = constantInteger(f.exponent);
+  return n === null ? null : { base: f.base, exponent: n };
 }
 
 /**
@@ -287,12 +293,18 @@ function combineAdjacentPowers(factors: readonly TypedExpr[]): TypedExpr[] {
   let i = 0;
   while (i < factors.length) {
     const first = powerParts(factors[i]);
+    // 지수가 확정되지 않은 인수(`A^n`)는 더할 수 없다 — 그 자리에서 끊고 그대로 둔다.
+    if (first === null) {
+      out.push(factors[i]);
+      i += 1;
+      continue;
+    }
     const key = exprKey(first.base);
     let totalExponent = first.exponent;
     let run = 1;
     while (i + run < factors.length) {
       const next = powerParts(factors[i + run]);
-      if (exprKey(next.base) !== key) break;
+      if (next === null || exprKey(next.base) !== key) break;
       totalExponent += next.exponent;
       run += 1;
     }
@@ -302,7 +314,12 @@ function combineAdjacentPowers(factors: readonly TypedExpr[]): TypedExpr[] {
       } else if (totalExponent === 1) {
         out.push(first.base);
       } else {
-        out.push({ op: 'matPow', shape: first.base.shape, base: first.base, exponent: totalExponent });
+        out.push({
+          op: 'matPow',
+          shape: first.base.shape,
+          base: first.base,
+          exponent: numAtom(intLit(totalExponent)),
+        });
       }
     } else {
       out.push(factors[i]);
@@ -546,7 +563,17 @@ export function normalize(e: TypedExpr, foldPowers = false): Result<TypedExpr> {
       if (!base.ok) return base;
       // I^n = I.
       if (base.value.op === 'matIdentity') return ok(base.value);
-      return ok({ op: 'matPow', shape: e.shape, base: base.value, exponent: e.exponent });
+      const exponent = normalize(e.exponent, foldPowers);
+      if (!exponent.ok) return exponent;
+      // 정수로 확정되면 **단일 리터럴로 되돌려 담는다.** 일반 normalize 를 거친 `-1` 은
+      // `buildProduct` 의 부호 호이스팅 때문에 `neg(num 1)` 이 되는데, 그러면 s-식이
+      // `(matPow A (neg 1))` 이 되어 기존 기대값(`(matPow A -1)`)과 어긋난다.
+      const n = constantInteger(exponent.value);
+      const folded = n === null ? exponent.value : numAtom(intLit(n));
+      // A^0 은 항등원 — elaborate 가 이미 걸렀지만, 정리 뒤에 0이 될 수도 있다.
+      if (n === 0) return ok({ op: 'matIdentity', shape: e.shape });
+      if (n === 1) return ok(base.value);
+      return ok({ op: 'matPow', shape: e.shape, base: base.value, exponent: folded });
     }
 
     case 'scalarPow': {
