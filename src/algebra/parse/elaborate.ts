@@ -15,6 +15,7 @@ import {
 import { fail, failWith, ok, type AlgebraError, type Result } from '../types-Result';
 import type { SyntaxNode } from '../types-SyntaxNode';
 import type { TypedExpr, Env } from '../types-TypedExpr';
+import { asInteger } from '../types-Literal';
 
 /**
  * Elaborate — 연산자 해석 + 차원 검사 + 모양 계산을 한 패스로 한다.
@@ -237,7 +238,8 @@ function elaboratePow(base: TypedExpr, exponent: SyntaxNode, env: Env): Result<T
     return ok({ op: 'scalarPow', shape: SCALAR, base, exponent: exp.value });
   }
   // 비스칼라 밑 — 정사각 행렬의 정수 거듭제곱만 뜻이 있다.
-  if (exp.value.op !== 'num' || !Number.isInteger(exp.value.value)) {
+  const power = exp.value.op === 'num' ? asInteger(exp.value.value) : null;
+  if (power === null) {
     return shapeMismatch('A matrix can only be raised to an integer power');
   }
   // 항등행렬은 미정이어도 정사각이 전제다 — 어떤 정수 지수든 I^n = I.
@@ -248,10 +250,10 @@ function elaboratePow(base: TypedExpr, exponent: SyntaxNode, env: Env): Result<T
     return shapeMismatch(`Cannot raise a ${formatShape(base.shape)} to a power: not square`);
   }
   // A^0 은 그 자체로 행렬곱 항등원이다 — matPow(A,0) 으로 남겨두면 다른 데서 또 판단해야 한다.
-  if (exp.value.value === 0) {
+  if (power === 0) {
     return ok({ op: 'matIdentity', shape: base.shape });
   }
-  return ok({ op: 'matPow', shape: base.shape, base, exponent: exp.value.value });
+  return ok({ op: 'matPow', shape: base.shape, base, exponent: power });
 }
 
 // ---------------------------------------------------------------------------

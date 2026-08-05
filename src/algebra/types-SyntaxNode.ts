@@ -11,8 +11,10 @@
  * **그 우회는 이 파일 안에만 갇힌다.** 바깥 층은 마커의 존재를 모른다.
  */
 
+import type { Literal } from './types-Literal';
+
 export type SyntaxNode =
-  | { readonly kind: 'num'; readonly value: number }
+  | { readonly kind: 'num'; readonly value: Literal }
   | { readonly kind: 'sym'; readonly name: string }
   | { readonly kind: 'matrix'; readonly rows: readonly (readonly SyntaxNode[])[] }
   | { readonly kind: 'juxt'; readonly left: SyntaxNode; readonly right: SyntaxNode }

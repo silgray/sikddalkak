@@ -6,6 +6,8 @@ import {
   transposeTyped,
 } from './elaborate';
 import { exprKey, sortScalars } from './normal';
+import { isOne, splitSign, ONE as ONE_LIT, type Literal } from '../types-Literal';
+import { mulLit, negLit } from '../literalMath';
 import { fail, ok, type Result } from '../types-Result';
 import { SCALAR, isKnownShape, isScalar, isSquare, shape, type Shape } from '../types-shape';
 import type { TypedExpr } from '../types-TypedExpr';
@@ -40,7 +42,7 @@ import type { TypedExpr } from '../types-TypedExpr';
 // ---------------------------------------------------------------------------
 
 type Collected = {
-  readonly numeric: number;
+  readonly numeric: Literal;
   /** 스칼라 인수 — 아직 정렬 전. */
   readonly scalars: readonly TypedExpr[];
   /** 비스칼라 인수 — **순서가 의미**, 절대 정렬하지 않는다. */
@@ -63,15 +65,18 @@ function collect(e: TypedExpr): Collected {
 
     case 'neg': {
       const c = collect(e.operand);
-      return { numeric: -c.numeric, scalars: c.scalars, matrix: c.matrix };
+      return { numeric: negLit(c.numeric), scalars: c.scalars, matrix: c.matrix };
     }
 
     case 'scalarMul': {
-      let numeric = 1;
+      let numeric = ONE_LIT;
       const scalars: TypedExpr[] = [];
       for (const f of e.factors) {
         const c = collect(f);
-        numeric *= c.numeric;
+        // 못 곱하면 접지 않고 인수로 되돌린다 — 값을 뭉개지 않는다.
+        const product = mulLit(numeric, c.numeric);
+        if (product !== null) numeric = product;
+        else scalars.push(numAtom(c.numeric));
         scalars.push(...c.scalars);
       }
       return { numeric, scalars, matrix: [] };
@@ -82,14 +87,16 @@ function collect(e: TypedExpr): Collected {
       // op는 matMul이지만 모양은 스칼라다(설계: 모든 것이 (rows,cols), (1,1)이 스칼라).
       // 이럴 땐 안을 열지 않고 **통째로 스칼라 원자 하나**로 취급해야 한다 — 안을 열면
       // 그 안의 인수들이 바깥 matMul의 인수 열에 잘못 이어붙어 차원이 깨진다.
-      if (isScalar(e.shape)) return { numeric: 1, scalars: [e], matrix: [] };
+      if (isScalar(e.shape)) return { numeric: ONE_LIT, scalars: [e], matrix: [] };
 
-      let numeric = 1;
+      let numeric = ONE_LIT;
       const scalars: TypedExpr[] = [];
       const matrix: TypedExpr[] = [];
       for (const f of e.factors) {
         const c = collect(f);
-        numeric *= c.numeric;
+        const product = mulLit(numeric, c.numeric);
+        if (product !== null) numeric = product;
+        else scalars.push(numAtom(c.numeric));
         scalars.push(...c.scalars);
         matrix.push(...c.matrix);
       }
@@ -99,19 +106,28 @@ function collect(e: TypedExpr): Collected {
     case 'mul': {
       const s = collect(e.scalar);
       const m = collect(e.matrix);
-      return { numeric: s.numeric * m.numeric, scalars: [...s.scalars, ...m.scalars], matrix: m.matrix };
+      const product = mulLit(s.numeric, m.numeric);
+      return product !== null
+        ? { numeric: product, scalars: [...s.scalars, ...m.scalars], matrix: m.matrix }
+        : {
+            numeric: ONE_LIT,
+            scalars: [numAtom(s.numeric), numAtom(m.numeric), ...s.scalars, ...m.scalars],
+            matrix: m.matrix,
+          };
     }
 
     case 'matIdentity':
       // (1,1) 로 굳은 항등원은 스칼라 1과 같다 — 인수로 남기면 안 된다. 안 그러면
       // `pI` 가 `p` 로 안 줄고 `mul(I,p)` 로 남는다(퍼즈로 확인). 아직 비스칼라 크기로
       // 확정된 항등원(문맥에서 진짜 행렬로 쓰일 예정인 경우)은 그대로 원자로 둔다.
-      return isScalar(e.shape) ? { numeric: 1, scalars: [], matrix: [] } : { numeric: 1, scalars: [], matrix: [e] };
+      return isScalar(e.shape)
+        ? { numeric: ONE_LIT, scalars: [], matrix: [] }
+        : { numeric: ONE_LIT, scalars: [], matrix: [e] };
 
     default:
       return isScalar(e.shape)
-        ? { numeric: 1, scalars: [e], matrix: [] }
-        : { numeric: 1, scalars: [], matrix: [e] };
+        ? { numeric: ONE_LIT, scalars: [e], matrix: [] }
+        : { numeric: ONE_LIT, scalars: [], matrix: [e] };
   }
 }
 
@@ -119,7 +135,7 @@ function collect(e: TypedExpr): Collected {
 // 되돌리기 — collect의 결과를 다시 트리로
 // ---------------------------------------------------------------------------
 
-const numAtom = (value: number): TypedExpr => ({ op: 'num', shape: SCALAR, value });
+const numAtom = (value: Literal): TypedExpr => ({ op: 'num', shape: SCALAR, value });
 
 /** 두 non-scalar 인수 목록을 이어 붙였을 때의 모양. 결합법칙이 있어 인접 쌍만 맞으면 되고, elaborate가 이미 그 사슬 전체를 검증해뒀다. */
 const matMulShapeOf = (factors: readonly TypedExpr[]): Shape =>
@@ -219,12 +235,12 @@ function foldAdjacentPowers(factors: readonly TypedExpr[]): TypedExpr[] {
  * (`normal.ts`의 `monomialToExpr`/`fromPolynomial` 과 같은 관례.)
  */
 function buildProduct(
-  numeric: number,
+  numeric: Literal,
   scalars: readonly TypedExpr[],
   matrixFactors: readonly TypedExpr[],
   foldPowers: boolean,
 ): TypedExpr {
-  const magnitude = Math.abs(numeric);
+  const { negative, magnitude } = splitSign(numeric);
   const sortedScalars = sortScalars(scalars);
   const collapsedMatrix = foldPowers ? foldAdjacentPowers(matrixFactors) : stripIdentities(matrixFactors);
 
@@ -236,7 +252,7 @@ function buildProduct(
         : { op: 'matMul', shape: matMulShapeOf(collapsedMatrix), factors: collapsedMatrix };
 
   // 숫자 리터럴은 크기가 1이 아니거나, 다른 항이 전혀 없어 "1" 자체를 나타내야 할 때만 넣는다.
-  const needsNumericLiteral = magnitude !== 1 || (sortedScalars.length === 0 && matrixNode === null);
+  const needsNumericLiteral = !isOne(magnitude) || (sortedScalars.length === 0 && matrixNode === null);
   const scalarParts = needsNumericLiteral ? [numAtom(magnitude), ...sortedScalars] : sortedScalars;
 
   const scalarNode: TypedExpr | null =
@@ -253,7 +269,7 @@ function buildProduct(
         ? matrixNode
         : { op: 'mul', shape: matrixNode.shape, scalar: scalarNode, matrix: matrixNode };
 
-  return numeric < 0 ? { op: 'neg', shape: core.shape, operand: core } : core;
+  return negative ? { op: 'neg', shape: core.shape, operand: core } : core;
 }
 
 /**
@@ -328,7 +344,7 @@ export function normalize(e: TypedExpr, foldPowers = false): Result<TypedExpr> {
       const inner = normalize(e.operand, foldPowers);
       if (!inner.ok) return inner;
       const c = collect(inner.value);
-      return ok(buildProduct(-c.numeric, c.scalars, c.matrix, foldPowers));
+      return ok(buildProduct(negLit(c.numeric), c.scalars, c.matrix, foldPowers));
     }
 
     case 'scalarMul':
@@ -351,12 +367,15 @@ export function normalize(e: TypedExpr, foldPowers = false): Result<TypedExpr> {
         children = normed;
       }
 
-      let numeric = 1;
+      let numeric = ONE_LIT;
       const scalars: TypedExpr[] = [];
       const matrixFactors: TypedExpr[] = [];
       for (const child of children) {
         const c = collect(child);
-        numeric *= c.numeric;
+        // 못 곱하면 접지 않고 인수로 되돌린다 — 값을 뭉개지 않는다.
+        const product = mulLit(numeric, c.numeric);
+        if (product !== null) numeric = product;
+        else scalars.push(numAtom(c.numeric));
         scalars.push(...c.scalars);
         matrixFactors.push(...c.matrix);
       }
@@ -381,10 +400,15 @@ export function normalize(e: TypedExpr, foldPowers = false): Result<TypedExpr> {
       if (!core.ok) return core;
       const merged = collect(core.value);
 
+      // 세 계수를 한 번에 곱한다. 하나라도 실패하면 접지 않고 인수로 남긴다.
+      const pair = mulLit(cl.numeric, cr.numeric);
+      const all = pair === null ? null : mulLit(pair, merged.numeric);
+      const carried =
+        all !== null ? [] : [numAtom(cl.numeric), numAtom(cr.numeric), numAtom(merged.numeric)];
       return ok(
         buildProduct(
-          cl.numeric * cr.numeric * merged.numeric,
-          [...cl.scalars, ...cr.scalars, ...merged.scalars],
+          all ?? ONE_LIT,
+          [...cl.scalars, ...cr.scalars, ...merged.scalars, ...carried],
           merged.matrix,
           foldPowers,
         ),

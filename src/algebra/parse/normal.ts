@@ -9,6 +9,16 @@ import { OP_PROPERTIES } from '../opers';
 import { fail, ok, type Result } from '../types-Result';
 import { SCALAR, formatShape, isKnownShape, isScalar, type Shape } from '../types-shape';
 import type { TypedExpr } from '../types-TypedExpr';
+import {
+  isOne,
+  isZero,
+  literalKey,
+  splitSign,
+  ONE as ONE_LIT,
+  ZERO as ZERO_LIT,
+  type Literal,
+} from '../types-Literal';
+import { addLit, mulLit, negLit } from '../literalMath';
 
 /**
  * 정규형 — **단항식 = (수치 계수, 스칼라 인수 집합, 비스칼라 인수 열)**.
@@ -24,7 +34,12 @@ import type { TypedExpr } from '../types-TypedExpr';
  */
 
 export type Monomial = {
-  readonly numeric: number;
+  /**
+   * 수치 계수. **`number` 가 아니라 `Literal` 인 이유**: 동류항을 합칠 때 계수를 더하는데
+   * (`combineLikeTerms`), float면 `\frac{3}{7}+\frac{1}{5}` 가 `0.6285714…` 가 된다.
+   * 정확한 유리수여야 `\frac{22}{35}` 가 나온다.
+   */
+  readonly numeric: Literal;
   /** 스칼라 인수 — 교환 가능하므로 키 기준으로 정렬해 정규화한다. */
   readonly scalars: readonly TypedExpr[];
   /** 비스칼라 인수 — **순서가 의미다.** 절대 정렬하지 않는다. */
@@ -49,7 +64,7 @@ const MAX_POWER_EXPANSION = 6;
 export function exprKey(e: TypedExpr): string {
   switch (e.op) {
     case 'num':
-      return `n${String(e.value)}`;
+      return `n${literalKey(e.value)}`;
     case 'sym':
       return `s${e.name}`;
     case 'matrix':
@@ -98,15 +113,15 @@ export const monomialKey = (m: Monomial): string =>
 export const sortScalars = (scalars: readonly TypedExpr[]): TypedExpr[] =>
   [...scalars].sort((a, b) => (exprKey(a) < exprKey(b) ? -1 : exprKey(a) > exprKey(b) ? 1 : 0));
 
-const ONE: Monomial = { numeric: 1, scalars: [], factors: [] };
+const ONE: Monomial = { numeric: ONE_LIT, scalars: [], factors: [] };
 
 /** 잎 하나를 단항식으로. 모양이 결정한다: 스칼라면 계수 쪽, 아니면 인수 열 쪽. */
 const atom = (e: TypedExpr): Monomial =>
   isScalar(e.shape)
-    ? { numeric: 1, scalars: [e], factors: [] }
-    : { numeric: 1, scalars: [], factors: [e] };
+    ? { numeric: ONE_LIT, scalars: [e], factors: [] }
+    : { numeric: ONE_LIT, scalars: [], factors: [e] };
 
-const negate = (m: Monomial): Monomial => ({ ...m, numeric: -m.numeric });
+const negate = (m: Monomial): Monomial => ({ ...m, numeric: negLit(m.numeric) });
 
 /**
  * 두 다항식의 곱. **인수 열을 이어붙이기만 하고 재배열하지 않는다** —
@@ -116,11 +131,21 @@ function polyMul(left: Polynomial, right: Polynomial): Polynomial {
   const out: Monomial[] = [];
   for (const p of left) {
     for (const q of right) {
-      out.push({
-        numeric: p.numeric * q.numeric,
-        scalars: sortScalars([...p.scalars, ...q.scalars]),
-        factors: [...p.factors, ...q.factors],
-      });
+      // 계수를 못 곱하면(안전 정수 밖 등) 접지 않고 인수로 되돌린다 — 값을 뭉개지 않는다.
+      const product = mulLit(p.numeric, q.numeric);
+      out.push(
+        product !== null
+          ? {
+              numeric: product,
+              scalars: sortScalars([...p.scalars, ...q.scalars]),
+              factors: [...p.factors, ...q.factors],
+            }
+          : {
+              numeric: ONE_LIT,
+              scalars: sortScalars([...p.scalars, ...q.scalars, num(p.numeric), num(q.numeric)]),
+              factors: [...p.factors, ...q.factors],
+            },
+      );
     }
   }
   return out;
@@ -241,8 +266,12 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
           if (!qe.ok) return qe;
           const applied = combine(pe.value, qe.value);
           if (!applied.ok) return applied;
-          const scalars = sortScalars([...p.scalars, ...q.scalars]);
-          const numeric = p.numeric * q.numeric;
+          // 계수를 못 곱하면 접지 않고 인수로 되돌린다 (`polyMul` 과 같은 규약).
+          const product = mulLit(p.numeric, q.numeric);
+          const numeric = product ?? ONE_LIT;
+          const carried =
+            product !== null ? [] : [num(p.numeric), num(q.numeric)];
+          const scalars = sortScalars([...p.scalars, ...q.scalars, ...carried]);
           out.push(
             OP_PROPERTIES[e.op].yieldsScalar
               ? { numeric, scalars: sortScalars([...scalars, applied.value]), factors: [] }
@@ -284,7 +313,7 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
 // 되돌리기 — Polynomial -> TypedExpr
 // ---------------------------------------------------------------------------
 
-const num = (value: number): TypedExpr => ({ op: 'num', shape: SCALAR, value });
+const num = (value: Literal): TypedExpr => ({ op: 'num', shape: SCALAR, value });
 
 /**
  * 단항식 하나를 식으로. 부호는 밖에서 `neg` 로 붙이므로 여기서는 절댓값만 쓴다.
@@ -293,10 +322,10 @@ const num = (value: number): TypedExpr => ({ op: 'num', shape: SCALAR, value });
  * `AA` 는 `AA` 로 남는다.
  */
 function monomialToExpr(m: Monomial): Result<TypedExpr> {
-  const magnitude = Math.abs(m.numeric);
+  const { magnitude } = splitSign(m.numeric);
   const parts: TypedExpr[] = [];
   const body = [...m.scalars, ...m.factors];
-  if (magnitude !== 1 || body.length === 0) parts.push(num(magnitude));
+  if (!isOne(magnitude) || body.length === 0) parts.push(num(magnitude));
   parts.push(...body);
   return parts
     .slice(1)
@@ -311,10 +340,10 @@ function monomialToExpr(m: Monomial): Result<TypedExpr> {
  * 재작성이 식의 모양을 바꿔선 안 된다는 원칙이 깨지는 자리다.
  */
 function zeroOf(target: Shape): TypedExpr {
-  if (isScalar(target)) return num(0);
-  if (!isKnownShape(target)) return num(0);
+  if (isScalar(target)) return num(ZERO_LIT);
+  if (!isKnownShape(target)) return num(ZERO_LIT);
   const rows = Array.from({ length: target.rows as number }, () =>
-    Array.from({ length: target.cols as number }, () => num(0)),
+    Array.from({ length: target.cols as number }, () => num(ZERO_LIT)),
   );
   return { op: 'matrix', shape: target, rows };
 }
@@ -325,7 +354,7 @@ function zeroOf(target: Shape): TypedExpr {
  * `target` 은 원래 식의 모양이다. 전부 상쇄됐을 때 어떤 영(zero)을 낼지 정하는 데만 쓴다.
  */
 export function fromPolynomial(p: Polynomial, target: Shape = SCALAR): Result<TypedExpr> {
-  const live = p.filter((m) => m.numeric !== 0);
+  const live = p.filter((m) => !isZero(m.numeric));
   if (live.length === 0) return ok(zeroOf(target));
 
   const terms: TypedExpr[] = [];
@@ -333,7 +362,9 @@ export function fromPolynomial(p: Polynomial, target: Shape = SCALAR): Result<Ty
     const built = monomialToExpr(m);
     if (!built.ok) return built;
     terms.push(
-      m.numeric < 0 ? { op: 'neg', shape: built.value.shape, operand: built.value } : built.value,
+      splitSign(m.numeric).negative
+        ? { op: 'neg', shape: built.value.shape, operand: built.value }
+        : built.value,
     );
   }
   return addTyped(terms);
@@ -351,26 +382,41 @@ export function foldNumericScalars(p: Polynomial): Polynomial {
     let numeric = m.numeric;
     const scalars: TypedExpr[] = [];
     for (const s of m.scalars) {
-      if (s.op === 'num') numeric *= s.value;
+      // 곱이 실패하면(안전 정수 밖 등) 흡수하지 않고 인수로 남긴다.
+      const folded = s.op === 'num' ? mulLit(numeric, s.value) : null;
+      if (folded !== null) numeric = folded;
       else scalars.push(s);
     }
     return { numeric, scalars, factors: m.factors };
   });
 }
 
-/** 같은 인수 열을 가진 항들을 합친다. 순서는 처음 나온 순서를 유지한다. */
+/**
+ * 같은 인수 열을 가진 항들을 합친다. 순서는 처음 나온 순서를 유지한다.
+ *
+ * 계수 덧셈이 실패하면(안전 정수 밖 등) **합치지 않고 따로 남긴다** — 값을 뭉개느니
+ * 항이 둘로 남는 게 낫다 (`literalMath` 의 "실패 = 무변경" 관례).
+ */
 export function combineLikeTerms(p: Polynomial): Polynomial {
-  const order: string[] = [];
-  const byKey = new Map<string, Monomial>();
+  const slots: Monomial[] = [];
+  /** 동류항 키 -> 합칠 수 있는 칸의 위치. */
+  const openSlot = new Map<string, number>();
   for (const m of p) {
     const key = monomialKey(m);
-    const existing = byKey.get(key);
-    if (existing === undefined) {
-      order.push(key);
-      byKey.set(key, m);
+    const at = openSlot.get(key);
+    if (at === undefined) {
+      openSlot.set(key, slots.length);
+      slots.push(m);
+      continue;
+    }
+    const sum = addLit(slots[at].numeric, m.numeric);
+    if (sum !== null) {
+      slots[at] = { ...slots[at], numeric: sum };
     } else {
-      byKey.set(key, { ...existing, numeric: existing.numeric + m.numeric });
+      // 이 칸은 더 이상 합칠 대상이 아니다 — 뒤에 같은 키가 또 오면 새 칸에 쌓는다.
+      openSlot.set(key, slots.length);
+      slots.push(m);
     }
   }
-  return order.map((key) => byKey.get(key) as Monomial);
+  return slots;
 }

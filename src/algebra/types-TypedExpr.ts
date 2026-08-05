@@ -1,7 +1,8 @@
 import { type Shape } from "./types-shape";
+import { type Literal } from "./types-Literal";
 
 export type TypedExpr =
-  | { readonly op: 'num'; readonly shape: Shape; readonly value: number }
+  | { readonly op: 'num'; readonly shape: Shape; readonly value: Literal }
   | { readonly op: 'sym'; readonly shape: Shape; readonly name: string }
   | { readonly op: 'matrix'; readonly shape: Shape; readonly rows: readonly (readonly TypedExpr[])[] }
   | { readonly op: 'add'; readonly shape: Shape; readonly terms: readonly TypedExpr[] }

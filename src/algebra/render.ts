@@ -1,5 +1,6 @@
 import { ComputeEngine } from '@cortex-js/compute-engine';
 import type { TypedExpr } from './types-TypedExpr';
+import { isOne, isZero, splitSign, type Literal } from './types-Literal';
 
 /**
  * Typed IR → string(LaTeX).
@@ -41,11 +42,52 @@ const MUL = 3;
 const POW = 4;
 const ATOM = 5;
 
+/**
+ * 리터럴 → LaTeX.
+ *
+ * 부호는 **분수 앞으로** 낸다 (`-\frac{1}{3}`, `\frac{-1}{3}` 아님) — 모듈 전체가
+ * "부호는 바깥으로" 관례를 쓰고, CE도 `-\frac{1}{3}` 과 `\frac{-1}{3}` 을 똑같이
+ * `Rational(-1,3)` 으로 읽으므로(실측) 둘 중 하나로 모아야 렌더가 멱등이다.
+ *
+ * `decimal` 은 `text` 를 그대로 낸다 — 사용자가 쓴 글자를 보존한다.
+ */
+export function renderLiteral(l: Literal): string {
+  switch (l.kind) {
+    case 'int':
+      return String(l.value);
+    case 'rational':
+      return l.n < 0 ? `-\\frac{${-l.n}}{${l.d}}` : `\\frac{${l.n}}{${l.d}}`;
+    case 'decimal':
+      return l.text;
+    case 'complex': {
+      const im = isOne(l.im) ? 'i' : `${renderLiteral(l.im)}i`;
+      if (isZero(l.re)) return im;
+      return im.startsWith('-') ? `${renderLiteral(l.re)}${im}` : `${renderLiteral(l.re)}+${im}`;
+    }
+  }
+}
+
+/**
+ * 리터럴의 결합 세기.
+ *  - 음수는 앞에 `-` 가 붙으므로 덧셈처럼 약하게 (`A^{-2}` 는 중괄호가 감싼다)
+ *  - 실수부·허수부가 둘 다 있는 복소수(`3+4i`)는 그 자체가 덧셈이다
+ *  - 순허수 양수(`4i`)는 곱이다
+ *  - 나머지(`3`, `\frac{3}{7}`, `i`)는 원자
+ */
+function literalPrecedence(l: Literal): number {
+  const { negative, magnitude } = splitSign(l);
+  if (negative) return ADD;
+  if (magnitude.kind === 'complex') {
+    if (!isZero(magnitude.re)) return ADD;
+    return isOne(magnitude.im) ? ATOM : MUL;
+  }
+  return ATOM;
+}
+
 function precedence(e: TypedExpr): number {
   switch (e.op) {
     case 'num':
-      // 음수 리터럴은 앞에 `-` 가 붙으므로 덧셈처럼 약하게 본다 (`A^{-2}` 는 중괄호가 감싼다).
-      return e.value < 0 ? ADD : ATOM;
+      return literalPrecedence(e.value);
     case 'sym':
     case 'matrix':
     case 'call':
@@ -99,8 +141,9 @@ function renderProduct(factors: readonly TypedExpr[]): string {
   // 렌더가 멱등이 아니게 된다. 두 트리를 같은 LaTeX으로 수렴시키는 쪽이 낫다.
   const [head, ...rest] = factors;
   if (head.op === 'neg') return `-${renderProduct([head.operand, ...rest])}`;
-  if (head.op === 'num' && head.value < 0) {
-    return `-${renderProduct([{ ...head, value: -head.value }, ...rest])}`;
+  if (head.op === 'num') {
+    const { negative, magnitude } = splitSign(head.value);
+    if (negative) return `-${renderProduct([{ ...head, value: magnitude }, ...rest])}`;
   }
   return factors.reduce((acc, factor, i) => {
     if (i === 0) return at(factor, MUL);
@@ -116,7 +159,7 @@ function renderProduct(factors: readonly TypedExpr[]): string {
 export function render(e: TypedExpr): string {
   switch (e.op) {
     case 'num':
-      return String(e.value);
+      return renderLiteral(e.value);
 
     case 'sym':
       return symbolLatex(e.name);
@@ -137,7 +180,7 @@ export function render(e: TypedExpr): string {
         // 음수 리터럴도 `\left(-3\right)` 가 아니라 `-3` 으로 낸다. 이걸 빼먹으면
         // `-3-rv` 를 다시 읽었을 때 `\left(-3\right)-rv` 가 되어 렌더가 멱등이 아니다
         // (CE가 `-3` 을 음수 리터럴 하나로 접어주기 때문).
-        if (term.op === 'num' && term.value < 0) return String(term.value);
+        if (term.op === 'num' && splitSign(term.value).negative) return renderLiteral(term.value);
         return at(term, DOTX);
       };
       return e.terms

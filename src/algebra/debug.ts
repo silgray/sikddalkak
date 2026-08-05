@@ -1,6 +1,7 @@
 import type { TypedExpr } from './types-TypedExpr';
 import { formatShape } from './types-shape';
 import type { SyntaxNode } from './types-SyntaxNode';
+import { literalKey } from './types-Literal';
 
 /**
  * 사람이 읽는 트리 출력.
@@ -14,7 +15,7 @@ import type { SyntaxNode } from './types-SyntaxNode';
 export function sexpSyntax(node: SyntaxNode): string {
   switch (node.kind) {
     case 'num':
-      return String(node.value);
+      return literalKey(node.value);
     case 'sym':
       return node.name;
     case 'matrix':
@@ -42,7 +43,8 @@ export function sexpSyntax(node: SyntaxNode): string {
 export function sexpTyped(e: TypedExpr): string {
   switch (e.op) {
     case 'num':
-      return String(e.value);
+      return literalKey(e.value);
+
     case 'sym':
       return e.name;
     case 'matrix':

@@ -170,6 +170,17 @@ export function negLit(l: Literal): Literal {
   }
 }
 
+/**
+ * 정수로 나눈다. `factor` 가 공통 정수 계수를 뽑아낼 때 쓴다 (`m.numeric / numeric`).
+ * 나눗셈이 안 떨어져도 정확한 유리수가 나온다.
+ */
+export function divideByInt(l: Literal, divisor: number): Literal {
+  if (divisor === 0) return l; // 호출자가 0을 주지 않는다 (gcd 결과라 >=1 또는 <=-1).
+  const fast = fastRat(l, intLit(divisor), (an, ad, bn, bd) => [an * bd, ad * bn]);
+  // 실패해도 계수를 잃으면 안 되므로 CE로 한 번 더 시도하고, 그것도 실패하면 원값.
+  return fast ?? viaCe('Divide', l, intLit(divisor)) ?? l;
+}
+
 /** 정수 거듭제곱. `matPow`/`scalarPow` 접기가 쓴다. */
 export function powLit(base: Literal, exponent: number): Literal | null {
   if (!Number.isSafeInteger(exponent)) return null;

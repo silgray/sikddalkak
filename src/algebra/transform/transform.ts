@@ -19,6 +19,8 @@ import {
   type Polynomial,
 } from '../parse/normal';
 import { normalize } from '../parse/normalize';
+import { asInteger, intLit, isZero, ONE as ONE_LIT, type Literal } from '../types-Literal';
+import { divideByInt } from '../literalMath';
 import { fail, ok, type Result } from '../types-Result';
 import { render } from '../render';
 import { parseCeJson } from '../parse/parseSymbol';
@@ -350,8 +352,8 @@ function simplifyRaw(e: TypedExpr, env: Env): Result<TypedExpr> {
       } else {
         monomials.push(
           isScalar(term.shape)
-            ? { numeric: 1, scalars: [term], factors: [] }
-            : { numeric: 1, scalars: [], factors: [term] },
+            ? { numeric: ONE_LIT, scalars: [term], factors: [] }
+            : { numeric: ONE_LIT, scalars: [], factors: [term] },
         );
       }
     }
@@ -370,13 +372,20 @@ function simplifyRaw(e: TypedExpr, env: Env): Result<TypedExpr> {
 
 const gcd = (a: number, b: number): number => (b === 0 ? Math.abs(a) : gcd(b, a % b));
 
-/** 모든 단항식이 공유하는 정수 계수. 정수가 아니면 1 (안전한 쪽). */
+/**
+ * 모든 단항식이 공유하는 정수 계수. 정수가 아니면 1 (안전한 쪽).
+ *
+ * 유리수 계수는 일부러 안 뽑는다 — `\frac{1}{2}A+\frac{1}{3}B` 에서 `\frac{1}{6}` 을
+ * 뽑아내면 사용자가 쓴 것보다 오히려 읽기 나빠진다.
+ */
 function commonNumeric(p: Polynomial): number {
-  if (!p.every((m) => Number.isInteger(m.numeric))) return 1;
-  const g = p.reduce((acc, m) => gcd(acc, m.numeric), 0);
+  const ints = p.map((m) => asInteger(m.numeric));
+  if (ints.some((n) => n === null)) return 1;
+  const values = ints as number[];
+  const g = values.reduce((acc, n) => gcd(acc, n), 0);
   if (g <= 1) return 1;
   // 전부 음수면 부호까지 뽑는다.
-  return p.every((m) => m.numeric < 0) ? -g : g;
+  return values.every((n) => n < 0) ? -g : g;
 }
 
 /** 모든 단항식이 공유하는 스칼라 인수 (중복 개수까지 고려). */
@@ -440,7 +449,7 @@ type BilinearTerm = {
   readonly kind: 'dot' | 'cross';
   readonly left: TypedExpr;
   readonly right: TypedExpr;
-  readonly numeric: number;
+  readonly numeric: Literal;
   readonly otherScalars: readonly TypedExpr[];
 };
 
@@ -528,7 +537,7 @@ function factorStructural(e: TypedExpr, env: Env): Result<TypedExpr> | null {
   const parsed = toPolynomial(e);
   if (!parsed.ok) return parsed;
   const p = combineLikeTerms(refineScalars(parsed.value, 'simplify', env, false)).filter(
-    (m) => m.numeric !== 0,
+    (m) => !isZero(m.numeric),
   );
   if (p.length < 2) return null;
 
@@ -552,7 +561,8 @@ function factorStructural(e: TypedExpr, env: Env): Result<TypedExpr> | null {
     : p[0].factors.slice(0, taken);
 
   const remainder: Monomial[] = p.map((m) => ({
-    numeric: m.numeric / numeric,
+    // `numeric` 은 위에서 정수임이 보장된다 (`commonNumeric`).
+    numeric: divideByInt(m.numeric, numeric),
     scalars: removeOnce(m.scalars, scalars),
     factors: useSuffix
       ? m.factors.slice(0, m.factors.length - taken)
@@ -563,7 +573,7 @@ function factorStructural(e: TypedExpr, env: Env): Result<TypedExpr> | null {
   if (!inner.ok) return inner;
 
   const parts: TypedExpr[] = [];
-  if (numeric !== 1) parts.push({ op: 'num', shape: SCALAR, value: numeric });
+  if (numeric !== 1) parts.push({ op: 'num', shape: SCALAR, value: intLit(numeric) });
   parts.push(...scalars);
   if (useSuffix) {
     parts.push(inner.value, ...shared);

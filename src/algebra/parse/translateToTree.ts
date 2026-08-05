@@ -1,6 +1,8 @@
 import { fail, failWith, ok, type AlgebraError, type Result } from '../types-Result';
 import { DOT_MARKER, CROSS_MARKER, isMarker } from './preprocess';
 import type { SyntaxNode } from '../types-SyntaxNode';
+import { fromCeJson } from '../literalMath';
+import { intLit } from '../types-Literal';
 
 
 /** 스칼라 전용으로 취급하는 CE 함수 머리 → 우리 `call` 이름. */
@@ -226,15 +228,22 @@ function translatePostfixToTree(
 
 /** CE JSON 한 노드를 Syntax IR로. */
 export function translateToTree(json: unknown): Result<SyntaxNode> {
-  if (typeof json === 'number') return ok({ kind: 'num', value: json });
-  if (typeof json === 'object' && json !== null && 'num' in json) {
-    const value = Number((json as { num: unknown }).num);
-    return Number.isFinite(value)
+  // 숫자 리터럴은 `literalMath` 가 단독으로 판정한다 — 정수/소수/`{num:}`/`Rational` 이
+  // 전부 여기로 들어온다. 우리가 못 담는 것(무한대, 안전 정수 밖)은 `null` 이 오므로
+  // 아래로 흘려보내지 않고 정직하게 거절한다.
+  if (typeof json === 'number' || (typeof json === 'object' && json !== null && 'num' in json)) {
+    const value = fromCeJson(json);
+    return value !== null
       ? ok({ kind: 'num', value })
       : fail('unsupported', 'Unsupported number literal');
   }
   if (typeof json === 'string') {
     if (isMarker(json)) return fail('malformed', 'A product operator is missing its operands');
+    // CE가 계산 불능을 심볼로 준다(`1/0` → `ComplexInfinity`, `0/0` → `NaN`, 실측).
+    // 안 막으면 "ComplexInfinity 라는 변수" 가 되어 조용한 오답이 된다.
+    if (json === 'ComplexInfinity' || json === 'NaN') {
+      return fail('unsupported', `Not a number: ${json}`);
+    }
     return ok({ kind: 'sym', name: json });
   }
   if (!Array.isArray(json)) return fail('unsupported', 'Unsupported expression');
@@ -294,10 +303,22 @@ export function translateToTree(json: unknown): Result<SyntaxNode> {
     return translatePostfixToTree(args[0], (base) => ({
       kind: 'pow',
       base,
-      exponent: { kind: 'num', value: -1 },
+      exponent: { kind: 'num', value: intLit(-1) },
     }));
   }
-  if ((head === 'Divide' || head === 'Rational') && args.length === 2) {
+  // `Rational` 은 **숫자 리터럴**이지 나눗셈 표기가 아니다.
+  //
+  // CE가 `form:['Number']` 에서 이미 우리가 원하는 선을 그어준다(실측):
+  //   정수/정수 → `Rational` (기약·부호 분자까지 CE가 해준다)  → 리터럴
+  //   그 외 전부 → `Divide` (`\frac{x+1}{x-1}`, `\frac{A}{a}`)  → frac 노드
+  // 덕분에 "이 분수가 값인가 표기인가" 를 우리가 판정할 필요가 없다.
+  if (head === 'Rational' && args.length === 2) {
+    const value = fromCeJson(json);
+    return value !== null
+      ? ok({ kind: 'num', value })
+      : fail('unsupported', 'Unsupported number literal');
+  }
+  if (head === 'Divide' && args.length === 2) {
     const numerator = translateToTree(args[0]);
     const denominator = translateToTree(args[1]);
     if (!numerator.ok || !denominator.ok) {

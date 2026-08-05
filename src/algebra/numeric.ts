@@ -1,4 +1,5 @@
 import type { TypedExpr } from './types-TypedExpr';
+import { toRealNumber } from './types-Literal';
 import { fail, ok, type Result } from './types-Result';
 import { isScalar } from './types-shape';
 
@@ -45,8 +46,14 @@ const components = (m: Matrix): number[] => m.flatMap((row) => [...row]);
 
 export function evalNumeric(e: TypedExpr, assignment: Assignment): Result<Matrix> {
   switch (e.op) {
-    case 'num':
-      return ok([[e.value]]);
+    case 'num': {
+      // 복소수는 `Matrix`(number[][])에 담을 자리가 없다. 정직하게 거절하면 퍼즈가
+      // 그 표본을 버린다 — 조용히 실수부만 쓰는 것보다 낫다.
+      const value = toRealNumber(e.value);
+      return value === null
+        ? fail('unsupported', 'Numeric check does not cover complex numbers')
+        : ok([[value]]);
+    }
 
     case 'sym': {
       const value = assignment[e.name];

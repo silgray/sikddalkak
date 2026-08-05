@@ -2,6 +2,7 @@ import { ComputeEngine } from '@cortex-js/compute-engine';
 import type { MathJsonExpression } from '@cortex-js/compute-engine';
 import { addTyped, elaborate, mulTyped } from '../parse/elaborate';
 import { parseCeJson } from '../parse/parseSymbol';
+import { toCeJson } from '../literalMath';
 import { ok, type Result } from '../types-Result';
 import { SCALAR } from '../types-shape';
 import type { TypedExpr, Env } from '../types-TypedExpr';
@@ -134,8 +135,11 @@ const ce = new ComputeEngine();
 const EMPTY_ENV: Env = { shapes: {} };
 
 function matrixLiteralToJson(m: MatrixLiteral): MathJsonExpression {
+  // `toCeJson` 을 쓴다 — 예전엔 `cell as {op:'num'; value:number}` 로 캐스트했는데,
+  // 그건 타입이 안 잡아주고 런타임에 엉뚱한 값을 MathJSON에 넣을 수 있었다.
   const rows = m.rows.map(
-    (row) => ['List', ...row.map((cell) => (cell as { op: 'num'; value: number }).value)] as unknown as MathJsonExpression,
+    (row) =>
+      ['List', ...row.map((cell) => toCeJson((cell as Extract<TypedExpr, { op: 'num' }>).value))] as unknown as MathJsonExpression,
   );
   return ['Matrix', ['List', ...rows] as unknown as MathJsonExpression] as unknown as MathJsonExpression;
 }

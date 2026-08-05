@@ -120,7 +120,7 @@ describe('역행렬', () => {
   it('구체 행렬의 역행렬을 정확한 유리수로 계산한다', () => {
     expect(
       evaluatedLatex(String.raw`\begin{pmatrix}1&2\\3&4\end{pmatrix}^{-1}`, { shapes: {} }),
-    ).toBe(String.raw`\begin{pmatrix}-2&1\\\frac{3}{2}&\frac{-1}{2}\end{pmatrix}`);
+    ).toBe(String.raw`\begin{pmatrix}-2&1\\\frac{3}{2}&-\frac{1}{2}\end{pmatrix}`);
   });
 
   it('특이행렬이면 조용히 원래 식으로 남는다', () => {
@@ -140,7 +140,7 @@ describe('역행렬', () => {
     if (!sub.ok) throw new Error(sub.errors[0].message);
     const result = evaluate(sub.value, built.env);
     if (!result.ok) throw new Error(result.errors[0].message);
-    expect(render(result.value)).toBe(String.raw`\begin{pmatrix}-2&1\\\frac{3}{2}&\frac{-1}{2}\end{pmatrix}`);
+    expect(render(result.value)).toBe(String.raw`\begin{pmatrix}-2&1\\\frac{3}{2}&-\frac{1}{2}\end{pmatrix}`);
   });
 });
 
