@@ -62,13 +62,14 @@ describe('expand — 사용자가 요구한 전개', () => {
     expect(expandedLatex('aaA')).toBe('a^{2}A');
   });
 
-  it('행렬 인수는 expand 가 접지 않는다 — 접기는 simplify 몫이다', () => {
-    // `expand` 는 `normalize(_, false)` 로 끝나므로 사용자가 쓴 곱의 모양을 유지한다.
-    expect(expandedLatex('AAB')).toBe('AAB');
+  it('행렬 인수는 이웃할 때만 접힌다 (교환할 수 없으므로)', () => {
+    // 접기는 normalize 기본값이라 expand/simplify 어느 쪽이든 같은 결과다.
+    expect(expandedLatex('AAB')).toBe('A^{2}B');
     expect(expandedLatex('ABA')).toBe('ABA');
-    // 이웃할 때만 접힌다 (교환할 수 없으므로) — 그건 simplify 가 한다.
     expect(simplifiedLatex('AAB')).toBe('A^{2}B');
     expect(simplifiedLatex('ABA')).toBe('ABA');
+    // 인접한 런만 모은다 — 떨어진 A 는 따로 남는다.
+    expect(expandedLatex('AAABBA')).toBe('A^{3}B^{2}A');
   });
 });
 

@@ -32,11 +32,9 @@ describe('모양 해석 — elaborate가 I 를 채운다', () => {
     expect(sexpTyped(normalizedOf('MI'))).toBe('M'); // M: 2x3 직사각
   });
 
-  it('AIA 는 I 를 먼저 버려야 두 A 가 이웃해진다', () => {
-    // 소거는 normalize 몫이라 여기서 이미 `AA` 가 된다.
-    expect(sexpTyped(normalizedOf('AIA'))).toBe('(matMul A A)');
-    // 접기는 simplify 몫이다 (normalize 기본값은 안 접는다).
-    const t = simplifiedOf('AIA');
+  it('AIA 는 I 를 먼저 버려야 두 A 가 이웃해져 A² 로 접힌다', () => {
+    // 소거와 접기가 둘 다 normalize 몫이다 — parse 만으로 여기까지 온다.
+    const t = normalizedOf('AIA');
     expect(sexpTyped(t)).toBe('(matPow A 2)');
     expect(render(t)).toBe('A^{2}');
   });
@@ -49,6 +47,56 @@ describe('모양 해석 — elaborate가 I 를 채운다', () => {
 
   it('I^n 은 미정이어도 정사각이 전제이므로 그대로 I 다', () => {
     expect(sexpTyped(normalizedOf('I^3'))).toBe('I');
+  });
+});
+
+describe('거듭제곱 접기 — normalize 기본값', () => {
+  it('행렬은 이웃한 런만 접는다 (비가환)', () => {
+    expect(render(normalizedOf('AAABBA'))).toBe('A^{3}B^{2}A');
+    expect(render(normalizedOf('ABA'))).toBe('ABA');
+  });
+
+  it('스칼라는 떨어져 있어도 모아서 접는다 (교환 가능)', () => {
+    expect(render(normalizedOf('xxxyyx'))).toBe('x^{4}y^{2}');
+    expect(render(normalizedOf('aAa'))).toBe('a^{2}A');
+    expect(render(normalizedOf(String.raw`\sin(x)\sin(x)`))).toBe(
+      String.raw`\sin\left(x\right)^{2}`,
+    );
+  });
+
+  it('지수 합이 0이면 소거된다', () => {
+    expect(sexpTyped(normalizedOf(String.raw`AA^{-1}`))).toBe('I');
+    expect(render(normalizedOf(String.raw`xx^{-1}`))).toBe('1');
+    expect(render(normalizedOf(String.raw`xxx^{-1}yy`))).toBe('y^{2}x');
+  });
+
+  it('상수 정수가 아닌 지수는 건드리지 않는다', () => {
+    // 합을 우리가 판정할 수 없으므로 접지 않는다.
+    expect(render(normalizedOf(String.raw`x^{a}x^{b}`))).toBe('x^{a}x^{b}');
+    expect(render(normalizedOf(String.raw`A^{n}A^{n}`))).toBe('A^{n}A^{n}');
+  });
+});
+
+describe('frac — 비스칼라 분자는 곱으로 내린다', () => {
+  it('계수가 역수와 합쳐진다', () => {
+    expect(render(normalizedOf(String.raw`\frac{2A}{3}`))).toBe(String.raw`\frac{2}{3}A`);
+    expect(render(normalizedOf(String.raw`\frac{A}{2}`))).toBe(String.raw`\frac{1}{2}A`);
+  });
+
+  it('심볼 분모도 내린다', () => {
+    expect(render(normalizedOf(String.raw`\frac{A}{a}`))).toBe(String.raw`\frac{1}{a}A`);
+  });
+
+  it('합 분자도 통째로 내린다 (분배는 안 한다)', () => {
+    expect(render(normalizedOf(String.raw`\frac{A+B}{2}`))).toBe(
+      String.raw`\frac{1}{2}\left(A+B\right)`,
+    );
+  });
+
+  it('스칼라 분자는 나눗셈 표기를 지킨다', () => {
+    // 이걸 내리면 `\frac{x^2+2x+1}{x+1}` 이 원문 모양을 잃는다 — frac 노드의 존재 이유다.
+    expect(render(normalizedOf(String.raw`\frac{x+1}{2}`))).toBe(String.raw`\frac{x+1}{2}`);
+    expect(render(normalizedOf(String.raw`\frac{2x}{3}`))).toBe(String.raw`\frac{2x}{3}`);
   });
 });
 

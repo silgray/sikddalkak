@@ -15,7 +15,6 @@ import {
 import { fail, failWith, ok, type AlgebraError, type Result } from '../types-Result';
 import type { SyntaxNode } from '../types-SyntaxNode';
 import type { TypedExpr, Env } from '../types-TypedExpr';
-import { constantInteger } from './normal';
 
 /**
  * Elaborate — 연산자 해석 + 차원 검사 + 모양 계산을 한 패스로 한다.
@@ -246,17 +245,13 @@ function elaboratePow(base: TypedExpr, exponent: SyntaxNode, env: Env): Result<T
   // ⚠ 그 대가로 `A^{0.5}`·`A^{x}` 같은 **뜻이 정해지지 않은 식이 여기를 통과한다.**
   // 조용히 틀리지는 않는다 — `numeric`/`matrixFold` 가 상수 정수가 아니면 각각
   // `unsupported`/무변경으로 빠지고, `evaluate` 가 상수 비정수 지수를 걸러낸다.
-  const power = constantInteger(exp.value);
-  // 항등행렬은 미정이어도 정사각이 전제다 — 어떤 정수 지수든 I^n = I.
-  if (base.op === 'matIdentity') {
-    return ok(base);
-  }
-  if (!isSquare(base.shape)) {
+  // **`I^n → I` 와 `A^0 → I` 는 여기서 하지 않는다** — 둘 다 `normalize` 의 matPow
+  // 케이스가 이미 하고 있어서 규칙이 두 벌이었다. 접기는 normalize 한 곳으로 모은다.
+  //
+  // 항등행렬은 미정 모양이어도 **정사각이 전제**이므로 `isSquare` 관문만 비켜준다
+  // (그러지 않으면 `isSquare(unknown)` 이 false 라 `I^3` 이 "not square" 로 막힌다).
+  if (base.op !== 'matIdentity' && !isSquare(base.shape)) {
     return shapeMismatch(`Cannot raise a ${formatShape(base.shape)} to a power: not square`);
-  }
-  // A^0 은 그 자체로 행렬곱 항등원이다 — matPow(A,0) 으로 남겨두면 다른 데서 또 판단해야 한다.
-  if (power === 0) {
-    return ok({ op: 'matIdentity', shape: base.shape });
   }
   return ok({ op: 'matPow', shape: base.shape, base, exponent: exp.value });
 }

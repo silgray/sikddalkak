@@ -2,7 +2,7 @@ import { render, shape, type Env, parse, expand, simplify, factor } from '../ind
 import { preprocess } from '../parse/preprocess';
 import { elaborate } from '../parse/elaborate';
 import { normalize } from '../parse/normalize';
-import { ComputeEngine } from '@cortex-js/compute-engine';
+import { ComputeEngine, type TaggedValueDefinition } from '@cortex-js/compute-engine';
 import { translateToTree } from '../parse/translateToTree';
 
 import { evaluate, substituteDeep } from '../transform/evaluate';
@@ -22,7 +22,7 @@ const env: Env = {
   shapes: {
     A: shape(3, 3),
     B: shape(3, 3),
-    C: shape(3, 3),
+    C: shape(3, 2),
     x: shape(1, 1),
     y: shape(1, 1),
     z: shape(1, 1),
@@ -38,49 +38,64 @@ const env: Env = {
   }
 };
 
-const latex_strs = [
-  // "\\frac{2}{10}aba+\\frac{3}{15}aaa",
-  // "\\frac{x^2+2x+1}{x+1}",
-  // "\\frac{(v\\cdot w)^2+2(v\\cdot w)}{(v\\cdot w)}",
-  // "xxx\\cos(x)x+xe^{x}\\cos x",
+export interface TestValues {
+  normalized?: string,
+  simplified?: string,
+  evaluated?: string,
+}
+
+export const latex_strs: Record<string, TestValues | null> = {
+  // "\\frac{2}{10}aba+\\frac{3}{15}aab": null,
+  // "c+b+(b+a)^2": null,
+  // "\\frac{x^2+2x+1}{x+1}": null,
+  // "\\frac{(v\\cdot w)^2+2(v\\cdot w)}{(v\\cdot w)}": null,
+  // "xAxx\\cos(x)x+xe^{x}A\\cos x": null,
   // "(v\\cdot w)^2+2v\\cdot w+1"
-  // "\\frac{\\sin^2(x) + a\\sin x}{\\sin x}",
-  // "v\\times (ku+kw)",
-  // "(aA(w^Tw)ABb)c+abdd(v^Tv)ABA",
-  // "(x+2)(2(x+1))",
-  "xxx^{-1}yy+xxyyy",
-  // "(A+A^0)(2(AA+2A+I))",
-  // "v\\times (w\\times Iw)"
-  // "ae^{x}\\cos x+ae^{x}\\cos x",
-  // "\\sin(\\pi)",
-  // "\\sin^{-1}(1)",
-  // "\\arcsin(1)",
-  // "(1+i)^2",
-  // "1+I",
-  // "A^{1+2}",
-  // "1+2",
-  // "19/1",
-  // "1*2",
-  // "-(-1)"
-  // "\\frac{13}{1}",
-  // "Av",
-  // "(A+I)(B(A+vv^T)+I)",
-  // "x^4+4x^3+6x^2+4x+1"
-  // "a_{a}+a_{max}",
-  // "(A+II)(A1A(v\\cdot w)3x1A)",
-  // "AAAA+AA^{-1}A^{3}",
-  // "xxxx+xx^{-1}x^{3}",
-  // "v\\cdot (((1+x)x+3x)Aw) + 7"
-  // "\\begin{pmatrix}1 & x\\\\ 1 & y\\\\ 1 & z\\end{pmatrix}\\begin{pmatrix}1 & x & x^2\\\\ 1 & y & y^2\\end{pmatrix}"
-];
+  // "\\frac{\\sin^2(x) + a\\sin x}{\\sin x}": null,
+  // "v\\times (ku+kw)": null,
+  // "(aA(w^Tw)ABb)c+abdd(v^Tv)ABA": null,
+  // "(x+2)(2(x+1))": null,
+  // "xxx^{-1}yy+xxyyy": null,
+  // "A+A/2": null,
+  // "(A+A^0)(2(AA+2A+I))": null,
+  // "v\\times (w\\times Iw)": null,
+  // "ae^{x}\\cos x+ae^{x}\\cos x": {normalized: "2\\cos\\left(x\\right)\\mathrm{e}^{x}a"},
+  // "\\sin(\\pi)": null,
+  // "\\sin^{-1}(1)": null,
+  // "\\arcsin(1)": null,
+  // "(1+i)^2": null,
+  // "1+I": null,
+  // "A^{0.5+2.5}": null,
+  // "1+2": null,
+  // "19/1": null,
+  // "1*2": null,
+  // "-(-1)": {normalized: "1", simplified: "1"},
+  // "\\frac{13}{1}": null,
+  // "Av": null,
+  // "\\sin(e^x)3\\sin(e^x)": {normalized: "3\\sin\\left(\\mathrm{e}^{x}\\right)^2"},
+  // "(A+I)3x(A+I)": null,
+  // "x^{a}yx^{2a}": {normalized: "x^{2a}x^{a}y", simplified: "x^{2a}x^{a}y"},
+  // "x^{a}yx^{-a}": {normalized: "x^{-a}x^{a}y", simplified: "x^{-a}x^{a}y"},
+  // "(1/x)x": null,
+  // "(A+I)(B(A+vv^T)+I)": null,
+  // "x^4+4x^3+6x^2+4x+1": null,
+  // "a_{a}+a_{max}": null,
+  // "(A+II)(A1A(v\\cdot w)3x1A)": null,
+  // "e^{\\frac{3}{2}i\\pi}": {evaluated: "-i"},
+  // "e^{2i\\pi}": {evaluated: "1"},
+  // "AAAA+AA^{-1}A^{3}": null,
+  // "xxxx+xx^{-1}x^{3}": null,
+  // "v\\cdot (((1+x)x+3x)Aw) + 7": null,
+  // "\\begin{pmatrix}1 & x\\\\ 1 & y\\\\ 1 & z\\end{pmatrix}\\begin{pmatrix}1 & x & x^2\\\\ 1 & y & y^2\\end{pmatrix}": null,
+};
 
 const ce = new ComputeEngine();
 
 
-export function test(latexs: string[]) {
+export function test(latexs: Record<string, TestValues | null>) {
 
   console.log("\n\n=================================");
-  latexs.forEach((latex) => {
+  for(const [latex, value] of Object.entries(latexs)) {
     group("", () => {
       show("raw:", latex);
 
@@ -152,7 +167,7 @@ export function test(latexs: string[]) {
       // console.log("\n=================================");
       
     });
-  });
+  }
 
 }
 

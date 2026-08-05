@@ -3,6 +3,7 @@ import {
   crossTyped,
   dotTyped,
   fracTyped,
+  mulTyped,
   transposeTyped,
 } from './elaborate';
 import {
@@ -15,7 +16,7 @@ import {
   type Monomial,
 } from './normal';
 import { asInteger, intLit, isOne, splitSign, ONE as ONE_LIT, type Literal } from '../types-Literal';
-import { divideByInt, mulLit, negLit, powLit } from '../literalMath';
+import { divideByInt, mulLit, negLit, powLit, recipLit } from '../literalMath';
 import { fail, ok, type Result } from '../types-Result';
 import { SCALAR, isKnownShape, isScalar, isSquare, shape, type Shape } from '../types-shape';
 import type { TypedExpr } from '../types-TypedExpr';
@@ -44,11 +45,15 @@ import type { TypedExpr } from '../types-TypedExpr';
  * 정규화돼 있다. `matPow` 의 밑은 일부러 뚫지 않는다 — `(kA)^2` 을 `k^2A^2` 으로
  * 바꾸려면 지수가 스칼라 거듭제곱까지 만들어야 해서 범위 밖으로 남겨둔다.
  *
- * **거듭제곱 접기는 기본으로 꺼져 있다.** `parse`/`expand`/`factor`/`substitute` 는
- * 사용자가 쓴 곱의 모양을 임의로 바꾸지 않는다 — `AA` 는 `AA` 로 남는다. `simplify` 만
- * `foldPowers=true` 로 이 함수를 불러서 이웃한 같은 인수를 `matPow` 로 접고
- * (`AAAA` → `A⁴`), 지수 합이 0이 되는 소거(`AA^{-1}` → `I`)까지 한다 — "정리하라"는
- * 요청에서는 이게 자연스러운 기대이기 때문. `A^2` 처럼 직접 쓴 거듭제곱은 항상 그대로다.
+ * **거듭제곱 접기는 기본으로 켜져 있다.**
+ *  - 행렬: **이웃한** 같은 밑만 접는다 — `AAABBA` → `A³B²A` (비가환이라 떨어진 건 못 모은다),
+ *    지수 합이 0이면 소거 (`AA^{-1}` → `I`)
+ *  - 스칼라: 교환 가능하므로 **떨어져 있어도 모아서** 접는다 — `xxxyyx` → `x⁴y²`
+ *
+ * 둘 다 **상수 정수 지수만** 합산한다. `x^a x^b` 처럼 지수가 심볼이면 건드리지 않는다
+ * (합산 결과를 우리가 판정할 수 없다).
+ *
+ * `foldPowers` 인자는 남겨뒀다 — "안 접는 모드"가 다시 필요해질 수 있어서다.
  */
 
 // ---------------------------------------------------------------------------
@@ -258,6 +263,39 @@ function combineTerms(
   return normalized;
 }
 
+/**
+ * 분모의 역수. 숫자면 숫자 리터럴로, 아니면 `\frac{1}{d}` 노드로.
+ * 못 만들면 `null` — 호출자가 원래 `frac` 을 그대로 둔다.
+ */
+function reciprocalOf(denominator: TypedExpr): TypedExpr | null {
+  const lit = literalOf(denominator);
+  if (lit !== null) {
+    const inv = recipLit(lit);
+    return inv === null ? null : numAtom(inv);
+  }
+  return { op: 'frac', shape: SCALAR, numerator: numAtom(ONE_LIT), denominator };
+}
+
+/**
+ * `frac(비스칼라 분자, 스칼라 분모)` 를 `역수 × 분자` 로 내린다.
+ *
+ * 곱으로 만든 뒤 `collect`/`buildProduct` 를 한 번 더 태우는 게 요점이다 — 그래야
+ * `\frac{2A}{3}` 의 `2` 와 역수 `1/3` 이 하나의 계수 `2/3` 로 합쳐진다.
+ * 실패하면 `null` — **normalize 는 실패를 새로 만들지 않는다.**
+ */
+function hoistFracNumerator(
+  numerator: TypedExpr,
+  denominator: TypedExpr,
+  foldPowers: boolean,
+): TypedExpr | null {
+  const recip = reciprocalOf(denominator);
+  if (recip === null) return null;
+  const product = mulTyped(recip, numerator);
+  if (!product.ok) return null;
+  const c = collect(product.value);
+  return buildProduct(c.numeric, c.scalars, c.matrix, foldPowers);
+}
+
 // ---------------------------------------------------------------------------
 // 되돌리기 — collect의 결과를 다시 트리로
 // ---------------------------------------------------------------------------
@@ -280,6 +318,59 @@ function stripIdentities(factors: readonly TypedExpr[]): TypedExpr[] {
   if (factors.length === 0) return [];
   const stripped = factors.filter((f) => f.op !== 'matIdentity');
   return stripped.length === 0 ? [factors[0]] : stripped;
+}
+
+/**
+ * 스칼라 인수를 같은 밑끼리 모아 거듭제곱으로 접는다 — `xxxyyx` → `x⁴y²`.
+ *
+ * **행렬과 달리 떨어져 있어도 모은다.** 스칼라는 교환 가능하므로 위치를 지킬 이유가
+ * 없고, 어차피 뒤에서 `sortScalars` 가 순서를 다시 잡는다. (행렬 쪽 `combineAdjacentPowers`
+ * 가 이웃만 보는 건 비가환이라 자리를 못 옮기기 때문이다 — 두 규칙이 다른 이유가 그거다.)
+ *
+ * 상수 정수 지수만 합산한다. `x^a x^b` 처럼 지수가 심볼이면 합을 우리가 판정할 수 없으니
+ * 건드리지 않고 그대로 흘려보낸다.
+ *
+ * 지수 합이 0이면 **인수 목록에서 빠진다** (`xx^{-1}` → 곱의 항등원 1). 그러면 인수가
+ * 하나도 안 남을 수 있는데, 그건 `buildProduct` 의 `needsNumericLiteral` 이 `1` 로 채운다.
+ */
+function foldScalarPowers(scalars: readonly TypedExpr[]): TypedExpr[] {
+  /** 밑 키 → 지수 합. 처음 나온 순서를 유지한다(정렬은 호출자 몫이지만 결정적이어야 한다). */
+  const order: string[] = [];
+  const bases = new Map<string, { base: TypedExpr; exponent: number }>();
+  const untouched: TypedExpr[] = [];
+
+  for (const f of scalars) {
+    const parts =
+      f.op === 'scalarPow'
+        ? (() => {
+            const n = constantInteger(f.exponent);
+            return n === null ? null : { base: f.base, exponent: n };
+          })()
+        : { base: f, exponent: 1 };
+    // 지수를 못 읽는 인수는 접기에 참여시키지 않는다 (같은 밑이어도 합칠 수 없다).
+    if (parts === null) {
+      untouched.push(f);
+      continue;
+    }
+    const key = exprKey(parts.base);
+    const seen = bases.get(key);
+    if (seen === undefined) {
+      order.push(key);
+      bases.set(key, parts);
+    } else {
+      bases.set(key, { base: seen.base, exponent: seen.exponent + parts.exponent });
+    }
+  }
+
+  const out: TypedExpr[] = [];
+  for (const key of order) {
+    const { base, exponent } = bases.get(key) as { base: TypedExpr; exponent: number };
+    if (exponent === 0) continue; // x·x^{-1} = 1 — 인수에서 빠진다
+    if (exponent === 1) out.push(base);
+    else out.push({ op: 'scalarPow', shape: SCALAR, base, exponent: numAtom(intLit(exponent)) });
+  }
+  out.push(...untouched);
+  return out;
 }
 
 /**
@@ -384,7 +475,7 @@ function buildProduct(
   foldPowers: boolean,
 ): TypedExpr {
   const { negative, magnitude } = splitSign(numeric);
-  const sortedScalars = sortScalars(scalars);
+  const sortedScalars = sortScalars(foldPowers ? foldScalarPowers(scalars) : scalars);
   const collapsedMatrix = foldPowers ? foldAdjacentPowers(matrixFactors) : stripIdentities(matrixFactors);
 
   const matrixNode: TypedExpr | null =
@@ -448,7 +539,7 @@ function asSingleMatrix(factors: readonly TypedExpr[]): Result<TypedExpr> {
  * 파일 서두 참고). 기본은 `false` — parse/expand/factor/substitute는 곱의 모양을
  * 그대로 둔다.
  */
-export function normalize(e: TypedExpr, foldPowers = false): Result<TypedExpr> {
+export function normalize(e: TypedExpr, foldPowers = true): Result<TypedExpr> {
   switch (e.op) {
     case 'num':
     case 'sym':
@@ -631,6 +722,22 @@ export function normalize(e: TypedExpr, foldPowers = false): Result<TypedExpr> {
       const d = dLit === null ? null : asInteger(dLit);
       if (n !== null && d !== null && d !== 0 && asInteger(n) !== null) {
         return ok(numAtom(divideByInt(n, d)));
+      }
+      // **분자가 비스칼라면 역수를 곱으로 내린다** — `\frac{2A}{3}` → `\frac{2}{3}A`,
+      // `\frac{I}{2}` → `\frac{1}{2}I`, `\frac{A}{a}` → `\frac{1}{a}A`.
+      //
+      // 나눗셈 표기를 보존하는 건 **스칼라 분수**에 한한다 (`\frac{x^2+2x+1}{x+1}` 은
+      // 그대로 둬야 원문 모양이 산다). 분자가 행렬이면 "행렬을 스칼라로 나눈다" 는
+      // 뜻이므로 계수를 앞으로 빼는 쪽이 정규형에 맞는다 — 그래야 `collect` 가 계수를
+      // 보고 동류항·정렬이 걸린다.
+      //
+      // ⚠ **`\frac{I}{2}` 는 여기 안 걸린다.** 문맥이 없는 `I` 는 아래 matIdentity 케이스가
+      // (1,1)로 굳혀버려서 분자가 스칼라가 되기 때문이다. 그리고 `\frac{I}{2}A` 는 애초에
+      // elaborate 에서 막힌다 — `hasUnresolvedIdentity` 가 `frac` 안을 안 들여다본다.
+      // 둘 다 이 하강과 별개의 건이라 지금은 그대로 둔다.
+      if (!isScalar(numerator.value.shape)) {
+        const hoisted = hoistFracNumerator(numerator.value, denominator.value, foldPowers);
+        if (hoisted !== null) return ok(hoisted);
       }
       return fracTyped(numerator.value, denominator.value);
     }

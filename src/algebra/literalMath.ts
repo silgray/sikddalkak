@@ -194,6 +194,12 @@ export function divideByInt(l: Literal, divisor: number): Literal {
   return fast ?? viaCe('Divide', l, intLit(divisor)) ?? l;
 }
 
+/** 역수. `\frac{2A}{3}` → `\frac{2}{3}A` 하강이 분모의 역수를 만들 때 쓴다. */
+export function recipLit(l: Literal): Literal | null {
+  const fast = fastRat(intLit(1), l, (an, ad, bn, bd) => [an * bd, ad * bn]);
+  return fast ?? viaCe('Divide', intLit(1), l);
+}
+
 /** 정수 거듭제곱. `matPow`/`scalarPow` 접기가 쓴다. */
 export function powLit(base: Literal, exponent: number): Literal | null {
   if (!Number.isSafeInteger(exponent)) return null;
