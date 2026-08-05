@@ -60,9 +60,13 @@ export function renderLiteral(l: Literal): string {
     case 'decimal':
       return l.text;
     case 'complex': {
-      const im = isOne(l.im) ? 'i' : `${renderLiteral(l.im)}i`;
+      // `1i`/`-1i` 가 아니라 `i`/`-i` 로 낸다 — 계수 1은 쓰지 않는 표기 관례이고,
+      // `-1i` 를 다시 읽으면 `Multiply(-1, i)` 라 트리 모양도 달라진다.
+      const { negative, magnitude } = splitSign(l.im);
+      const digits = isOne(magnitude) ? '' : renderLiteral(magnitude);
+      const im = `${negative ? '-' : ''}${digits}i`;
       if (isZero(l.re)) return im;
-      return im.startsWith('-') ? `${renderLiteral(l.re)}${im}` : `${renderLiteral(l.re)}+${im}`;
+      return negative ? `${renderLiteral(l.re)}${im}` : `${renderLiteral(l.re)}+${im}`;
     }
   }
 }

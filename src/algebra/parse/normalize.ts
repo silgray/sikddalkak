@@ -6,8 +6,8 @@ import {
   transposeTyped,
 } from './elaborate';
 import { exprKey, sortScalars } from './normal';
-import { isOne, splitSign, ONE as ONE_LIT, type Literal } from '../types-Literal';
-import { mulLit, negLit } from '../literalMath';
+import { asInteger, isOne, splitSign, ONE as ONE_LIT, type Literal } from '../types-Literal';
+import { mulLit, negLit, powLit } from '../literalMath';
 import { fail, ok, type Result } from '../types-Result';
 import { SCALAR, isKnownShape, isScalar, isSquare, shape, type Shape } from '../types-shape';
 import type { TypedExpr } from '../types-TypedExpr';
@@ -441,6 +441,15 @@ export function normalize(e: TypedExpr, foldPowers = false): Result<TypedExpr> {
       if (!base.ok) return base;
       const exponent = normalize(e.exponent, foldPowers);
       if (!exponent.ok) return exponent;
+      // 리터럴^정수리터럴 은 값으로 접는다. 곱에서 숫자를 접는 것(`collect`)과 같은
+      // "숫자 접기" 이고, **복소수는 여기서만 접힌다** — `ceSimplify` 는 `i^{2}` 를
+      // 안 풀어준다(실측: `["Power",["Complex",0,1],2]` 그대로). `literalMath` 는
+      // `ce.box(...).evaluate()` 를 쓰므로 `-1` 이 나온다.
+      if (base.value.op === 'num' && exponent.value.op === 'num') {
+        const n = asInteger(exponent.value.value);
+        const folded = n === null ? null : powLit(base.value.value, n);
+        if (folded !== null) return ok(numAtom(folded));
+      }
       return ok({ op: 'scalarPow', shape: SCALAR, base: base.value, exponent: exponent.value });
     }
 

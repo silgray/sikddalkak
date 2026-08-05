@@ -26,7 +26,11 @@ export type Literal =
 
 export type RealLiteral = Exclude<Literal, { kind: 'complex' }>;
 
-export const intLit = (value: number): Literal => ({ kind: 'int', value });
+/** 반환 타입을 `int` 로 좁혀둔다 — 복소수의 `re`/`im` 자리(`RealLiteral`)에 쓰려면 필요하다. */
+export const intLit = (value: number): Extract<Literal, { kind: 'int' }> => ({
+  kind: 'int',
+  value,
+});
 
 export const ZERO: Literal = intLit(0);
 export const ONE: Literal = intLit(1);

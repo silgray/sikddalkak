@@ -2,6 +2,8 @@ import { ComputeEngine } from '@cortex-js/compute-engine';
 import type { MathJsonExpression } from '@cortex-js/compute-engine';
 import {
   intLit,
+  isReal,
+  isZero,
   type Literal,
   type RealLiteral,
 } from './types-Literal';
@@ -75,7 +77,9 @@ export function fromCeJson(json: unknown): Literal | null {
     }
     return { kind: 'decimal', value, text: text.replace(/^\+/, '') };
   }
-  if (typeof json === 'string') return null; // 심볼 (ImaginaryUnit 은 C7에서)
+  // 허수 단위. CE는 `\imaginaryI` 를 이 심볼로, 맨 `i` 는 `["Complex",0,1]` 로 준다(실측).
+  if (json === 'ImaginaryUnit') return { kind: 'complex', re: intLit(0), im: intLit(1) };
+  if (typeof json === 'string') return null; // 그 밖의 심볼
   if (!Array.isArray(json)) return null;
 
   const [head, ...args] = json as [unknown, ...unknown[]];
@@ -84,6 +88,15 @@ export function fromCeJson(json: unknown): Literal | null {
     const d = fromCeJson(args[1]);
     if (n?.kind !== 'int' || d?.kind !== 'int') return null;
     return makeRational(n.value, d.value);
+  }
+  // ⚠ 실수부·허수부가 **그 자체로 `Rational` 일 수 있다**(실측:
+  // `Multiply(i, 1/2)` → `Complex(0, Rational(1,2))`). 그래서 재귀로 받는다.
+  if (head === 'Complex' && args.length === 2) {
+    const re = fromCeJson(args[0]);
+    const im = fromCeJson(args[1]);
+    if (re === null || im === null || !isReal(re) || !isReal(im)) return null;
+    // 허수부가 0이면 실수다 (CE도 그렇게 무너뜨린다 — 정규형을 맞춘다).
+    return isZero(im) ? re : { kind: 'complex', re, im };
   }
   return null;
 }

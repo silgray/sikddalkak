@@ -312,7 +312,11 @@ export function translateToTree(json: unknown): Result<SyntaxNode> {
   //   정수/정수 → `Rational` (기약·부호 분자까지 CE가 해준다)  → 리터럴
   //   그 외 전부 → `Divide` (`\frac{x+1}{x-1}`, `\frac{A}{a}`)  → frac 노드
   // 덕분에 "이 분수가 값인가 표기인가" 를 우리가 판정할 필요가 없다.
-  if (head === 'Rational' && args.length === 2) {
+  // `Complex` 도 **숫자 리터럴**이다 (연산 머리가 아니라 2-인수 리터럴, 실측).
+  // `3+4i` 는 `Add(3, InvisibleOperator(4, Complex(0,1)))` 로 오므로 `i` 하나가 여기 걸리고,
+  // `4·i` 는 평범한 곱으로 남아 `normalize` 의 숫자 접기가 `Complex(0,4)` 로 만든다.
+  // 덕분에 `i·i → -1` 도 별도 규칙 없이 계수 곱셈에서 떨어진다.
+  if ((head === 'Rational' || head === 'Complex') && args.length === 2) {
     const value = fromCeJson(json);
     return value !== null
       ? ok({ kind: 'num', value })
