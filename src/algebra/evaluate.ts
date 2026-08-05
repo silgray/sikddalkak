@@ -39,7 +39,7 @@ const MAX_SUBSTITUTION_DEPTH = 64;
 export function substituteDeep(e: TypedExpr, env: Env): Result<TypedExpr> {
   let current = e;
   for (let i = 0; i < MAX_SUBSTITUTION_DEPTH; i += 1) {
-    const next = substitute(current, env);
+    const next = substitute(current, env);  // TODO: optimize
     if (!next.ok) return next;
     if (exprKey(next.value) === exprKey(current)) return ok(next.value);
     current = next.value;

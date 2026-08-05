@@ -1,7 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type Dispatch } from 'react';
 import type { Action, Tab } from '../state/workspace';
-import { evaluateGraph } from '../engine/evaluate';
-import { buildCellEnv } from '../cellEnv';
+import { evaluateCells } from '../cellGraph';
 import { Cell } from './Cell';
 
 type Props = {
@@ -28,16 +27,10 @@ export function CellStack({ tab, dispatch }: Props) {
     return undefined;
   }, [tab.objects, tab.lastChange]);
 
-  // 결과는 상태가 아니라 파생값이다. 엔진이 캐시로 바뀐 노드와 그 후손만
-  // 실제로 재계산한다.
-  const results = useMemo(
-    () => evaluateGraph(evalObjects.map((o) => ({ id: o.id, latex: o.latex, mode: o.mode }))),
-    [evalObjects],
-  );
-
-  // 선택 변환이 쓰는 심볼 모양 환경. 평가와 **같은 소스**(디바운스된 evalObjects)를 쓰므로
-  // 타이핑 중간의 미완성 정의로 환경이 요동치지 않는다.
-  const env = useMemo(() => buildCellEnv(evalObjects), [evalObjects]);
+  // 결과와 선택 변환이 쓰는 심볼 환경을 **한 번에** 얻는다 — 둘이 따로 만들어지면
+  // "결과는 A를 행렬로 알고 계산했는데 변환 버튼은 A를 모른다" 같은 어긋남이 생긴다.
+  // 그래프 층(cellGraph.ts)이 캐시로 바뀐 노드와 그 후손만 실제로 재계산한다.
+  const { results, env } = useMemo(() => evaluateCells(evalObjects), [evalObjects]);
 
   // --- 드래그 재정렬 (라이브러리 없이 pointer 이벤트로) ---
   const containerRef = useRef<HTMLDivElement>(null);
