@@ -12,7 +12,7 @@ import {
   vectorLength,
   type Shape,
 } from '../types-shape';
-import { fail, failWith, ok, type AlgebraError, type Result } from '../types-Result';
+import { fail, failWith, ok, type AlgebraError, type Result } from '../types-result';
 import type { SyntaxNode } from '../types-SyntaxNode';
 import type { TypedExpr, Env } from '../types-TypedExpr';
 

@@ -6,7 +6,7 @@ import {
   transposeTyped,
 } from './elaborate';
 import { OP_PROPERTIES } from '../opers';
-import { fail, ok, type Result } from '../types-Result';
+import { fail, ok, type Result } from '../types-result';
 import { SCALAR, formatShape, isKnownShape, isScalar, type Shape } from '../types-shape';
 import type { TypedExpr } from '../types-TypedExpr';
 import {

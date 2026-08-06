@@ -2,7 +2,7 @@ import { elaborate } from './parse/elaborate';
 import { type Env, type TypedExpr } from './types-TypedExpr';
 import { normalize } from './parse/normalize';
 import { exprKey } from './parse/normal';
-import { fail, failWith, ok, type AlgebraError, type Result } from './types-Result';
+import { fail, failWith, ok, type AlgebraError, type Result } from './types-result';
 import { render } from './render';
 import { expand, factor, simplify, substitute } from './transform/transform';
 import { SCALAR, formatShape, type Shape } from './types-shape';
@@ -18,7 +18,7 @@ import type { SyntaxNode } from './types-SyntaxNode';
 
 export type { Dim, Shape, ShapeKind } from './types-shape';
 export { SCALAR, classify, formatShape, isScalar, isVector, shape } from './types-shape';
-export type { AlgebraError, ErrorCode, Result } from './types-Result';
+export type { AlgebraError, ErrorCode, Result } from './types-result';
 export type { Env, TypedExpr } from './types-TypedExpr';
 export type { SyntaxNode } from './types-SyntaxNode';
 export { render } from './render';

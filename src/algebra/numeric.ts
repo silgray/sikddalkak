@@ -1,7 +1,7 @@
 import type { TypedExpr } from './types-TypedExpr';
 import { toRealNumber } from './types-Literal';
 import { constantInteger } from './parse/normal';
-import { fail, ok, type Result } from './types-Result';
+import { fail, ok, type Result } from './types-result';
 import { isScalar } from './types-shape';
 
 /**

@@ -17,7 +17,7 @@ import {
 } from './normal';
 import { asInteger, intLit, isOne, splitSign, ONE as ONE_LIT, type Literal } from '../types-Literal';
 import { divideByInt, mulLit, negLit, powLit, recipLit } from '../literalMath';
-import { fail, ok, type Result } from '../types-Result';
+import { fail, ok, type Result } from '../types-result';
 import { SCALAR, isKnownShape, isScalar, isSquare, shape, type Shape } from '../types-shape';
 import type { TypedExpr } from '../types-TypedExpr';
 

@@ -21,7 +21,7 @@ import {
 import { normalize } from '../parse/normalize';
 import { asInteger, intLit, isZero, ONE as ONE_LIT, type Literal } from '../types-Literal';
 import { divideByInt } from '../literalMath';
-import { fail, ok, type Result } from '../types-Result';
+import { fail, ok, type Result } from '../types-result';
 import { render } from '../render';
 import { parseCeJson } from '../parse/parseSymbol';
 import { SCALAR, isScalar, isSquare, type Shape } from '../types-shape';

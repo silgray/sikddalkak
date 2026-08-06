@@ -3,7 +3,7 @@ import { constantInteger, exprKey } from '../parse/normal';
 import { normalize } from '../parse/normalize';
 import { foldMatrices } from './matrixFold';
 import { simplify, substitute } from './transform';
-import { fail, ok, type Result } from '../types-Result';
+import { fail, ok, type Result } from '../types-result';
 import { render } from '../render';
 import { SCALAR, isSquare, shape } from '../types-shape';
 import { ONE, ZERO } from '../types-Literal';

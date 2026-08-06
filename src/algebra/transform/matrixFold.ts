@@ -4,7 +4,7 @@ import { addTyped, elaborate, mulTyped } from '../parse/elaborate';
 import { parseCeJson } from '../parse/parseSymbol';
 import { toCeJson } from '../literalMath';
 import { constantInteger } from '../parse/normal';
-import { ok, type Result } from '../types-Result';
+import { ok, type Result } from '../types-result';
 import { SCALAR } from '../types-shape';
 import type { TypedExpr, Env } from '../types-TypedExpr';
 

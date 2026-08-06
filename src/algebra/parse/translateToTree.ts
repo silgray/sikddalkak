@@ -1,4 +1,4 @@
-import { fail, failWith, ok, type AlgebraError, type Result } from '../types-Result';
+import { fail, failWith, ok, type AlgebraError, type Result } from '../types-result';
 import { DOT_MARKER, CROSS_MARKER, isMarker } from './preprocess';
 import type { SyntaxNode } from '../types-SyntaxNode';
 import { fromCeJson } from '../literalMath';
