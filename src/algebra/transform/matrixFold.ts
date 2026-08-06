@@ -392,5 +392,33 @@ export function foldMatrices(e: TypedExpr): Result<TypedExpr> {
       if (!denominator.ok) return denominator;
       return ok({ op: 'frac', shape: numerator.value.shape, numerator: numerator.value, denominator: denominator.value });
     }
+
+    // 미분/적분/합/곱 자체는 여기서 계산하지 않는다 — 그건 이 패스 뒤에 오는 별도
+    // 단계(`foldCalculus`)의 몫이다. 여기서는 자식만 재귀해 리터럴 행렬 산술이 안쪽에서
+    // 먼저 끝나 있게 한다.
+    case 'deriv': {
+      const body = foldMatrices(e.body);
+      if (!body.ok) return body;
+      return ok({ op: 'deriv', shape: e.shape, body: body.value, vars: e.vars, order: e.order });
+    }
+
+    case 'sum':
+    case 'prod':
+    case 'integral': {
+      const body = foldMatrices(e.body);
+      if (!body.ok) return body;
+      const lower = e.lower !== null ? foldMatrices(e.lower) : null;
+      if (lower !== null && !lower.ok) return lower;
+      const upper = e.upper !== null ? foldMatrices(e.upper) : null;
+      if (upper !== null && !upper.ok) return upper;
+      return ok({
+        op: e.op,
+        shape: e.shape,
+        body: body.value,
+        variable: e.variable,
+        lower: lower === null ? null : lower.value,
+        upper: upper === null ? null : upper.value,
+      });
+    }
   }
 }

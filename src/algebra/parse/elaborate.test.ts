@@ -222,6 +222,47 @@ describe('행렬 리터럴', () => {
   });
 });
 
+describe('미분/적분/합/곱 — 모양 규칙 (파싱 표는 calculus.test.ts)', () => {
+  it('단일변수 미분은 원소별 — 모양 불변', () => {
+    expect(shapeOf(String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}\left(v\right)`)).toBe('3x1');
+    expect(shapeOf(String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}\left(A\right)`)).toBe('3x3');
+    expect(shapeOf(String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}\left(x^2\right)`)).toBe('scalar');
+  });
+
+  it('스칼라를 다변수로 미분하면 (1,n) 그래디언트다', () => {
+    expect(shapeOf(String.raw`\dfrac{\mathrm{d}}{\mathrm{d}(x,y,z)}\left(f\right)`)).toBe('1x3');
+  });
+
+  it('열벡터를 다변수로 미분하면 (m,n) 야코비안이다', () => {
+    expect(shapeOf(String.raw`\dfrac{\mathrm{d}}{\mathrm{d}(x,y)}\left(v\right)`)).toBe('3x2');
+  });
+
+  it('행벡터·일반 행렬의 다변수 미분은 오류다 (3-텐서라 표현 불가)', () => {
+    expect(errorCode(String.raw`\dfrac{\mathrm{d}}{\mathrm{d}(x,y)}\left(r\right)`)).toBe(
+      'shape-mismatch',
+    );
+    expect(errorCode(String.raw`\dfrac{\mathrm{d}}{\mathrm{d}(x,y)}\left(A\right)`)).toBe(
+      'shape-mismatch',
+    );
+  });
+
+  it('\\sum·\\int 은 본문 모양을 그대로 물려받는다', () => {
+    expect(shapeOf(String.raw`\sum_{k=1}^{n}\left(k\right)`)).toBe('scalar');
+    expect(shapeOf(String.raw`\sum_{k=1}^{n}\left(A\right)`)).toBe('3x3');
+    expect(shapeOf(String.raw`\int_{0}^{1}\left(v\right)\mathrm{d}t`)).toBe('3x1');
+  });
+
+  it('\\prod 는 정사각(스칼라 포함) 본문만 받는다', () => {
+    expect(shapeOf(String.raw`\prod_{k=1}^{n}\left(k\right)`)).toBe('scalar');
+    expect(shapeOf(String.raw`\prod_{k=1}^{n}\left(A\right)`)).toBe('3x3');
+    expect(errorCode(String.raw`\prod_{k=1}^{n}\left(M\right)`)).toBe('shape-mismatch');
+  });
+
+  it('상하한은 스칼라여야 한다', () => {
+    expect(errorCode(String.raw`\sum_{k=A}^{n}\left(k\right)`)).toBe('shape-mismatch');
+  });
+});
+
 describe('미정의 심볼은 스칼라로 가정한다', () => {
   it('처음 보는 문자는 스칼라다', () => {
     expect(shapeOf('xyz')).toBe('scalar');

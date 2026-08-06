@@ -112,6 +112,16 @@ function precedence(e: TypedExpr): number {
     case 'add':
     case 'neg':
       return ADD;
+    // 넷 다 결합 범위가 넓다(실측: `\sum_{k=1}^n A+B` 는 합에서 끊기지만
+    // `\frac{\mathrm{d}}{\mathrm{d}x}f+g`/`\int f+g\,dx` 는 합을 삼키고, 넷 다 뒤따르는
+    // 병치 인수까지 삼킨다). 렌더가 본문을 항상 `\left(\right)` 로 감싸는 것과 짝을 맞춰
+    // 가장 약한 결합 세기로 둬야, 곱·합 안에 낀 자리에서 `at()` 이 자동으로 바깥 괄호를
+    // 씌워 왕복이 성립한다.
+    case 'deriv':
+    case 'sum':
+    case 'prod':
+    case 'integral':
+      return ADD;
   }
 }
 
@@ -250,5 +260,32 @@ export function render(e: TypedExpr): string {
 
     case 'frac':
       return `\\frac{${render(e.numerator)}}{${render(e.denominator)}}`;
+
+    // 본문을 항상 `\left(\right)` 로 감싼다 — 안 그러면 CE가 다시 읽을 때 뒤따르는
+    // 병치·덧셈 항을 본문 안으로 삼켜버린다(실측, 파일 서두 precedence 주석 참고).
+    case 'deriv': {
+      const [v] = e.vars;
+      const op =
+        e.vars.length === 1
+          ? e.order === 1
+            ? `\\frac{\\mathrm{d}}{\\mathrm{d}${symbolLatex(v)}}`
+            : `\\frac{\\mathrm{d}^{${e.order}}}{\\mathrm{d}${symbolLatex(v)}^{${e.order}}}`
+          : `\\frac{\\mathrm{d}}{\\mathrm{d}(${e.vars.map(symbolLatex).join(',')})}`;
+      return `${op}${paren(render(e.body))}`;
+    }
+
+    case 'sum':
+    case 'prod': {
+      const cmd = e.op === 'sum' ? '\\sum' : '\\prod';
+      const sub = e.lower !== null ? `${symbolLatex(e.variable)}=${render(e.lower)}` : symbolLatex(e.variable);
+      const sup = e.upper !== null ? `^{${render(e.upper)}}` : '';
+      return `${cmd}_{${sub}}${sup}${paren(render(e.body))}`;
+    }
+
+    case 'integral': {
+      const lo = e.lower !== null ? `_{${render(e.lower)}}` : '';
+      const hi = e.upper !== null ? `^{${render(e.upper)}}` : '';
+      return `\\int${lo}${hi}${paren(render(e.body))}\\mathrm{d}${symbolLatex(e.variable)}`;
+    }
   }
 }

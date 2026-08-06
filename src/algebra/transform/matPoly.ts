@@ -228,6 +228,10 @@ export function liftFromScalarPolynomial(
       case 'transpose':
       case 'matPow':
       case 'matIdentity':
+      case 'deriv':
+      case 'sum':
+      case 'prod':
+      case 'integral':
         return fail('unsupported', `되돌리는 중 예상 밖의 ${node.op} 을 만났다`);
     }
   };

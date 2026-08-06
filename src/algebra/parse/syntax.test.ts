@@ -126,7 +126,9 @@ describe('기타 구성', () => {
 
   it('모르는 머리는 곱으로 둔갑시키지 않고 오류를 낸다', () => {
     // 위의 병치 되돌리기가 너무 넓어지면 여기서 조용한 오답이 생긴다.
-    expect(errorCode(String.raw`\int x`)).toBe('unsupported');
+    // `\int x` 는 이제 `Integrate` 로 인식되지만(calculus.test.ts), dx가 없어 여전히
+    // 오류다 — 다만 "모르는 머리"가 아니라 "dx 누락"이라는 더 구체적인 malformed다.
+    expect(errorCode(String.raw`\int x`)).toBe('malformed');
     expect(errorCode(String.raw`\lfloor x\rfloor`)).toBe('unsupported');
   });
 

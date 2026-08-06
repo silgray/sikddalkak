@@ -34,6 +34,157 @@ const INVERSE_FUNCTIONS: Record<string, string> = {
 const MULTIPLY_HEADS = new Set(['InvisibleOperator', 'Multiply']);
 
 // ---------------------------------------------------------------------------
+// 미분/적분/합/곱 — 바운드 변수
+// ---------------------------------------------------------------------------
+
+/** `\mathrm{d}` 홑글자가 CE로 오면 이 심볼 문자열이 된다(실측). */
+const D_UPRIGHT = 'd_upright';
+
+/**
+ * 미분·적분·합·곱의 바운드 변수 자리에 온 JSON이 평범한 심볼 이름인지 확인한다.
+ *
+ * `i` 는 CE에서 허수단위로 예약돼 있어 `["Complex",0,1]` 로 온다(실측) — 인덱스/미분
+ * 변수로 쓰면 조용히 잘못 해석되므로 명시적으로 거절한다.
+ */
+function boundVariableName(json: unknown): Result<string> {
+  if (
+    Array.isArray(json) &&
+    json.length === 3 &&
+    json[0] === 'Complex' &&
+    json[1] === 0 &&
+    json[2] === 1
+  ) {
+    return fail('malformed', 'i is reserved for the imaginary unit; use another variable');
+  }
+  if (typeof json === 'string' && json !== D_UPRIGHT && !isMarker(json)) {
+    return ok(json);
+  }
+  return fail('malformed', 'A bound variable must be a plain symbol');
+}
+
+/**
+ * `D(body, x)` — 단일변수 미분. 같은 변수로 중첩된 `D` 는 즉시 접어 `order` 로 담는다
+ * (`\frac{\mathrm{d}^3}{\mathrm{d}x^3}f` → CE가 `D(D(D(f,x),x),x)` 를 주므로, 실측).
+ * 변수가 다른 중첩(`D(D(f,x),y)`)은 안 접고 안쪽이 그대로 `diff` 자식 노드가 된다.
+ */
+function translateDiffToTree(bodyJson: unknown, varJson: unknown): Result<SyntaxNode> {
+  const varName = boundVariableName(varJson);
+  if (!varName.ok) return varName;
+  let order = 1;
+  let currentBody = bodyJson;
+  while (
+    Array.isArray(currentBody) &&
+    currentBody.length === 3 &&
+    currentBody[0] === 'D' &&
+    currentBody[2] === varName.value
+  ) {
+    order += 1;
+    currentBody = currentBody[1];
+  }
+  const body = translateToTree(currentBody);
+  if (!body.ok) return body;
+  return ok({ kind: 'diff', body: body.value, vars: [varName.value], order });
+}
+
+type BoundSpec = { readonly variable: string; readonly lower: unknown | null; readonly upper: unknown | null };
+
+/**
+ * `\sum`/`\prod`/`\int` 의 두 번째 인수 파싱. CE 실측 형태:
+ *  - 상하한 있음: `["Tuple", 변수, 하한, 상한]`
+ *  - 변수만: `["Tuple", 변수]` 또는 (적분은) 맨 문자열 변수
+ *  - 없음/`"Nothing"`: 오류
+ */
+function parseBoundSpec(json: unknown, missingMessage: string): Result<BoundSpec> {
+  if (json === undefined || json === 'Nothing') return fail('malformed', missingMessage);
+  if (Array.isArray(json) && json[0] === 'Tuple') {
+    const v = boundVariableName(json[1]);
+    if (!v.ok) return v;
+    return ok({
+      variable: v.value,
+      lower: json.length > 2 ? json[2] : null,
+      upper: json.length > 3 ? json[3] : null,
+    });
+  }
+  const v = boundVariableName(json);
+  if (!v.ok) return v;
+  return ok({ variable: v.value, lower: null, upper: null });
+}
+
+/** `\sum`/`\prod`/`\int` 공통 골격 — 본문·바운드 변수·상하한을 합쳐 한 노드로. */
+function translateBoundedOp(
+  kind: 'sum' | 'prod' | 'int',
+  bodyJson: unknown,
+  boundsJson: unknown,
+  missingMessage: string,
+): Result<SyntaxNode> {
+  const spec = parseBoundSpec(boundsJson, missingMessage);
+  const body = translateToTree(bodyJson);
+  const lower = spec.ok && spec.value.lower !== null ? translateToTree(spec.value.lower) : null;
+  const upper = spec.ok && spec.value.upper !== null ? translateToTree(spec.value.upper) : null;
+  const errors: AlgebraError[] = [
+    ...(spec.ok ? [] : spec.errors),
+    ...(body.ok ? [] : body.errors),
+    ...(lower === null || lower.ok ? [] : lower.errors),
+    ...(upper === null || upper.ok ? [] : upper.errors),
+  ];
+  if (errors.length > 0) return failWith(errors);
+  return ok({
+    kind,
+    body: (body as { value: SyntaxNode }).value,
+    variable: (spec as { value: BoundSpec }).value.variable,
+    lower: lower === null ? null : (lower as { value: SyntaxNode }).value,
+    upper: upper === null ? null : (upper as { value: SyntaxNode }).value,
+  });
+}
+
+/**
+ * `\frac{\mathrm{d}}{\mathrm{d}(x,y,z)}` — 다변수 미분 패턴.
+ *
+ * CE는 이 표기를 `D` 로 안 읽고 `Divide("d_upright", InvisibleOperator("d_upright",
+ * Delimiter(Sequence(x,y,z))))` 로 준다(실측, `\mathrm{d}` 홑글자가 `d_upright` 심볼로
+ * 옴). 변수 하나만 괄호로 감싼 경우(`\mathrm{d}(x)`)는 `Sequence` 로 안 감싸이고
+ * 바로 온다 — 그것도 여기서 받는다.
+ *
+ * 매치하면 변수 이름들의 원시 JSON 배열을, 아니면 `null` 을 돌려준다.
+ */
+function asMultivarDivide(json: unknown): readonly unknown[] | null {
+  if (!Array.isArray(json) || json[0] !== 'Divide' || json.length !== 3) return null;
+  if (json[1] !== D_UPRIGHT) return null;
+  const denom = json[2];
+  if (!Array.isArray(denom) || denom[0] !== 'InvisibleOperator' || denom.length !== 3) return null;
+  if (denom[1] !== D_UPRIGHT) return null;
+  const delim = denom[2];
+  if (!Array.isArray(delim) || delim[0] !== 'Delimiter') return null;
+  const inner = delim[1];
+  return Array.isArray(inner) && inner[0] === 'Sequence' ? inner.slice(1) : [inner];
+}
+
+/** `\frac{\mathrm{d}}{\mathrm{d}(x,y,z)}` 뒤에 본문이 붙은 경우(`restArgs`)를 `diff` 노드로. */
+function translateMultivarDiffToTree(
+  varsRaw: readonly unknown[],
+  restArgs: readonly unknown[],
+): Result<SyntaxNode> {
+  const names: string[] = [];
+  const errors: AlgebraError[] = [];
+  for (const v of varsRaw) {
+    const r = boundVariableName(v);
+    if (r.ok) names.push(r.value);
+    else errors.push(...r.errors);
+  }
+  if (errors.length > 0) return failWith(errors);
+  if (new Set(names).size !== names.length) {
+    return fail('malformed', 'Differentiation variables must be distinct');
+  }
+  if (restArgs.length === 0) {
+    return fail('malformed', 'A derivative operator needs an expression to differentiate');
+  }
+  const bodyJson = restArgs.length === 1 ? restArgs[0] : ['InvisibleOperator', ...restArgs];
+  const body = translateToTree(bodyJson);
+  if (!body.ok) return body;
+  return ok({ kind: 'diff', body: body.value, vars: names, order: 1 });
+}
+
+// ---------------------------------------------------------------------------
 // 곱셈 런(run) 해석 — 우선순위와 모호성이 결정되는 곳
 // ---------------------------------------------------------------------------
 
@@ -255,7 +406,13 @@ export function translateToTree(json: unknown): Result<SyntaxNode> {
   if (head === 'Delimiter') {
     return args.length >= 1 ? translateToTree(args[0]) : fail('malformed', 'Empty parentheses');
   }
-  if (MULTIPLY_HEADS.has(head)) return translateMultiplyToTree(args);
+  if (MULTIPLY_HEADS.has(head)) {
+    // `\frac{\mathrm{d}}{\mathrm{d}(x,y,z)}(...)` 는 다변수 미분 표기가 병치의 첫
+    // 인수 자리에 앉은 모습으로 온다(실측) — 병치로 잘못 읽기 전에 여기서 가로챈다.
+    const multivarVars = args.length > 0 ? asMultivarDivide(args[0]) : null;
+    if (multivarVars !== null) return translateMultivarDiffToTree(multivarVars, args.slice(1));
+    return translateMultiplyToTree(args);
+  }
   if (head === 'Matrix') return translateMatrixToTree(args[0]);
   if (head === 'List') return translateMatrixToTree(json);
 
@@ -323,6 +480,11 @@ export function translateToTree(json: unknown): Result<SyntaxNode> {
       : fail('unsupported', 'Unsupported number literal');
   }
   if (head === 'Divide' && args.length === 2) {
+    // `\frac{\mathrm{d}}{\mathrm{d}(x,y,z)}` 홀로(뒤에 곱할 본문 없이) 쓰인 경우 — 병치
+    // 위치가 아니라 바로 `Divide` 머리 자체로 온다. 본문이 없으므로 오류다.
+    if (asMultivarDivide(json) !== null) {
+      return fail('malformed', 'A derivative operator needs an expression to differentiate');
+    }
     const numerator = translateToTree(args[0]);
     const denominator = translateToTree(args[1]);
     if (!numerator.ok || !denominator.ok) {
@@ -333,6 +495,26 @@ export function translateToTree(json: unknown): Result<SyntaxNode> {
     }
     return ok({ kind: 'frac', numerator: numerator.value, denominator: denominator.value });
   }
+
+  // 단일변수 미분. `D` 는 홑 대문자라 아래 "홑 대문자 함수 적용 되돌리기" 에 먼저
+  // 걸리면 안 되므로 그보다 앞에서 가로챈다. `D(x,y)` 처럼 2-인수 함수 호출로 읽힐 만한
+  // 다른 뜻은 이 도메인에 없다 — 행렬 곱은 괄호 안에 인수 하나만 오는 병치로 표현된다.
+  if (head === 'D' && args.length === 2) {
+    return translateDiffToTree(args[0], args[1]);
+  }
+  if (head === 'Sum' || head === 'Product') {
+    const label = head === 'Sum' ? 'sum' : 'product';
+    return translateBoundedOp(
+      head === 'Sum' ? 'sum' : 'prod',
+      args[0],
+      args[1],
+      `A ${label} needs an index variable`,
+    );
+  }
+  if (head === 'Integrate') {
+    return translateBoundedOp('int', args[0], args[1], 'An integral needs a differential (dx)');
+  }
+
   // `\sin^{-1}(x)` — CE는 `Apply(InverseFunction(Sin), x)` 로 준다(실측).
   // **여기서 반드시 끊는다** — 아래 홑 대문자 되돌리기로 새면 `Apply` 가 곱으로 둔갑한다.
   if (head === 'Apply') {

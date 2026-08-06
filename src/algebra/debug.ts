@@ -36,6 +36,15 @@ export function sexpSyntax(node: SyntaxNode): string {
       return `(/ ${sexpSyntax(node.numerator)} ${sexpSyntax(node.denominator)})`;
     case 'call':
       return `(${node.name} ${node.args.map(sexpSyntax).join(' ')})`;
+    case 'diff':
+      return `(diff ${sexpSyntax(node.body)} [${node.vars.join(',')}] ${node.order})`;
+    case 'sum':
+    case 'prod':
+    case 'int': {
+      const lo = node.lower === null ? '_' : sexpSyntax(node.lower);
+      const hi = node.upper === null ? '_' : sexpSyntax(node.upper);
+      return `(${node.kind} ${sexpSyntax(node.body)} ${node.variable} ${lo} ${hi})`;
+    }
   }
 }
 
@@ -75,6 +84,15 @@ export function sexpTyped(e: TypedExpr): string {
       return `(frac ${sexpTyped(e.numerator)} ${sexpTyped(e.denominator)})`;
     case 'matIdentity':
       return 'I';
+    case 'deriv':
+      return `(deriv ${sexpTyped(e.body)} [${e.vars.join(',')}] ${e.order})`;
+    case 'sum':
+    case 'prod':
+    case 'integral': {
+      const lo = e.lower === null ? '_' : sexpTyped(e.lower);
+      const hi = e.upper === null ? '_' : sexpTyped(e.upper);
+      return `(${e.op} ${sexpTyped(e.body)} ${e.variable} ${lo} ${hi})`;
+    }
   }
 }
 
@@ -114,6 +132,15 @@ export function sexpTypedWithShapes(e: TypedExpr): string {
         return `(frac ${sexpTypedWithShapes(e.numerator)} ${sexpTypedWithShapes(e.denominator)})`;
       case 'matIdentity':
         return 'I';
+      case 'deriv':
+        return `(deriv ${sexpTypedWithShapes(e.body)} [${e.vars.join(',')}] ${e.order})`;
+      case 'sum':
+      case 'prod':
+      case 'integral': {
+        const lo = e.lower === null ? '_' : sexpTypedWithShapes(e.lower);
+        const hi = e.upper === null ? '_' : sexpTypedWithShapes(e.upper);
+        return `(${e.op} ${sexpTypedWithShapes(e.body)} ${e.variable} ${lo} ${hi})`;
+      }
     }
   })();
   return `${inner}:${formatShape(e.shape)}`;

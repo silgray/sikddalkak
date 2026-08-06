@@ -4,7 +4,7 @@ import { evaluate } from './evaluate';
 import { evalNumeric, matricesClose } from '../numeric';
 import { render } from '../render';
 import { expand, factor, simplify } from './transform';
-import { formatShape, isKnownShape, isScalar } from '../types-shape';
+import { formatShape } from '../types-shape';
 import { TEST_ENV, TEST_VALUES, typedOf } from '../testEnv';
 import { parse } from '../index';
 
@@ -55,7 +55,7 @@ function randomLatex(random: () => number, depth: number, leaves: readonly strin
   const left = (): string => randomLatex(random, depth - 1, leaves);
   const group = (s: string): string => `\\left(${s}\\right)`;
 
-  switch (Math.floor(random() * 12)) {
+  switch (Math.floor(random() * 14)) {
     case 0:
       return `${group(left())}${group(left())}`;
     case 1:
@@ -78,6 +78,10 @@ function randomLatex(random: () => number, depth: number, leaves: readonly strin
       return `\\sin\\left(${left()}\\right)`;
     case 10:
       return `${group(left())}^{3}`;
+    case 11:
+      return `\\sum_{k=1}^{3}\\left(${left()}\\right)`;
+    case 12:
+      return `\\prod_{k=1}^{2}\\left(${left()}\\right)`;
     default:
       return `${pick(leaves)}${group(left())}`;
   }
@@ -96,8 +100,15 @@ function randomLatex(random: () => number, depth: number, leaves: readonly strin
  */
 function containsResolvedIdentity(e: TypedExpr): boolean {
   switch (e.op) {
+    // 원래는 "**정사각으로** 확정된 I" 만 봤다(모양이 안 나온 채 렌더된다는 게 요점).
+    // `\sum`/`\prod` 본문처럼 **CE로 안 넘기는 불투명 노드** 안에 맨 `I` 가 들어가면
+    // 그 자리에서 크기를 알려줄 문맥이 없어 **스칼라로** 굳어버릴 수 있다(정상 동작,
+    // `normalize.ts` 의 matIdentity 케이스). 문제는 렌더가 스칼라 I든 정사각 I든
+    // 똑같이 `I` 하나만 내놓는다는 것 — 다시 읽으면 또 미정(unknown)에서 출발해
+    // 그 사이 어떤 문맥을 만나느냐에 따라 **다르게** 굳을 수 있다. 그래서 크기와
+    // 무관하게 **`I` 가 있다는 사실 자체**를 알려진 한계로 잡는다.
     case 'matIdentity':
-      return isKnownShape(e.shape) && !isScalar(e.shape);
+      return true;
     case 'num':
     case 'sym':
       return false;
@@ -125,6 +136,16 @@ function containsResolvedIdentity(e: TypedExpr): boolean {
       return e.args.some(containsResolvedIdentity);
     case 'frac':
       return containsResolvedIdentity(e.numerator) || containsResolvedIdentity(e.denominator);
+    case 'deriv':
+      return containsResolvedIdentity(e.body);
+    case 'sum':
+    case 'prod':
+    case 'integral':
+      return (
+        containsResolvedIdentity(e.body) ||
+        (e.lower !== null && containsResolvedIdentity(e.lower)) ||
+        (e.upper !== null && containsResolvedIdentity(e.upper))
+      );
   }
 }
 

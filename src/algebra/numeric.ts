@@ -218,6 +218,40 @@ export function evalNumeric(e: TypedExpr, assignment: Assignment): Result<Matrix
       if (d === null) return fail('shape-mismatch', 'frac denominator must be a scalar');
       return ok(scale(1 / d, numerator.value));
     }
+
+    // 미분·적분은 대조하지 않는다 — 이 평가기는 재작성 전후 값 대조 전용이고, 그 대조
+    // 대상은 `evaluate` 가 CE로 위임하거나 원소별로 계산한 결과다. 별도로 재구현해
+    // 대조하면 "값이 같다"는 확인이 아니라 "우리 구현 두 벌이 서로 같다"는 확인이 되어
+    // 버그를 못 잡는다 — `matPow` 의 역행렬과 같은 이유로 정직하게 거절한다.
+    case 'deriv':
+      return fail('unsupported', 'Numeric check does not cover derivatives');
+    case 'integral':
+      return fail('unsupported', 'Numeric check does not cover integrals');
+
+    case 'sum':
+    case 'prod': {
+      const lo = e.lower !== null ? constantInteger(e.lower) : null;
+      const hi = e.upper !== null ? constantInteger(e.upper) : null;
+      if (lo === null || hi === null) {
+        return fail('unsupported', `Numeric check needs constant integer bounds for ${e.op}`);
+      }
+      if (lo > hi) {
+        const rows = typeof e.shape.rows === 'number' ? e.shape.rows : 1;
+        const cols = typeof e.shape.cols === 'number' ? e.shape.cols : 1;
+        return ok(
+          Array.from({ length: rows }, (_, i) =>
+            Array.from({ length: cols }, (_, j) => (e.op === 'prod' && i === j ? 1 : 0)),
+          ),
+        );
+      }
+      let acc: Matrix | null = null;
+      for (let i = lo; i <= hi; i += 1) {
+        const v = evalNumeric(e.body, { ...assignment, [e.variable]: [[i]] });
+        if (!v.ok) return v;
+        acc = acc === null ? v.value : e.op === 'sum' ? map2(acc, v.value, (x, y) => x + y) : matMul(acc, v.value);
+      }
+      return ok(acc as Matrix);
+    }
   }
 }
 

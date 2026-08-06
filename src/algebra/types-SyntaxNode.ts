@@ -24,4 +24,31 @@ export type SyntaxNode =
   | { readonly kind: 'neg'; readonly operand: SyntaxNode }
   | { readonly kind: 'pow'; readonly base: SyntaxNode; readonly exponent: SyntaxNode }
   | { readonly kind: 'frac'; readonly numerator: SyntaxNode; readonly denominator: SyntaxNode }
-  | { readonly kind: 'call'; readonly name: string; readonly args: readonly SyntaxNode[] };
+  | { readonly kind: 'call'; readonly name: string; readonly args: readonly SyntaxNode[] }
+  /**
+   * `\dfrac{\mathrm{d}}{\mathrm{d}x}(...)` 계열. `vars` 는 미분 변수(다변수면 길이 >1),
+   * `order` 는 몇 번 미분했는지 — `\dfrac{\mathrm{d}^3}{\mathrm{d}x^3}` 는 `vars:['x'],order:3`.
+   * CE가 같은 변수의 중첩 `D` 를 접어서 주므로(실측) 여기서 한 번에 접어 담는다.
+   */
+  | { readonly kind: 'diff'; readonly body: SyntaxNode; readonly vars: readonly string[]; readonly order: number }
+  | {
+      readonly kind: 'sum';
+      readonly body: SyntaxNode;
+      readonly variable: string;
+      readonly lower: SyntaxNode | null;
+      readonly upper: SyntaxNode | null;
+    }
+  | {
+      readonly kind: 'prod';
+      readonly body: SyntaxNode;
+      readonly variable: string;
+      readonly lower: SyntaxNode | null;
+      readonly upper: SyntaxNode | null;
+    }
+  | {
+      readonly kind: 'int';
+      readonly body: SyntaxNode;
+      readonly variable: string;
+      readonly lower: SyntaxNode | null;
+      readonly upper: SyntaxNode | null;
+    };

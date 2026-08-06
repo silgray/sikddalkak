@@ -54,7 +54,58 @@ export type TypedExpr =
    * TypeScript가 switch 처리를 강제해주지 않아 numeric.ts 같은 곳에서 조용히
    * "값이 없다" 로 새어나가기 때문이다.
    */
-  | { readonly op: 'matIdentity'; readonly shape: Shape };
+  | { readonly op: 'matIdentity'; readonly shape: Shape }
+  /**
+   * `\dfrac{\mathrm{d}}{\mathrm{d}x}(...)` 계열. `evaluate` 시점에만 실제로 계산되고
+   * 그 전까지는 `matPow` 처럼 모양만 유지한 채 미평가로 남는다.
+   *
+   * `vars.length === 1` 이면 원소별 미분(결과 모양 = 본문 모양). `vars.length > 1` 이면
+   * numerator layout 이다 — 스칼라 본문은 `(1,n)` 행벡터(그래디언트), 열벡터 본문은
+   * `(m,n)` 야코비안. 그 밖(행벡터·일반 행렬 본문)은 3-텐서가 되어 표현할 수 없으므로
+   * elaborate가 오류로 막는다.
+   */
+  | {
+      readonly op: 'deriv';
+      readonly shape: Shape;
+      readonly body: TypedExpr;
+      readonly vars: readonly string[];
+      readonly order: number;
+    }
+  /**
+   * `\sum_{k=lo}^{hi}(...)`. 본문은 임의 모양 — 결과 모양은 본문과 같다(원소별 합).
+   * `lower`/`upper` 가 둘 다 상수 정수면 `evaluate` 가 전개한다. 인덱스 `variable` 은
+   * 바운드 변수라 `freeSymbols`/`substitute` 의 취급이 `sym` 과 다르다(§바운드 변수).
+   */
+  | {
+      readonly op: 'sum';
+      readonly shape: Shape;
+      readonly body: TypedExpr;
+      readonly variable: string;
+      readonly lower: TypedExpr | null;
+      readonly upper: TypedExpr | null;
+    }
+  /**
+   * `\prod_{k=lo}^{hi}(...)`. `sum` 과 같은 바운드 변수 규약이지만 본문은 **정사각**이어야
+   * 한다(행렬곱이 되므로) — 스칼라(1,1)도 정사각이라 통과한다. 인덱스 증가 순서대로
+   * 왼쪽부터 곱한다(비가환).
+   */
+  | {
+      readonly op: 'prod';
+      readonly shape: Shape;
+      readonly body: TypedExpr;
+      readonly variable: string;
+      readonly lower: TypedExpr | null;
+      readonly upper: TypedExpr | null;
+    }
+  /** `\int_{lo}^{hi}(...)\mathrm{d}x`. `sum` 과 모양 규약이 같다(원소별). */
+  | {
+      readonly op: 'integral';
+      readonly shape: Shape;
+      readonly body: TypedExpr;
+      readonly variable: string;
+      readonly lower: TypedExpr | null;
+      readonly upper: TypedExpr | null;
+    };
 
 /**
  * 심볼 환경.

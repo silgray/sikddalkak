@@ -173,6 +173,16 @@ describe('캐시 정합성', () => {
     const cold = run(scenario);
     expect(cold).toEqual(cached);
   });
+
+  it('미분 셀이 계산된 뒤 바운드 변수와 같은 이름을 정의하면 다시 계산돼 오류로 바뀐다', () => {
+    // freeSymbols가 바운드 이름(x)을 포함해야만 이 시나리오에서 캐시 지문이 바뀐다 —
+    // 안 그러면 x=3이 새로 추가돼도 예전에 캐시된 "2x" 결과가 그대로 남는다
+    // (src/algebra/transform/evaluate.ts의 freeSymbols 주석 참고).
+    const before = run([String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}\left(x^2\right)`])[0];
+    expect(latexOf(before)).toBe('2x');
+    const [, after] = run(['x=3', String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}\left(x^2\right)`]);
+    expect(after).toMatchObject({ kind: 'error' });
+  });
 });
 
 describe('에러 처리', () => {

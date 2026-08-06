@@ -2,6 +2,7 @@ import {
   SCALAR,
   classify,
   formatShape,
+  isColumnVector,
   isKnownShape,
   isScalar,
   isSquare,
@@ -257,6 +258,163 @@ function elaboratePow(base: TypedExpr, exponent: SyntaxNode, env: Env): Result<T
 }
 
 // ---------------------------------------------------------------------------
+// 미분/적분/합/곱 — 바운드 변수
+// ---------------------------------------------------------------------------
+
+/**
+ * 바운드 변수 이름이 **이미 셀에 정의돼 있으면** 오류로 낸다. 조용히 가려버리지 않는다
+ * (설계 결정 — 처음엔 가리고 계산 후 원상복구하는 안도 검토했지만, `x=3` 정의가 나중에
+ * 추가돼도 미분 셀이 갱신되지 않는 등 놀라운 동작이 나올 수 있어 정직한 오류로 바꿨다).
+ *
+ * `env.shapes` 가 아니라 **`env.bindings` 로만** 판정한다 — `buildEnv` 는 정의를 풀 때
+ * `shapes` 와 `bindings` 를 항상 같이 채우므로 이게 "진짜 셀 정의"의 정확한 표식이다.
+ * `shapes` 로 판정하면 바로 아래에서 바운드 변수에 주입하는 스칼라 모양 자체가,
+ * 그리고 `\sum_k(\sum_k(k))` 같은 중첩 바인더가 자기 자신에 걸려 오탐이 난다.
+ */
+function freshBoundNameErrors(names: readonly string[], env: Env): AlgebraError[] {
+  const bindings = env.bindings;
+  if (bindings === undefined) return [];
+  return names
+    .filter((name) => name in bindings)
+    .map((name) => ({
+      code: 'malformed' as const,
+      message: `${name} is already defined; a bound variable must be a fresh name`,
+      where: name,
+    }));
+}
+
+/**
+ * 본문을 elaborate할 때 쓰는 env — 바운드 이름에 스칼라 모양을 **선언**한다.
+ *
+ * 차단이 아니라 선언이다: 이게 없으면 `y = \frac{\mathrm{d}}{\mathrm{d}x}(x^2)` 같은
+ * 정의 셀이 `buildEnv` 1판(`assumeScalarForUnknown:false`)에서 `x` 를 못 찾아 죽는다.
+ * `bindings` 는 그대로 둔다 — `freshBoundNameErrors` 가 이미 그 이름이 없음을 보장한다.
+ */
+export function withBoundScalars(env: Env, names: readonly string[]): Env {
+  const shapes = { ...env.shapes };
+  for (const name of names) shapes[name] = SCALAR;
+  return { ...env, shapes };
+}
+
+/**
+ * 미분. `vars.length === 1` 이면 원소별(모양 불변). 다변수는 numerator layout —
+ * 스칼라 본문은 그래디언트(`(1,n)` 행벡터), 열벡터 본문은 야코비안(`(m,n)`). 행벡터·
+ * 일반 행렬 본문은 3-텐서가 되어 표현할 수 없으므로 오류다. 재작성이 자식을 다시 끼울
+ * 때도 이 함수를 쓴다(elaborate와 같은 조립 생성자, §설계 관례).
+ */
+export function derivTyped(
+  body: TypedExpr,
+  vars: readonly string[],
+  order: number,
+): Result<TypedExpr> {
+  if (vars.length === 1) {
+    return ok({ op: 'deriv', shape: body.shape, body, vars, order });
+  }
+  if (order > 1) {
+    return fail('unsupported', 'Repeated multivariable differentiation is not supported');
+  }
+  if (!isKnownShape(body.shape)) {
+    return fail('unknown-shape', 'Cannot determine the shape of the differentiation body');
+  }
+  if (isScalar(body.shape)) {
+    return ok({ op: 'deriv', shape: shape(1, vars.length), body, vars, order });
+  }
+  if (isColumnVector(body.shape)) {
+    return ok({ op: 'deriv', shape: shape(body.shape.rows, vars.length), body, vars, order });
+  }
+  return shapeMismatch(
+    `Cannot take a multivariable derivative of a ${formatShape(body.shape)} body (need a scalar or a column vector)`,
+  );
+}
+
+/** `\sum` — 본문 모양을 그대로 물려받는다(원소별 합). 상하한은 스칼라여야 한다. */
+export function sumTyped(
+  body: TypedExpr,
+  variable: string,
+  lower: TypedExpr | null,
+  upper: TypedExpr | null,
+): Result<TypedExpr> {
+  if (lower !== null && !isScalar(lower.shape)) return shapeMismatch('A lower bound must be a scalar');
+  if (upper !== null && !isScalar(upper.shape)) return shapeMismatch('An upper bound must be a scalar');
+  return ok({ op: 'sum', shape: body.shape, body, variable, lower, upper });
+}
+
+/** `\int` — `sum` 과 같은 모양 규약. */
+export function integralTyped(
+  body: TypedExpr,
+  variable: string,
+  lower: TypedExpr | null,
+  upper: TypedExpr | null,
+): Result<TypedExpr> {
+  if (lower !== null && !isScalar(lower.shape)) return shapeMismatch('A lower bound must be a scalar');
+  if (upper !== null && !isScalar(upper.shape)) return shapeMismatch('An upper bound must be a scalar');
+  return ok({ op: 'integral', shape: body.shape, body, variable, lower, upper });
+}
+
+/** `\prod` — 본문이 **정사각**이어야 한다(행렬곱이 되므로). 스칼라(1,1)도 정사각이다. */
+export function prodTyped(
+  body: TypedExpr,
+  variable: string,
+  lower: TypedExpr | null,
+  upper: TypedExpr | null,
+): Result<TypedExpr> {
+  if (lower !== null && !isScalar(lower.shape)) return shapeMismatch('A lower bound must be a scalar');
+  if (upper !== null && !isScalar(upper.shape)) return shapeMismatch('An upper bound must be a scalar');
+  if (!isKnownShape(body.shape)) {
+    return fail('unknown-shape', 'Cannot determine the shape of a product body');
+  }
+  if (!isSquare(body.shape)) {
+    return shapeMismatch(`A product needs a square body (got ${formatShape(body.shape)})`);
+  }
+  return ok({ op: 'prod', shape: body.shape, body, variable, lower, upper });
+}
+
+function elaborateDiff(
+  node: Extract<SyntaxNode, { kind: 'diff' }>,
+  env: Env,
+): Result<TypedExpr> {
+  const nameErrors = freshBoundNameErrors(node.vars, env);
+  const body = elaborate(node.body, withBoundScalars(env, node.vars));
+  const errors = [...nameErrors, ...(body.ok ? [] : body.errors)];
+  if (errors.length > 0) return failWith(errors);
+  return derivTyped((body as { value: TypedExpr }).value, node.vars, node.order);
+}
+
+function elaborateBounded(
+  node: {
+    readonly body: SyntaxNode;
+    readonly variable: string;
+    readonly lower: SyntaxNode | null;
+    readonly upper: SyntaxNode | null;
+  },
+  env: Env,
+  build: (
+    body: TypedExpr,
+    variable: string,
+    lower: TypedExpr | null,
+    upper: TypedExpr | null,
+  ) => Result<TypedExpr>,
+): Result<TypedExpr> {
+  const nameErrors = freshBoundNameErrors([node.variable], env);
+  const lower = node.lower !== null ? elaborate(node.lower, env) : null;
+  const upper = node.upper !== null ? elaborate(node.upper, env) : null;
+  const body = elaborate(node.body, withBoundScalars(env, [node.variable]));
+  const errors = [
+    ...nameErrors,
+    ...(lower !== null && !lower.ok ? lower.errors : []),
+    ...(upper !== null && !upper.ok ? upper.errors : []),
+    ...(body.ok ? [] : body.errors),
+  ];
+  if (errors.length > 0) return failWith(errors);
+  return build(
+    (body as { value: TypedExpr }).value,
+    node.variable,
+    lower === null ? null : (lower as { value: TypedExpr }).value,
+    upper === null ? null : (upper as { value: TypedExpr }).value,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 본체
 // ---------------------------------------------------------------------------
 
@@ -435,5 +593,17 @@ export function elaborate(node: SyntaxNode, env: Env): Result<TypedExpr> {
       }
       return ok({ op: 'call', shape: SCALAR, name: node.name, args: values });
     }
+
+    case 'diff':
+      return elaborateDiff(node, env);
+
+    case 'sum':
+      return elaborateBounded(node, env, sumTyped);
+
+    case 'prod':
+      return elaborateBounded(node, env, prodTyped);
+
+    case 'int':
+      return elaborateBounded(node, env, integralTyped);
   }
 }

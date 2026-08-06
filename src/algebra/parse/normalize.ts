@@ -1,9 +1,13 @@
 import {
   addTyped,
   crossTyped,
+  derivTyped,
   dotTyped,
   fracTyped,
+  integralTyped,
   mulTyped,
+  prodTyped,
+  sumTyped,
   transposeTyped,
 } from './elaborate';
 import {
@@ -689,9 +693,19 @@ export function normalize(e: TypedExpr, foldPowers = true): Result<TypedExpr> {
       // "숫자 접기" 이고, **복소수는 여기서만 접힌다** — `ceSimplify` 는 `i^{2}` 를
       // 안 풀어준다(실측: `["Power",["Complex",0,1],2]` 그대로). `literalMath` 는
       // `ce.box(...).evaluate()` 를 쓰므로 `-1` 이 나온다.
-      if (base.value.op === 'num' && exponent.value.op === 'num') {
-        const n = asInteger(exponent.value.value);
-        const folded = n === null ? null : powLit(base.value.value, n);
+      //
+      // `literalOf` 로 밑·지수 둘 다 **`neg(num)` 도** 받는다 — `num` 만 보면
+      // `\left(-2\right)^3` (트리로는 `scalarPow(neg(2),3)`) 이 여기서 안 접힌 채로
+      // 렌더 `-2^{3}` 을 냈다가, **재파싱할 때는** CE가 델리미터 없는 `-2` 를 음수
+      // 리터럴 `num(-2)` 하나로 읽어(실측) 그제서야 접혀 `-8` 이 되는 왕복 불일치가
+      // 있었다(`\sum`/`\prod` 처럼 본문을 CE에 안 넘기는 불투명 노드 안에서 fuzz가 잡음).
+      // `neg(scalarPow(...))`(바깥 단항 마이너스)는 이 case가 아니라 `neg` case를 타므로
+      // 안 섞인다 — `(-2)^3` 과 `-(2^3)` 은 계속 다른 트리다.
+      const baseLit = literalOf(base.value);
+      const expLit = literalOf(exponent.value);
+      if (baseLit !== null && expLit !== null) {
+        const n = asInteger(expLit);
+        const folded = n === null ? null : powLit(baseLit, n);
         if (folded !== null) return ok(numAtom(folded));
       }
       return ok({ op: 'scalarPow', shape: SCALAR, base: base.value, exponent: exponent.value });
@@ -740,6 +754,34 @@ export function normalize(e: TypedExpr, foldPowers = true): Result<TypedExpr> {
         if (hoisted !== null) return ok(hoisted);
       }
       return fracTyped(numerator.value, denominator.value);
+    }
+
+    // 본문(그리고 상하한)을 재귀 정규화만 하고 재조립한다. **바운드 경계를 넘는 스칼라
+    // 호이스팅은 없다** — `collect`/`buildProduct` 는 이 두 op를 몰라서(default 분기가
+    // 불투명 원자로 취급) 애초에 안까지 파고들지 않는다. `\sum_k(kA)` 의 `k` 가 상수처럼
+    // 밖으로 끌려나오지 않는 이유가 그거다.
+    case 'deriv': {
+      const body = normalize(e.body, foldPowers);
+      if (!body.ok) return body;
+      return derivTyped(body.value, e.vars, e.order);
+    }
+
+    case 'sum':
+    case 'prod':
+    case 'integral': {
+      const body = normalize(e.body, foldPowers);
+      if (!body.ok) return body;
+      const lower = e.lower !== null ? normalize(e.lower, foldPowers) : null;
+      if (lower !== null && !lower.ok) return lower;
+      const upper = e.upper !== null ? normalize(e.upper, foldPowers) : null;
+      if (upper !== null && !upper.ok) return upper;
+      const build = e.op === 'sum' ? sumTyped : e.op === 'prod' ? prodTyped : integralTyped;
+      return build(
+        body.value,
+        e.variable,
+        lower === null ? null : lower.value,
+        upper === null ? null : upper.value,
+      );
     }
   }
 }

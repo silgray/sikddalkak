@@ -96,6 +96,15 @@ export function exprKey(e: TypedExpr): string {
       return `f(${exprKey(e.numerator)},${exprKey(e.denominator)})`;
     case 'matIdentity':
       return `I(${formatShape(e.shape)})`;
+    case 'deriv':
+      return `deriv(${exprKey(e.body)},${e.vars.join(',')},${e.order})`;
+    case 'sum':
+    case 'prod':
+    case 'integral': {
+      const lo = e.lower === null ? '_' : exprKey(e.lower);
+      const hi = e.upper === null ? '_' : exprKey(e.upper);
+      return `${e.op}(${exprKey(e.body)},${e.variable},${lo},${hi})`;
+    }
   }
 }
 
@@ -224,9 +233,14 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
     case 'call':
     case 'frac':
     case 'matIdentity':
+    case 'deriv':
+    case 'sum':
+    case 'prod':
+    case 'integral':
       // 순수 스칼라 부분식은 CE 몫이라(§7) 여기서는 통째로 원자 취급한다.
       // matIdentity도 여기서는 그냥 원자다 — 소거는 normalize의 몫이다. `frac` 도
       // 나눗셈을 다항식으로 펼치지 않고 통째로 둔다 — 분배 여부는 CE 위임 몫이다.
+      // 미분/적분/합/곱도 통째로 원자다 — 곱을 그 안까지 분배할 이유가 없다.
       return ok([atom(e)]);
 
     case 'scalarPow': {

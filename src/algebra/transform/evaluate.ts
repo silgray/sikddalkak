@@ -2,6 +2,7 @@ import type { Env, TypedExpr } from '../types-TypedExpr';
 import { constantInteger, exprKey } from '../parse/normal';
 import { normalize } from '../parse/normalize';
 import { foldMatrices } from './matrixFold';
+import { foldCalculus } from './calculus';
 import { simplify, substitute } from './transform';
 import { fail, ok, type Result } from '../types-result';
 import { render } from '../render';
@@ -13,10 +14,11 @@ import { ONE, ZERO } from '../types-Literal';
  * (그래프 층) 몫이다. 이 함수가 아는 건 식 하나와 그 모양 환경뿐이다.
  *
  * 파이프라인: `normalize` (입력 형태 불문 항상 평탄화된 상태로) → `foldMatrices`
- * (리터럴 행렬 산술) → `simplify` (순수 스칼라는 CE로, 마지막에 거듭제곱 접기까지).
- * 맨 앞의 `normalize` 는 `foldMatrices` 가 n-항 `matMul`/`scalarMul` 이 평탄화돼
- * 있다고 가정하기 때문이다 — `substituteDeep` 처럼 트리를 다시 조립하는 경로를 거친
- * 입력도 안전하게 받으려면 여기서 한 번 더 다져야 한다.
+ * (리터럴 행렬 산술) → `foldCalculus`(`calculus.ts`, 미분/적분/`\sum`/`\prod` 를 값으로)
+ * → `simplify` (순수 스칼라는 CE로, 마지막에 거듭제곱 접기까지). 맨 앞의 `normalize` 는
+ * `foldMatrices` 가 n-항 `matMul`/`scalarMul` 이 평탄화돼 있다고 가정하기 때문이다 —
+ * `substituteDeep` 처럼 트리를 다시 조립하는 경로를 거친 입력도 안전하게 받으려면
+ * 여기서 한 번 더 다져야 한다.
  */
 export function evaluate(e: TypedExpr, env: Env): Result<TypedExpr> {
   const normalized = normalize(e);
@@ -27,7 +29,9 @@ export function evaluate(e: TypedExpr, env: Env): Result<TypedExpr> {
   }
   const folded = foldMatrices(normalized.value);
   if (!folded.ok) return folded;
-  return simplify(folded.value, env);
+  const calculated = foldCalculus(folded.value, env);
+  if (!calculated.ok) return calculated;
+  return simplify(calculated.value, env);
 }
 
 /**
@@ -78,6 +82,12 @@ function childrenOf(e: TypedExpr): readonly TypedExpr[] {
       return e.args;
     case 'frac':
       return [e.numerator, e.denominator];
+    case 'deriv':
+      return [e.body];
+    case 'sum':
+    case 'prod':
+    case 'integral':
+      return [e.body, ...(e.lower !== null ? [e.lower] : []), ...(e.upper !== null ? [e.upper] : [])];
   }
 }
 
@@ -156,6 +166,17 @@ function materializeIdentities(e: TypedExpr): TypedExpr {
         ...e,
         numerator: materializeIdentities(e.numerator),
         denominator: materializeIdentities(e.denominator),
+      };
+    case 'deriv':
+      return { ...e, body: materializeIdentities(e.body) };
+    case 'sum':
+    case 'prod':
+    case 'integral':
+      return {
+        ...e,
+        body: materializeIdentities(e.body),
+        lower: e.lower !== null ? materializeIdentities(e.lower) : null,
+        upper: e.upper !== null ? materializeIdentities(e.upper) : null,
       };
   }
 }
@@ -238,6 +259,22 @@ export function freeSymbols(e: TypedExpr): readonly string[] {
       case 'frac':
         walk(node.numerator);
         walk(node.denominator);
+        return;
+      // 바운드 이름도 **포함시킨다** — 직관과 반대지만 필연이다. `freeSymbols` 는
+      // `cellGraph.ts` 의 캐시 지문(`node.deps`)이 되는데, 빼면 사용자가 나중에 `x=3`
+      // 셀을 추가해도 이 미분 셀의 지문이 안 바뀌어 캐시가 옛 결과를 그대로 돌려주고
+      // "이미 정의됨" 오류가 안 뜬다 — 간선을 남겨야 무효화되고 오류가 뜬다.
+      case 'deriv':
+        walk(node.body);
+        node.vars.forEach((v) => names.add(v));
+        return;
+      case 'sum':
+      case 'prod':
+      case 'integral':
+        walk(node.body);
+        names.add(node.variable);
+        if (node.lower !== null) walk(node.lower);
+        if (node.upper !== null) walk(node.upper);
         return;
     }
   };

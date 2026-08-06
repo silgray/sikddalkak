@@ -2,10 +2,14 @@ import { expand as ceExpand, factor as ceFactor, simplify as ceSimplify } from '
 import {
   addTyped,
   crossTyped,
+  derivTyped,
   dotTyped,
   elaborate,
   fracTyped,
+  integralTyped,
   mulTyped,
+  prodTyped,
+  sumTyped,
   transposeTyped,
 } from '../parse/elaborate';
 import {
@@ -88,6 +92,13 @@ export function isPureScalar(e: TypedExpr): boolean {
     // 정리를 할지 알 수 없다. 절대 위임하지 않는다.
     case 'matIdentity':
       return false;
+    // 넷 다 절대 CE에 통째로 위임하지 않는다 — CE는 이 연산들의 우리 도메인 규약
+    // (바운드 변수, 임의 모양 원소별 계산, `\prod` 의 비가환 순서)을 전혀 모른다.
+    case 'deriv':
+    case 'sum':
+    case 'prod':
+    case 'integral':
+      return false;
   }
 }
 
@@ -140,7 +151,7 @@ const negTyped = (operand: TypedExpr): TypedExpr => ({
  * 조립에 elaborate와 **같은 생성자**를 쓰는 게 요점이다. 재작성이 모양을 깨뜨리면
  * 조립 단계에서 오류가 나므로, 잘못된 트리가 조용히 빠져나가지 못한다.
  */
-function mapChildren(
+export function mapChildren(
   e: TypedExpr,
   f: (child: TypedExpr) => Result<TypedExpr>,
 ): Result<TypedExpr> {
@@ -266,6 +277,30 @@ function mapChildren(
       const denominator = f(e.denominator);
       if (!denominator.ok) return denominator;
       return fracTyped(numerator.value, denominator.value);
+    }
+
+    case 'deriv': {
+      const body = f(e.body);
+      if (!body.ok) return body;
+      return derivTyped(body.value, e.vars, e.order);
+    }
+
+    case 'sum':
+    case 'prod':
+    case 'integral': {
+      const body = f(e.body);
+      if (!body.ok) return body;
+      const lower = e.lower !== null ? f(e.lower) : null;
+      if (lower !== null && !lower.ok) return lower;
+      const upper = e.upper !== null ? f(e.upper) : null;
+      if (upper !== null && !upper.ok) return upper;
+      const build = e.op === 'sum' ? sumTyped : e.op === 'prod' ? prodTyped : integralTyped;
+      return build(
+        body.value,
+        e.variable,
+        lower === null ? null : lower.value,
+        upper === null ? null : upper.value,
+      );
     }
   }
 }

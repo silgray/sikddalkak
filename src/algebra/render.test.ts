@@ -53,6 +53,21 @@ describe('왕복 — 다시 읽으면 같은 연산 트리', () => {
     'A-BC',
     String.raw`\begin{pmatrix}1&2\\3&4\end{pmatrix}`,
     String.raw`\begin{pmatrix}1\\2\\3\end{pmatrix}`,
+    String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}\left(x^2\right)`,
+    String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}\left(v\right)`,
+    String.raw`\dfrac{\mathrm{d}^{2}}{\mathrm{d}x^{2}}\left(x\right)`,
+    String.raw`\dfrac{\mathrm{d}}{\mathrm{d}(x,y)}\left(f\right)`,
+    String.raw`\dfrac{\mathrm{d}}{\mathrm{d}(x,y)}\left(v\right)`,
+    String.raw`\sum_{k=1}^{n}\left(k\right)`,
+    String.raw`\sum_{k}\left(k\right)`,
+    String.raw`\prod_{k=1}^{n}\left(k\right)`,
+    String.raw`\int_{0}^{1}\left(x^2\right)\mathrm{d}x`,
+    String.raw`\int\left(x^2\right)\mathrm{d}x`,
+    // 결합 범위 함정 — 곱/합 안에 낀 자리는 항상 추가로 감싸져야 왕복이 성립한다
+    // (deriv/sum/prod/integral 은 CE가 뒤따르는 병치·덧셈 항을 삼키므로).
+    String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}\left(x^2\right)+f`,
+    String.raw`2\left(\sum_{k=1}^{n}\left(k\right)\right)`,
+    String.raw`A\left(\sum_{k=1}^{n}\left(v\right)\right)`,
   ];
 
   for (const latex of cases) {
