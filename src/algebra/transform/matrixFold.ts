@@ -2,6 +2,7 @@ import { ComputeEngine } from '@cortex-js/compute-engine';
 import type { MathJsonExpression } from '@cortex-js/compute-engine';
 import { addTyped, elaborate, mulTyped } from '../parse/elaborate';
 import { parseCeJson } from '../parse/parseSymbol';
+import { render } from '../render';
 import { toCeJson } from '../literalMath';
 import { constantInteger } from '../parse/normal';
 import { ok, type Result } from '../types-result';
@@ -26,8 +27,6 @@ import type { TypedExpr, Env } from '../types-TypedExpr';
 type MatrixLiteral = Extract<TypedExpr, { op: 'matrix' }>;
 
 const isMatrixLiteral = (e: TypedExpr): e is MatrixLiteral => e.op === 'matrix';
-const isNumericMatrix = (e: TypedExpr): e is MatrixLiteral =>
-  isMatrixLiteral(e) && e.rows.every((row) => row.every((cell) => cell.op === 'num'));
 
 /** 행/열 벡터든 상관없이 성분을 한 줄로 편다 (`numeric.ts`의 `components`와 같은 규약). */
 const components = (m: MatrixLiteral): readonly TypedExpr[] => m.rows.flatMap((row) => row);
@@ -132,16 +131,45 @@ function crossLiteral(a: MatrixLiteral, b: MatrixLiteral): Result<MatrixLiteral>
 /** 이 파일 전용 CE 인스턴스 — 모듈이 자립하도록 (버전 격리 규칙, `parseSymbol.ts`와 같은 관례). */
 const ce = new ComputeEngine();
 
-/** 심볼이 없는 순수 값 재파싱이라 어떤 env를 줘도 상관없다. */
+/**
+ * 되돌아온 결과를 다시 읽을 때 쓰는 env. 행렬 셀은 `elaborate` 규칙상 반드시
+ * 스칼라이므로, "미지 심볼은 스칼라" 라는 기본 가정이 여기선 정확하다.
+ */
 const EMPTY_ENV: Env = { shapes: {} };
 
-function matrixLiteralToJson(m: MatrixLiteral): MathJsonExpression {
-  // `toCeJson` 을 쓴다 — 예전엔 `cell as {op:'num'; value:number}` 로 캐스트했는데,
-  // 그건 타입이 안 잡아주고 런타임에 엉뚱한 값을 MathJSON에 넣을 수 있었다.
-  const rows = m.rows.map(
-    (row) =>
-      ['List', ...row.map((cell) => toCeJson((cell as Extract<TypedExpr, { op: 'num' }>).value))] as unknown as MathJsonExpression,
-  );
+/**
+ * 역행렬을 시도할 최대 크기. 정확한 상한이 있는 게 아니라 **폭주 방지용**이다 —
+ * 심볼 원소 행렬의 여인수 전개는 `n!` 로 커져서, 상한이 없으면 큰 행렬 하나가
+ * 셀 평가를 통째로 멈춰 세운다. 항이 많아 보이는 것 자체는 문제가 아니다:
+ * 뒤따르는 `simplify` 가 각 셀의 순수 스칼라 부분식을 CE로 접는다.
+ */
+const MAX_SYMBOLIC_INVERSE_SIZE = 8;
+
+/**
+ * 행렬 셀 하나를 MathJSON으로. 못 바꾸면 `null`.
+ *
+ * 숫자 셀은 `toCeJson` 으로 직접 옮긴다 — 정확한 유리수가 보존된다. 심볼이 섞인
+ * 셀은 `render` 로 LaTeX을 만들어 CE에 다시 파싱시킨다. 여기서는 **캐노니컬 파싱**을
+ * 쓴다(`form:['Number']` 를 안 준다) — 축소 정규화 폼이 막으려던 건 곱셈 인자의
+ * 비가환 재배열인데, 행렬 셀은 반드시 스칼라라 그 위험이 애초에 없다.
+ */
+function cellToJson(cell: TypedExpr): MathJsonExpression | null {
+  if (cell.op === 'num') return toCeJson(cell.value);
+  const parsed = ce.parse(render(cell));
+  return parsed.isValid ? parsed.json : null;
+}
+
+function matrixLiteralToJson(m: MatrixLiteral): MathJsonExpression | null {
+  const rows: MathJsonExpression[] = [];
+  for (const row of m.rows) {
+    const cells: MathJsonExpression[] = [];
+    for (const cell of row) {
+      const json = cellToJson(cell);
+      if (json === null) return null;
+      cells.push(json);
+    }
+    rows.push(['List', ...cells] as unknown as MathJsonExpression);
+  }
   return ['Matrix', ['List', ...rows] as unknown as MathJsonExpression] as unknown as MathJsonExpression;
 }
 
@@ -149,13 +177,19 @@ function matrixLiteralToJson(m: MatrixLiteral): MathJsonExpression {
  * 리터럴 행렬의 정수 거듭제곱(음수 포함)을 CE로 계산한다. **`Power` 머리를 직접
  * 구성**한다 — LaTeX 왕복을 타면 `Inverse` 머리가 되어 안 풀린다(위 파일 설명 참고).
  *
+ * **원소가 심볼이어도 된다** — CE는 `\begin{pmatrix}a&b\\c&d\end{pmatrix}^{-1}` 을
+ * 여인수 전개로 잘 푼다(실측). 예전엔 여기서 "모든 셀이 숫자" 를 요구해 심볼 원소
+ * 행렬이 입구에서 막혀 있었다.
+ *
  * 특이행렬이거나 우리가 못 읽는 결과가 오면 `null` — 호출자가 원래 `matPow` 를
- * 그대로 돌려준다 (`rewrite.ts`의 `viaCe`와 같은 방어 규약: 실패하면 안 바뀜).
+ * 그대로 돌려준다 (`transform.ts`의 `viaCe`와 같은 방어 규약: 실패하면 안 바뀜).
  */
 function invertLiteral(base: MatrixLiteral, exponent: number): TypedExpr | null {
-  if (!isNumericMatrix(base)) return null;
+  if (base.rows.length > MAX_SYMBOLIC_INVERSE_SIZE) return null;
   try {
-    const json = ['Power', matrixLiteralToJson(base), exponent] as unknown as MathJsonExpression;
+    const baseJson = matrixLiteralToJson(base);
+    if (baseJson === null) return null;
+    const json = ['Power', baseJson, exponent] as unknown as MathJsonExpression;
     const evaluated = ce.box(json).evaluate();
     // 성공하면 `List`의 `List`로 온다(행렬 결과의 CE 관례). 특이행렬이면 `Power`/
     // `Inverse`/`Error` 머리가 그대로 남는다.

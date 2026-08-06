@@ -133,6 +133,32 @@ describe('역행렬', () => {
     expect(evaluatedLatex(String.raw`A^{-1}`, { shapes: { A: shape(2, 2) } })).toBe('A^{-1}');
   });
 
+  it('원소가 심볼이어도 역행렬을 푼다', () => {
+    expect(
+      evaluatedLatex(String.raw`\begin{pmatrix}a&b\\c&d\end{pmatrix}^{-1}`, { shapes: {} }),
+    ).toBe(
+      String.raw`\begin{pmatrix}\frac{d}{ad-bc}&\frac{-b}{ad-bc}\\\frac{-c}{ad-bc}&\frac{a}{ad-bc}\end{pmatrix}`,
+    );
+  });
+
+  it('심볼 특이행렬이면 조용히 원래 식으로 남는다', () => {
+    expect(
+      evaluatedLatex(String.raw`\begin{pmatrix}a&a\\a&a\end{pmatrix}^{-1}`, { shapes: {} }),
+    ).toBe(String.raw`\begin{pmatrix}a&a\\a&a\end{pmatrix}^{-1}`);
+  });
+
+  it('상한(8×8)을 넘는 심볼 행렬은 폭주 대신 원래 식으로 남는다', () => {
+    const cell = (i: number, j: number) => `a_{${i}${j}}`;
+    const big = (n: number) =>
+      String.raw`\begin{pmatrix}` +
+      Array.from({ length: n }, (_, i) =>
+        Array.from({ length: n }, (_, j) => cell(i, j)).join('&'),
+      ).join(String.raw`\\`) +
+      String.raw`\end{pmatrix}`;
+    const nine = big(9);
+    expect(evaluatedLatex(`${nine}^{-1}`, { shapes: {} })).toBe(`${nine}^{-1}`);
+  });
+
   it('치환 후 리터럴이 되면 역행렬이 값으로 나온다 (substituteDeep + evaluate)', () => {
     const built = buildEnv({ A: String.raw`\begin{pmatrix}1&2\\3&4\end{pmatrix}` });
     expect(built.unresolved).toEqual([]);
