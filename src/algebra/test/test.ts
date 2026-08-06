@@ -2,14 +2,14 @@ import { render, shape, type Env, parse, expand, simplify, factor } from '../ind
 import { preprocess } from '../parse/preprocess';
 import { elaborate } from '../parse/elaborate';
 import { normalize } from '../parse/normalize';
-import { ComputeEngine, type TaggedValueDefinition } from '@cortex-js/compute-engine';
+import { ComputeEngine /* , type TaggedValueDefinition */ } from '@cortex-js/compute-engine';
 import { translateToTree } from '../parse/translateToTree';
 
 import { evaluate, substituteDeep } from '../transform/evaluate';
 import { group, show } from './view';
 
 
-const dump = (value: unknown): string => JSON.stringify(value, null, 2);
+// const dump = (value: unknown): string => JSON.stringify(value, null, 2);
 
 // `w=Av` 처럼 다른 이름을 참조하는 바인딩은 **그 이름들의 모양이 이미 있는 shapes로**
 // 파싱해야 한다 — 빈 shapes로 파싱하면 A/v가 스칼라로 기본 가정돼 버려서(elaborate.ts의
@@ -110,7 +110,7 @@ const ce = new ComputeEngine();
 export function test(latexs: Record<string, TestValues | null>) {
 
   console.log("\n\n=================================");
-  for(const [latex, value] of Object.entries(latexs)) {
+  for(const [latex, /* value */] of Object.entries(latexs)) {
     group("", () => {
       show("raw:", latex);
 

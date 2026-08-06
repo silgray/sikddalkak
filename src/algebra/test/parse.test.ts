@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import { expect } from "vitest";
+// import { describe, it } from "node:test";
+// import { expect } from "vitest";
 
 
 // describe('ce_parse 위임 테스트', () => {

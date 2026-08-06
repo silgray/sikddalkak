@@ -43,7 +43,7 @@ function colorize(value: unknown, indent: string): string {
     if (entries.length === 0) return span(COLOR.punct, '{}');
     const next = `${indent}  `;
     const items = entries
-      .filter(([k, v]) => k !== 'shape')
+      .filter(([k, /* v */]) => k !== 'shape')
       .map(([k, v]) => `${next}${span(COLOR.key, k)}${span(COLOR.punct, ':')} ${colorize(v, next)}`)
       .join(',\n');
     return `${span(COLOR.punct, '{')}\n${items}\n${indent}${span(COLOR.punct, '}')}`;
