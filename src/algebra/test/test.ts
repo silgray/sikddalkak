@@ -11,30 +11,39 @@ import { group, show } from './view';
 
 const dump = (value: unknown): string => JSON.stringify(value, null, 2);
 
-const expr_v = parse("\\begin{pmatrix} 1\\\\ 2\\\\ 3 \\end{pmatrix}", {shapes: {}});
-const expr_w = parse("\\begin{pmatrix} 3\\\\ 2\\\\ 3 \\end{pmatrix}", {shapes: {}});
-const expr_A = parse("\\begin{pmatrix}1 & 2 & x\\\\ 3 & y & -1\\\\ 0 & 0 & x\\end{pmatrix}", {shapes: {}});
-const expr_B = parse("\\begin{pmatrix}y & z & 0\\\\ -1 & x & 1\\\\ 1 & 0 & 0\\end{pmatrix}", {shapes: {}});
+// `w=Av` 처럼 다른 이름을 참조하는 바인딩은 **그 이름들의 모양이 이미 있는 shapes로**
+// 파싱해야 한다 — 빈 shapes로 파싱하면 A/v가 스칼라로 기본 가정돼 버려서(elaborate.ts의
+// "정의되지 않은 자유 심볼은 스칼라로 가정한다") w의 바인딩이 실제로는 `scalarMul(A,v)`
+// (모양 스칼라)로 굳고, 아래 env.shapes.w=(3,1) 선언과 어긋난다. 이 어긋남이
+// substituteDeep에서 "3x1 by 3x1" shape-mismatch로 터진다(w가 dot 안에서 치환되며
+// dotTyped가 잘못된 스칼라 모양을 보고 juxt 경로로 새서 mul→matMul 재해석 때 충돌).
+const shapes = {
+  A: shape(3, 3),
+  B: shape(3, 3),
+  C: shape(3, 2),
+  x: shape(1, 1),
+  y: shape(1, 1),
+  z: shape(1, 1),
+  u: shape(3, 1),
+  v: shape(3, 1),
+  w: shape(3, 1),
+};
+
+const expr_v = parse("\\begin{pmatrix} 1\\\\ 2\\\\ 3 \\end{pmatrix}", {shapes});
+const expr_w = parse("Av", {shapes});
+// const expr_w = parse("\\begin{pmatrix} 3\\\\ 2\\\\ 3 \\end{pmatrix}", {shapes});
+const expr_A = parse("\\begin{pmatrix}1 & 2 & 0\\\\ 3 & 0 & -1\\\\ 0 & 0 & 1\\end{pmatrix}", {shapes});
+const expr_B = parse("\\begin{pmatrix}y & z & 0\\\\ -1 & x & 1\\\\ 1 & 0 & 0\\end{pmatrix}", {shapes});
 
 if(!expr_v.ok || !expr_w.ok || !expr_A.ok || !expr_B.ok) throw new Error('setup expr parse failed');
 
 const env: Env = {
-  shapes: {
-    A: shape(3, 3),
-    B: shape(3, 3),
-    C: shape(3, 2),
-    x: shape(1, 1),
-    y: shape(1, 1),
-    z: shape(1, 1),
-    u: shape(3, 1),
-    v: shape(3, 1),
-    w: shape(3, 1),
-  },
+  shapes,
   bindings: {
-    v: expr_v.value,
-    w: expr_w.value,
     A: expr_A.value,
     B: expr_B.value,
+    v: expr_v.value,
+    w: expr_w.value,
   }
 };
 
@@ -46,11 +55,12 @@ export interface TestValues {
 
 export const latex_strs: Record<string, TestValues | null> = {
   // "\\frac{2}{10}aba+\\frac{3}{15}aab": null,
+  // "\\left(x+2\\right)\\left(x+1\\right)^2\\left(x+1\\right)^2\\left(x+2\\right)^2": null,
   // "c+b+(b+a)^2": null,
   // "\\frac{x^2+2x+1}{x+1}": null,
   // "\\frac{(v\\cdot w)^2+2(v\\cdot w)}{(v\\cdot w)}": null,
   // "xAxx\\cos(x)x+xe^{x}A\\cos x": null,
-  // "(v\\cdot w)^2+2v\\cdot w+1"
+  "(v\\cdot w)": null,
   // "\\frac{\\sin^2(x) + a\\sin x}{\\sin x}": null,
   // "v\\times (ku+kw)": null,
   // "(aA(w^Tw)ABb)c+abdd(v^Tv)ABA": null,
@@ -58,13 +68,14 @@ export const latex_strs: Record<string, TestValues | null> = {
   // "xxx^{-1}yy+xxyyy": null,
   // "A+A/2": null,
   // "(A+A^0)(2(AA+2A+I))": null,
+  // "v\\cdot w - w\\cdot v": null,
   // "v\\times (w\\times Iw)": null,
   // "ae^{x}\\cos x+ae^{x}\\cos x": {normalized: "2\\cos\\left(x\\right)\\mathrm{e}^{x}a"},
   // "\\sin(\\pi)": null,
   // "\\sin^{-1}(1)": null,
   // "\\arcsin(1)": null,
-  // "(1+i)^2": null,
-  // "1+I": null,
+  // "(2x+ix+3)^2": null,
+  // "1+3I": {'normalized': "3I+1"},
   // "A^{0.5+2.5}": null,
   // "A^{0}": null,
   // "x^{0}": null,
@@ -117,18 +128,27 @@ export function test(latexs: Record<string, TestValues | null>) {
       // 1-c) translate: 파싱 결과를 SyntaxNode 트리로 변환
       const translated_tree = translateToTree(parsed_expr.json);
       // console.log("translated:", dump(translated_tree));
-      if(!translated_tree.ok) return;
+      if(!translated_tree.ok) {
+        console.log("translated error:", translated_tree.errors);
+        return;
+      }
 
       // 1-d) elaborate: 연사 확정, 모양 확정
       const elaborated_expr = elaborate(translated_tree.value, env);
       // console.log("elaborated:", dump(elaborated_expr));
-      if(!elaborated_expr.ok) return;
+      if(!elaborated_expr.ok) {
+        console.log("elaborated error:", elaborated_expr.errors);
+        return;
+      }
       show("elaborated:", render(elaborated_expr.value), elaborated_expr.value);
 
       // 2. normalize
       const normalized_expr = normalize(elaborated_expr.value);
       // console.log("normalized:", dump(normalized_expr));
-      if(!normalized_expr.ok) return;
+      if(!normalized_expr.ok) {
+        console.log("normalized error:", normalized_expr.errors);
+        return;
+      }
       show("normalized:", render(normalized_expr.value), normalized_expr.value);
 
       // ===========================================
@@ -138,34 +158,55 @@ export function test(latexs: Record<string, TestValues | null>) {
       // 3-a) simplify
       const simplified_expr = simplify(normalized_expr.value, env);
       // console.log("simplified:", dump(simplified_expr));
-      if(!simplified_expr.ok) return;
+      if(!simplified_expr.ok) {
+        console.log("simplified error:", simplified_expr.errors);
+        return;
+      }
       show("simplified:", render(simplified_expr.value), simplified_expr.value);
 
       // 3-b) expand
       const expanded_expr = expand(normalized_expr.value, env);
       // console.log("expanded:", dump(expanded_expr));
-      if(!expanded_expr.ok) return;
+      if(!expanded_expr.ok) {
+        console.log("expanded error:", expanded_expr.errors);
+        return;
+      }
       show("expanded:", render(expanded_expr.value), expanded_expr.value);
       const simplified_expanded_expr = simplify(expanded_expr.value, env);
-      if(!simplified_expanded_expr.ok) return;
+      if(!simplified_expanded_expr.ok) {
+        console.log("simplified error:", simplified_expanded_expr.errors);
+        return;
+      }
       show("simpl(expand):", render(simplified_expanded_expr.value), simplified_expanded_expr.value);
       
       // 3-c) factor
       const factored_expr = factor(normalized_expr.value, env);
-      if(!factored_expr.ok) return;
+      if(!factored_expr.ok) {
+        console.log("factored error:", factored_expr.errors);
+        return;
+      }
       const simplified_factored_expr = simplify(factored_expr.value, env);
       show("factored:", render(factored_expr.value), factored_expr.value);
-      if(!simplified_factored_expr.ok) return;
+      if(!simplified_factored_expr.ok) {
+        console.log("simplified error:", simplified_factored_expr.errors);
+        return;
+      }
       show("simpl(factor):", render(simplified_factored_expr.value), simplified_factored_expr.value);
       
       // 3-d) evaluate
       const substituted_expr = substituteDeep(normalized_expr.value, env);
       // console.log("substituted:", dump(substituted_expr));
-      if(!substituted_expr.ok) return;
+      if(!substituted_expr.ok) {
+        console.log("substituted error:", substituted_expr.errors);
+        return;
+      }
       show("substituted:", render(substituted_expr.value), substituted_expr.value);
       const evaluated_expr = evaluate(substituted_expr.value, env);
       // console.log("evaluated:", dump(evaluated_expr));
-      if(!evaluated_expr.ok) return;
+      if(!evaluated_expr.ok) {
+        console.log("evaluated error:", evaluated_expr.errors);
+        return;
+      }
       show("evaluated:", render(evaluated_expr.value), evaluated_expr.value);
 
       // console.log("\n=================================");

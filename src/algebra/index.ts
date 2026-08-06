@@ -1,10 +1,11 @@
 import { elaborate } from './parse/elaborate';
 import { type Env, type TypedExpr } from './types-TypedExpr';
 import { normalize } from './parse/normalize';
+import { exprKey } from './parse/normal';
 import { fail, failWith, ok, type AlgebraError, type Result } from './types-Result';
 import { render } from './render';
 import { expand, factor, simplify, substitute } from './transform/transform';
-import { SCALAR, type Shape } from './types-shape';
+import { SCALAR, formatShape, type Shape } from './types-shape';
 import { parseSyntax } from './parse/parseSymbol';
 import type { SyntaxNode } from './types-SyntaxNode';
 
@@ -109,13 +110,15 @@ export function buildEnv(definitions: Definitions): BuiltEnv {
   const bindings: Record<string, TypedExpr> = {};
   let pending = Object.entries(definitions);
 
-  const runPasses = (assumeScalarForUnknown: boolean): void => {
+  // 1판: 모르는 심볼은 오류다(아래 docstring). 성공한 항목은 그 시점에 이미 **완전히
+  // 확정된** 심볼들만으로 만들어졌으므로 다시 안 바뀐다 — 곧장 확정해도 안전하다.
+  {
     let progressed = true;
     while (progressed && pending.length > 0) {
       progressed = false;
       const stillPending: [string, string][] = [];
       for (const [name, latex] of pending) {
-        const parsed = parse(latex, { shapes, assumeScalarForUnknown });
+        const parsed = parse(latex, { shapes, assumeScalarForUnknown: false });
         if (parsed.ok) {
           shapes[name] = parsed.value.shape;
           bindings[name] = parsed.value;
@@ -126,10 +129,40 @@ export function buildEnv(definitions: Definitions): BuiltEnv {
       }
       pending = stillPending;
     }
-  };
+  }
 
-  runPasses(false);
-  runPasses(true);
+  // 2판: 스칼라 가정을 허용한다. 여기서는 **"파싱이 성공했다" != "확정됐다"** —
+  // `w=Av` 가 아직 안 풀린 `A` 를 스칼라로 가정한 채 먼저 성공해버리면, 같은 판 안에서
+  // `A` 자신이 뒤늦게 (진짜 모양으로) 풀려도 `w` 의 바인딩은 갱신할 기회가 없다.
+  // 그래서 한 번 성공한 항목도 **전체 스윕에서 아무것도 안 바뀔 때까지** 계속 다시 판다
+  // (`pending` 을 줄이지 않는다) — `shape`만 비교하면 놓친다: 잘못 가정된 `mul(A,v)`
+  // 와 올바른 `matMul(A,v)` 는 모양이 우연히 같을 수 있어서(둘 다 (3,1)) `exprKey` 로
+  // 구조까지 비교한다.
+  {
+    let changed = true;
+    while (changed) {
+      changed = false;
+      const failing: [string, string][] = [];
+      for (const [name, latex] of pending) {
+        const parsed = parse(latex, { shapes, assumeScalarForUnknown: true });
+        if (!parsed.ok) {
+          failing.push([name, latex]);
+          continue;
+        }
+        const prev = bindings[name];
+        if (
+          prev === undefined ||
+          exprKey(prev) !== exprKey(parsed.value) ||
+          formatShape(shapes[name]) !== formatShape(parsed.value.shape)
+        ) {
+          shapes[name] = parsed.value.shape;
+          bindings[name] = parsed.value;
+          changed = true;
+        }
+      }
+      if (!changed) pending = failing;
+    }
+  }
 
   return {
     env: { shapes, bindings },
