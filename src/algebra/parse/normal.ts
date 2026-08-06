@@ -222,13 +222,24 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
     case 'sym':
     case 'matrix':
     case 'call':
-    case 'scalarPow':
     case 'frac':
     case 'matIdentity':
       // 순수 스칼라 부분식은 CE 몫이라(§7) 여기서는 통째로 원자 취급한다.
       // matIdentity도 여기서는 그냥 원자다 — 소거는 normalize의 몫이다. `frac` 도
       // 나눗셈을 다항식으로 펼치지 않고 통째로 둔다 — 분배 여부는 CE 위임 몫이다.
       return ok([atom(e)]);
+
+    case 'scalarPow': {
+      // `matPow` 와 달리 **밑은 다항식으로 펼치지 않는다** — `(x+1)^2` 를 분배하면
+      // expand/simplify의 기존 동작이 흔들린다. 여기서 필요한 건 딱 하나, 공통인수
+      // 추출이 `x^2` 와 `x` 를 잇게 하는 것뿐이라 밑을 **원자 그대로 반복**해
+      // `scalars` 다중집합에 넣는다 (`x^2` → `[x, x]`). 이러면 `commonScalars`
+      // (다중집합 교집합)가 자동으로 최소 지수를 뽑는다. 지수가 상수 정수 범위
+      // 밖이면(심볼·음수·과대) 지금처럼 통째 원자.
+      const n = constantInteger(e.exponent);
+      if (n === null || n < 1 || n > MAX_POWER_EXPANSION) return ok([atom(e)]);
+      return ok([{ numeric: ONE_LIT, scalars: Array(n).fill(e.base) as TypedExpr[], factors: [] }]);
+    }
 
     case 'neg': {
       const inner = toPolynomial(e.operand);

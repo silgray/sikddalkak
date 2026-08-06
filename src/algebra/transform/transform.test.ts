@@ -124,14 +124,56 @@ describe('factor — 비가환이라 좌·우 공통인수만', () => {
     );
   });
 
-  it('단위행렬이 필요한 경우는 뽑지 않는다', () => {
-    // `A + AB = A(I+B)` 인데 우리 표현엔 단위행렬이 없다.
-    expect(factoredLatex('A+AB')).toBe('AB+A');
+  it('단위행렬이 필요한 경우도 뽑는다', () => {
+    // `A + AB = A(I+B)` — matIdentity가 있으니 뽑을 수 있다. 항 순서는 `sortTerms`가
+    // `exprKey` 순으로 정하므로(`I(...)` < `sB`) `I+B`.
+    expect(factoredLatex('A+AB')).toBe(String.raw`A\left(I+B\right)`);
+  });
+
+  it('공통 좌·우인수를 2단계로 뽑는다', () => {
+    // 1단계(앞)에서 A, 그 몫에서 2단계(뒤)로 다시 A.
+    expect(factoredLatex('ABA+ACA')).toBe(String.raw`A\left(B+C\right)A`);
   });
 
   it('순수 스칼라 식은 CE가 인수분해한다', () => {
     // 두 인수 다 스칼라라 순서가 안 중요하다 — normalize가 exprKey 순으로 정렬한다.
     expect(factoredLatex('x^2-y^2')).toBe(String.raw`\left(x-y\right)\left(x+y\right)`);
+  });
+
+  it('스칼라 지수가 낀 공통인수도 뽑는다', () => {
+    // `x^2` 는 `scalarPow` 원자가 아니라 `[x,x]` 다중집합으로 풀려 `x` 와 이어진다.
+    expect(factoredLatex('kx+x^2')).toBe(String.raw`\left(k+x\right)x`);
+    expect(factoredLatex('a^2k+a')).toBe(String.raw`\left(ak+1\right)a`);
+  });
+
+  it('공통 인수를 뗀 몫에 CE factor를 이어 붙인다', () => {
+    // 공통 계수 2를 떼고 남은 `x^2+2x+1` 을 CE가 마저 `(x+1)^2` 로 묶는다.
+    expect(factoredLatex('2x^2+4x+2')).toBe(String.raw`2\left(x+1\right)^{2}`);
+    expect(factoredLatex('x^3+2x^2+x')).toBe(String.raw`\left(x+1\right)^{2}x`);
+  });
+
+  describe('단일 행렬 심볼 다항식 — 스칼라 인수분해 경로를 그대로 태운다', () => {
+    it('A^3+4A^2+5A+2I -> (I+A)^2(2I+A)', () => {
+      expect(factoredLatex('A^3+4A^2+5A+2I')).toBe(
+        String.raw`\left(I+A\right)^{2}\left(2I+A\right)`,
+      );
+    });
+
+    it('A^2+2A+I -> (I+A)^2', () => {
+      expect(factoredLatex('A^2+2A+I')).toBe(String.raw`\left(I+A\right)^{2}`);
+    });
+
+    it('A^3+2A^2+A -> A(I+A)^2', () => {
+      expect(factoredLatex('A^3+2A^2+A')).toBe(String.raw`A\left(I+A\right)^{2}`);
+    });
+
+    it('계수에 벡터가 낀 경우도 모양 기반으로 잡는다', () => {
+      // 심볼 이름이 아니라 "비스칼라 인수 열" 을 보므로, 계수 안의 `u·v` 는 그냥
+      // 스칼라 계수로 취급되고 A 만 밑으로 잡힌다.
+      expect(
+        factoredLatex(String.raw`\left(u\cdot v\right)A^2+\left(u\cdot v\right)A`),
+      ).toBe(String.raw`\left(u\cdot v\right)\left(A\left(I+A\right)\right)`);
+    });
   });
 });
 
@@ -205,6 +247,8 @@ describe('값 대조 — 재작성이 답을 바꾸지 않는다', () => {
     'aA+aB',
     'A+AB',
     'A-A',
+    'ABA+ACA',
+    'A^3BA+AB^2',
     String.raw`u\cdot v+u\cdot w`,
     String.raw`u\times\left(v+w\right)`,
     String.raw`\left(v\cdot w\right)v\times A\left(v\times w\right)`,
@@ -213,6 +257,14 @@ describe('값 대조 — 재작성이 답을 바꾸지 않는다', () => {
     String.raw`\left(v^Tv\right)A`,
     String.raw`2\left(A-B\right)+3B`,
     'M^TM',
+    'kx+x^2',
+    'a^2k+a',
+    '2x^2+4x+2',
+    'x^3+2x^2+x',
+    'A^3+4A^2+5A+2I',
+    'A^2+2A+I',
+    'A^3+2A^2+A',
+    String.raw`\left(u\cdot v\right)A^2+\left(u\cdot v\right)A`,
   ];
 
   for (const latex of cases) {
