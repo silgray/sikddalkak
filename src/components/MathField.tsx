@@ -126,6 +126,10 @@ const DISABLED_INLINE_SHORTCUTS = new Set<string>([
   '+...',
   '-...',
   ':.',
+  // 기타
+  'dx',
+  'dy',
+  'dt',
 ]);
 
 /**

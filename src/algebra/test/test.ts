@@ -2,7 +2,7 @@ import { render, shape, type Env, parse, expand, simplify, factor } from '../ind
 import { preprocess } from '../parse/preprocess';
 import { elaborate } from '../parse/elaborate';
 import { normalize } from '../parse/normalize';
-import { ComputeEngine /* , type TaggedValueDefinition */ } from '@cortex-js/compute-engine';
+import { ComputeEngine, evaluate as ce_evaluate /* , type TaggedValueDefinition */ } from '@cortex-js/compute-engine';
 import { translateToTree } from '../parse/translateToTree';
 
 import { evaluate, substituteDeep } from '../transform/evaluate';
@@ -32,7 +32,7 @@ const shapes = {
 const expr_v = parse("\\begin{pmatrix} 1\\\\ 2\\\\ 3 \\end{pmatrix}", {shapes});
 const expr_w = parse("Av", {shapes});
 // const expr_w = parse("\\begin{pmatrix} 3\\\\ 2\\\\ 3 \\end{pmatrix}", {shapes});
-const expr_A = parse("\\begin{pmatrix}1 & 2 & 0\\\\ 3 & 0 & -1\\\\ 0 & 0 & 1\\end{pmatrix}", {shapes});
+const expr_A = parse("\\begin{pmatrix}1 & x & 0\\\\ 3 & y & -1\\\\ 0 & 0 & 1\\end{pmatrix}", {shapes});
 const expr_B = parse("\\begin{pmatrix}y & z & 0\\\\ -1 & x & 1\\\\ 1 & 0 & 0\\end{pmatrix}", {shapes});
 
 if(!expr_v.ok || !expr_w.ok || !expr_A.ok || !expr_B.ok) throw new Error('setup expr parse failed');
@@ -60,7 +60,7 @@ export const latex_strs: Record<string, TestValues | null> = {
   // "\\frac{x^2+2x+1}{x+1}": null,
   // "\\frac{(v\\cdot w)^2+2(v\\cdot w)}{(v\\cdot w)}": null,
   // "xAxx\\cos(x)x+xe^{x}A\\cos x": null,
-  "(v\\cdot w)": null,
+  // "(v\\cdot w)": null,
   // "\\frac{\\sin^2(x) + a\\sin x}{\\sin x}": null,
   // "v\\times (ku+kw)": null,
   // "(aA(w^Tw)ABb)c+abdd(v^Tv)ABA": null,
@@ -78,6 +78,7 @@ export const latex_strs: Record<string, TestValues | null> = {
   // "1+3I": {'normalized': "3I+1"},
   // "A^{0.5+2.5}": null,
   // "A^{0}": null,
+  // "A^{-1}": null,
   // "x^{0}": null,
   // "1+2": null,
   // "19/1": null,
@@ -102,6 +103,15 @@ export const latex_strs: Record<string, TestValues | null> = {
   // "xxxx+xx^{-1}x^{3}": null,
   // "v\\cdot (((1+x)x+3x)Aw) + 7": null,
   // "\\begin{pmatrix}1 & x\\\\ 1 & y\\\\ 1 & z\\end{pmatrix}\\begin{pmatrix}1 & x & x^2\\\\ 1 & y & y^2\\end{pmatrix}": null,
+  // "\\dfrac{\\mathrm{d}}{\\mathrm{d}x}x^2+x": null,
+  // "\\frac{\\mathrm{d}}{\\mathrm{d}x}x": null,
+  // "\\frac{\\mathrm{d}}{\\mathrm{d}x}x^2+x": null,
+  // "\\frac{\\mathrm{d}}{dx}x^2+x": null,
+  "\\frac{\\differentialD}{\\mathrm{d}x}x^2+x": null,
+  // "\\frac{d}{dx}x^2+x": null,
+  "\\frac{\\mathrm{d}}{\\mathrm{d}\\left(x,y\\right)}x": null,
+  "\\frac{d}{d\\left(x,y\\right)}x": null,
+  // "\\frac{\\mathrm{d}}{\\mathrm{d}(x,y)}x": null,
 };
 
 const ce = new ComputeEngine();
@@ -115,7 +125,8 @@ export function test(latexs: Record<string, TestValues | null>) {
       show("raw:", latex);
 
       // 1. parsing to SyntaxNode tree
-      const preprocessed_latex = preprocess(latex);
+      const preprocessed_latex = latex;
+      // const preprocessed_latex = preprocess(latex);
       // 1-a) preprocess: \cdot, \times 토큰 치환
       // console.log("preprocessed:", preprocessed_latex);
 
@@ -208,6 +219,7 @@ export function test(latexs: Record<string, TestValues | null>) {
         return;
       }
       show("evaluated:", render(evaluated_expr.value), evaluated_expr.value);
+      show("evaluated1:", ce_evaluate(ce.parse(render(substituted_expr.value))).latex);
 
       // console.log("\n=================================");
       
