@@ -1,8 +1,7 @@
 import { render, shape, type Env, parse, expand, simplify, factor } from '../index';
-import { preprocess } from '../parse/preprocess';
 import { elaborate } from '../parse/elaborate';
 import { normalize } from '../parse/normalize';
-import { ComputeEngine, evaluate as ce_evaluate /* , type TaggedValueDefinition */ } from '@cortex-js/compute-engine';
+import { ComputeEngine /* , type TaggedValueDefinition */ } from '@cortex-js/compute-engine';
 import { translateToTree } from '../parse/translateToTree';
 
 import { evaluate, substituteDeep } from '../transform/evaluate';
@@ -107,10 +106,13 @@ export const latex_strs: Record<string, TestValues | null> = {
   // "\\frac{\\mathrm{d}}{\\mathrm{d}x}x": null,
   // "\\frac{\\mathrm{d}}{\\mathrm{d}x}x^2+x": null,
   // "\\frac{\\mathrm{d}}{dx}x^2+x": null,
-  "\\frac{\\differentialD}{\\mathrm{d}x}x^2+x": null,
+  "\\frac{\\mathrm{d}}{dx}exx": null,
+  "ex": null,
+  // "\\frac{\\differentialD}{\\mathrm{d}x}x^2+x": null,
   // "\\frac{d}{dx}x^2+x": null,
-  "\\frac{\\mathrm{d}}{\\mathrm{d}\\left(x,y\\right)}x": null,
-  "\\frac{d}{d\\left(x,y\\right)}x": null,
+  // "\\frac{\\mathrm{d}}{\\mathrm{d}\\left(x,y\\right)}x": null,
+  // "\\frac{\\mathrm{d}x}{\\mathrm{d}\\left(x,y\\right)}": null,
+  // "\\frac{d}{d\\left(x,y\\right)}x": null,
   // "\\frac{\\mathrm{d}}{\\mathrm{d}(x,y)}x": null,
 };
 
@@ -219,7 +221,6 @@ export function test(latexs: Record<string, TestValues | null>) {
         return;
       }
       show("evaluated:", render(evaluated_expr.value), evaluated_expr.value);
-      show("evaluated1:", ce_evaluate(ce.parse(render(substituted_expr.value))).latex);
 
       // console.log("\n=================================");
       

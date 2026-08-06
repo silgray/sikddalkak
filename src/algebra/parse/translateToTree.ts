@@ -41,6 +41,16 @@ const MULTIPLY_HEADS = new Set(['InvisibleOperator', 'Multiply']);
 const D_UPRIGHT = 'd_upright';
 
 /**
+ * 미분 기호로 인정하는 심볼 — `\mathrm{d}`(→`d_upright`)뿐 아니라 **꾸밈 없는 `d`**도
+ * 받는다(실측: `\frac{d}{dx}f` 는 이미 CE가 곧장 `D` 로 읽어준다. `\frac{d}{d(x,y)}`
+ * 같은 다변수꼴만 `D` 로 안 오고 `Divide` 로 오는데, 그 안의 `d` 도 마찬가지로 그냥
+ * 문자열 `"d"`다). 사용자가 `d` 라는 이름의 심볼을 실제로 쓰는 경우와는 원리적으로
+ * 구분할 수 없다 — 단일변수 미분에서 이미 감수하고 있는 위험을 다변수에도 그대로
+ * 넓히는 것뿐이다.
+ */
+const isDifferentialSymbol = (s: unknown): s is string => s === D_UPRIGHT || s === 'd';
+
+/**
  * 미분·적분·합·곱의 바운드 변수 자리에 온 JSON이 평범한 심볼 이름인지 확인한다.
  *
  * `i` 는 CE에서 허수단위로 예약돼 있어 `["Complex",0,1]` 로 온다(실측) — 인덱스/미분
@@ -56,7 +66,7 @@ function boundVariableName(json: unknown): Result<string> {
   ) {
     return fail('malformed', 'i is reserved for the imaginary unit; use another variable');
   }
-  if (typeof json === 'string' && json !== D_UPRIGHT && !isMarker(json)) {
+  if (typeof json === 'string' && !isDifferentialSymbol(json) && !isMarker(json)) {
     return ok(json);
   }
   return fail('malformed', 'A bound variable must be a plain symbol');
@@ -138,25 +148,53 @@ function translateBoundedOp(
 }
 
 /**
- * `\frac{\mathrm{d}}{\mathrm{d}(x,y,z)}` — 다변수 미분 패턴.
+ * `\mathrm{d}(x,y,z)` (또는 `d(x,y,z)`) 자리 하나 — CE는 이걸 `InvisibleOperator(d,
+ * Delimiter(Sequence(x,y,z)))` 로 준다(실측). 변수 하나만 괄호로 감싼 경우(`\mathrm{d}(x)`)는
+ * `Sequence` 로 안 감싸이고 바로 온다 — 그것도 여기서 받는다.
  *
- * CE는 이 표기를 `D` 로 안 읽고 `Divide("d_upright", InvisibleOperator("d_upright",
- * Delimiter(Sequence(x,y,z))))` 로 준다(실측, `\mathrm{d}` 홑글자가 `d_upright` 심볼로
- * 옴). 변수 하나만 괄호로 감싼 경우(`\mathrm{d}(x)`)는 `Sequence` 로 안 감싸이고
- * 바로 온다 — 그것도 여기서 받는다.
+ * `asMultivarDivide`(분모 전체 자리)와 `asMultivarNumeratorDivide`(분자에 본문이 붙은
+ * 경우의 분모 자리)가 공유한다.
+ */
+function extractMultivarVars(json: unknown): readonly unknown[] | null {
+  if (!Array.isArray(json) || json.length !== 3 || json[0] !== 'InvisibleOperator') return null;
+  if (!isDifferentialSymbol(json[1])) return null;
+  const delim = json[2];
+  if (!Array.isArray(delim) || delim[0] !== 'Delimiter') return null;
+  const inner = delim[1];
+  return Array.isArray(inner) && inner[0] === 'Sequence' ? inner.slice(1) : [inner];
+}
+
+/**
+ * `\frac{\mathrm{d}}{\mathrm{d}(x,y,z)}` — 다변수 미분 패턴(분자가 그냥 `d` 하나뿐).
+ *
+ * CE는 이 표기를 `D` 로 안 읽고 `Divide(d, InvisibleOperator(d, Delimiter(Sequence(x,y,z))))`
+ * 로 준다(실측).
  *
  * 매치하면 변수 이름들의 원시 JSON 배열을, 아니면 `null` 을 돌려준다.
  */
 function asMultivarDivide(json: unknown): readonly unknown[] | null {
   if (!Array.isArray(json) || json[0] !== 'Divide' || json.length !== 3) return null;
-  if (json[1] !== D_UPRIGHT) return null;
-  const denom = json[2];
-  if (!Array.isArray(denom) || denom[0] !== 'InvisibleOperator' || denom.length !== 3) return null;
-  if (denom[1] !== D_UPRIGHT) return null;
-  const delim = denom[2];
-  if (!Array.isArray(delim) || delim[0] !== 'Delimiter') return null;
-  const inner = delim[1];
-  return Array.isArray(inner) && inner[0] === 'Sequence' ? inner.slice(1) : [inner];
+  if (!isDifferentialSymbol(json[1])) return null;
+  return extractMultivarVars(json[2]);
+}
+
+/**
+ * `\frac{\mathrm{d}x}{\mathrm{d}(x,y,z)}` — 다변수 미분인데 **분자에 본문이 이미 붙은**
+ * 경우. CE는 `Divide(InvisibleOperator(d, body), InvisibleOperator(d, Delimiter(Sequence(
+ * x,y,z))))` 로 준다(실측) — 단일변수(`\frac{\mathrm{d}x}{\mathrm{d}x}`)는 CE가 이미
+ * `D` 로 바로 주므로 이 경로를 안 탄다.
+ */
+function asMultivarNumeratorDivide(
+  json: unknown,
+): { readonly body: unknown; readonly vars: readonly unknown[] } | null {
+  if (!Array.isArray(json) || json[0] !== 'Divide' || json.length !== 3) return null;
+  const numerator = json[1];
+  if (!Array.isArray(numerator) || numerator.length !== 3 || numerator[0] !== 'InvisibleOperator') {
+    return null;
+  }
+  if (!isDifferentialSymbol(numerator[1])) return null;
+  const vars = extractMultivarVars(json[2]);
+  return vars === null ? null : { body: numerator[2], vars };
 }
 
 /** `\frac{\mathrm{d}}{\mathrm{d}(x,y,z)}` 뒤에 본문이 붙은 경우(`restArgs`)를 `diff` 노드로. */
@@ -480,6 +518,11 @@ export function translateToTree(json: unknown): Result<SyntaxNode> {
       : fail('unsupported', 'Unsupported number literal');
   }
   if (head === 'Divide' && args.length === 2) {
+    // `\frac{\mathrm{d}x}{\mathrm{d}(x,y,z)}` — 분자에 본문이 이미 붙은 다변수 미분.
+    const numeratorDiff = asMultivarNumeratorDivide(json);
+    if (numeratorDiff !== null) {
+      return translateMultivarDiffToTree(numeratorDiff.vars, [numeratorDiff.body]);
+    }
     // `\frac{\mathrm{d}}{\mathrm{d}(x,y,z)}` 홀로(뒤에 곱할 본문 없이) 쓰인 경우 — 병치
     // 위치가 아니라 바로 `Divide` 머리 자체로 온다. 본문이 없으므로 오류다.
     if (asMultivarDivide(json) !== null) {

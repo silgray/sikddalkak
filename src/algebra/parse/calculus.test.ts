@@ -90,6 +90,17 @@ describe('다변수 미분 — 야코비안/그래디언트', () => {
       '(deriv f [x] 1)',
     );
   });
+
+  it('꾸밈 없는 d 로도 다변수 미분을 쓸 수 있다 (단일변수는 이미 되던 것)', () => {
+    expect(opsOf(String.raw`\frac{d}{d\left(x,y\right)}x`)).toBe('(deriv x [x,y] 1)');
+    expect(shapeOf(String.raw`\frac{d}{d\left(x,y,z\right)}\left(f\right)`)).toBe('1x3');
+  });
+
+  it('분자에 본문이 붙은 표기(df/d(x,y))도 D 로 읽힌다', () => {
+    expect(opsOf(String.raw`\dfrac{\mathrm{d}f}{\mathrm{d}(x,y)}`)).toBe('(deriv f [x,y] 1)');
+    expect(opsOf(String.raw`\frac{dx}{d\left(x,y\right)}`)).toBe('(deriv x [x,y] 1)');
+    expect(shapeOf(String.raw`\dfrac{\mathrm{d}v}{\mathrm{d}(x,y)}`)).toBe('3x2');
+  });
 });
 
 describe('바운드 변수 규칙', () => {

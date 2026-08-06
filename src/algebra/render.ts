@@ -170,8 +170,15 @@ function renderProduct(factors: readonly TypedExpr[]): string {
     // 분수도 같다 — 숫자 뒤에 분수가 그냥 붙으면 **대분수로 읽힌다**. CE 자유 함수
     // (`viaCe` 가 쓰는 `simplify`)는 `2\frac{1}{3}` 을 `Rational(7,3)` 으로 준다(실측:
     // `2·1/3 = 2/3` 이 아니라 `2+1/3 = 7/3`). 값이 달라지는 자리라 반드시 떼어놓는다.
-    const collides = /\d$/.test(acc) && (/^\d/.test(r) || r.startsWith('\\frac'));
-    return collides ? `${acc}${paren(r)}` : `${acc}${r}`;
+    if (/\d$/.test(acc) && (/^\d/.test(r) || r.startsWith('\\frac'))) return `${acc}${paren(r)}`;
+    // `e` 같은 이름은 CE 파싱에서 `ExponentialE` 심볼로 잡히고(실측), 그 이름의 LaTeX은
+    // `\exponentialE` 처럼 **글자로만 된, 닫히지 않은 명령**이다. 뒤에 곧장 다른 글자가
+    // 붙으면(`\exponentialEx`) 명령 이름이 그 글자까지 먹어버려 존재하지 않는 명령이
+    // 되고 파싱 자체가 깨진다(실측: `\alphax` → `unexpected-command`). 공백 하나로
+    // 끊는다 — TeX는 공백에서 명령 이름 읽기를 멈추고 그 공백 자체는 먹혀 사라지므로
+    // (실측), 다시 읽어도 두 토큰 그대로다. 괄호로 떼면 함수 호출처럼 보여 오해를 산다.
+    if (/\\[a-zA-Z]+$/.test(acc) && /^[a-zA-Z]/.test(r)) return `${acc} ${r}`;
+    return `${acc}${r}`;
   }, '');
 }
 

@@ -85,6 +85,13 @@ describe('미분 — 순수 스칼라는 CE로 계산한다', () => {
     ).toBe('6x');
   });
 
+  it('본문이 e 로 시작하는 곱이어도 괄호·공백 없이 렌더가 깨지지 않는다', () => {
+    // e는 파싱 단계에서 곧장 ExponentialE 심볼이 되고, 그 LaTeX(`\exponentialE`)은
+    // 글자로만 된 명령이라 뒤에 곧장 x가 오면 명령 이름을 먹어버렸었다(render.test.ts
+    // 참고). CE로 렌더된 결과를 되읽는 이 evaluate 경로에서까지 안 깨지는지 확인한다.
+    expect(evaluatedLatex(String.raw`\frac{d}{dx}ex`)).toBe(String.raw`\exponentialE`);
+  });
+
   it('상수는 0', () => {
     expect(evaluatedLatex(String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}\left(3\right)`)).toBe('0');
   });
