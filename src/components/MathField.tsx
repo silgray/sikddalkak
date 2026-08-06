@@ -1,5 +1,5 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type Ref } from 'react';
-import { MathfieldElement } from 'mathlive';
+import { MathfieldElement, type InlineShortcutDefinitions } from 'mathlive';
 import {
   ensureGhostLeftSupport,
   finalizeGhostFences,
@@ -22,6 +22,134 @@ export const TRANSFORM_SHORTCUTS: Record<string, 'expand' | 'simplify' | 'factor
   s: 'simplify',
   f: 'factor',
 };
+
+/**
+ * 끌 기본 인라인 숏컷 트리거. mathlive "Shortcuts & features" 도움말에 나오는 텍스트
+ * 자동변환 전체(사용자 지정, 실측 확인) — `node_modules/mathlive/mathlive.mjs`의
+ * `INLINE_SHORTCUTS`에 실재하는 키만 담았다. 여기 없는 문자열(예: "PP", "ox", "(x)")은
+ * 애초에 그 딕셔너리에 없는 항목이라 뺄 것도 없다. 키 조합 단축키(`/`→분수,
+ * `Ctrl+2`→루트 등, `mf.keybindings`)는 별개 시스템이라 여기 대상이 아니다.
+ */
+const DISABLED_INLINE_SHORTCUTS = new Set<string>([
+  // 논리/집합
+  '&&',
+  'and',
+  'or',
+  'not',
+  '¬', // ¬ ('neg')
+  'in',
+  'xin',
+  '!in',
+  '^^',
+  '^^^',
+  'vv',
+  'vvv',
+  'nn',
+  'nnn',
+  'uu',
+  'uuu',
+  'setminus',
+  'sub',
+  'sup',
+  'sube',
+  'supe',
+  'forall',
+  'AA',
+  'exists',
+  'EE',
+  '!exists',
+  '!EE',
+  'diamond',
+  'square',
+  'TT',
+  'aleph',
+  // 문자류
+  'infty',
+  'ii',
+  'jj',
+  'oo',
+  'ee',
+  'NN',
+  'ZZ',
+  'QQ',
+  'RR',
+  'CC',
+  // 연산자
+  '**',
+  '***',
+  '(/)',
+  '(*)',
+  '(-)',
+  '@',
+  '|><',
+  '><|',
+  '|><|',
+  '-:',
+  'divide',
+  '|__',
+  '__|',
+  '|~',
+  '~|',
+  '(:',
+  ':)',
+  // 단위
+  'mm',
+  'cm',
+  'km',
+  'kg',
+  // 화살표/논리 기호
+  'iff',
+  '>->',
+  '->>',
+  '>->>',
+  '->',
+  '->...',
+  '|->',
+  '-->',
+  '<--',
+  '=>',
+  '==>',
+  '<=>',
+  '<->',
+  'uarr',
+  'darr',
+  'rarr',
+  'rArr',
+  'larr',
+  'lArr',
+  'harr',
+  'hArr',
+  '|--',
+  '|==',
+  // 생략 부호
+  '...',
+  '+...',
+  '-...',
+  ':.',
+]);
+
+/**
+ * 추가할 커스텀 인라인 숏컷. 형식은 mathlive `InlineShortcutDefinition`과 동일
+ * (문자열 또는 `{ after, value }`) — `node_modules/mathlive/types/options.d.ts`의
+ * `after` 컨텍스트 값 표 참고.
+ */
+const CUSTOM_INLINE_SHORTCUTS: InlineShortcutDefinitions = {
+  // myshortcut: '\\myLatexCommand',
+};
+
+/**
+ * mathlive 기본 인라인 숏컷 딕셔너리(`mf.inlineShortcuts`, ~150여 개)에서 일부를
+ * 끄고 커스텀 숏컷을 얹는다. `mf.inlineShortcuts = ...`는 기존 기본값과 병합되지
+ * 않고 완전히 대체하므로, 아무것도 설정하기 전에 getter로 기본값을 먼저 읽어야 한다.
+ */
+function configureInlineShortcuts(mf: MathfieldElement): void {
+  const defaults = mf.inlineShortcuts;
+  const merged: InlineShortcutDefinitions = {};
+  for (const [key, value] of Object.entries(defaults)) {
+    if (!DISABLED_INLINE_SHORTCUTS.has(key)) merged[key] = value;
+  }
+  mf.inlineShortcuts = { ...merged, ...CUSTOM_INLINE_SHORTCUTS };
+}
 
 /**
  * ☰ 메뉴에서 쓰지 않는 항목을 걷어낸다.
@@ -431,6 +559,9 @@ export function MathField({
     );
 
     host.append(mf);
+    // 인라인 숏컷 On/Off 커스터마이징. `inlineShortcuts` getter/setter는 mathfield가
+    // mount(= append)되기 전에 부르면 "Mathfield not mounted" 에러를 던진다(실측).
+    configureInlineShortcuts(mf);
     // ☰ 메뉴에서 안 쓰는 항목 제거 (append 후여야 기본 메뉴가 구성돼 있다).
     pruneMenu(mf);
     // 포커스된 필드가 언마운트될 때의 MathLive 크래시 우회 (editor/internals.ts 참고).
@@ -510,6 +641,11 @@ export function MathField({
         } finally {
           suppressReport.current = false;
         }
+        // 프로그래밍적 삽입은 키 입력 이벤트를 안 거치므로 mathlive 자체 버퍼 관리
+        // (onKeystroke의 자동 flush)를 안 탄다 — 명시적으로 비워야 한다. 안 그러면
+        // 변환 직전 타이핑이 버퍼에 남아 다음 입력과 이어붙어 엉뚱한 숏컷이 튄다
+        // (예: "s" 타이핑 중 선택해 expand 클릭 → 이어서 "in" 입력 = 뜬금없는 \sin).
+        flushShortcutBuffer(mf);
         // 삽입물이 새로 선택된 상태다(selectionMode:'item'). 그 선택을 재보고해
         // 버튼 상태를 갱신한다 — expand ↔ factor 왕복이 자연스럽게 된다.
         reportRef.current?.();
