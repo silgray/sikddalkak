@@ -21,13 +21,13 @@ export const CROSS_MARKER = 'algCrossMarker';
  */
 // TODO: fix regex => 미분변수 x_{3}꼴도 가능하게
 const DIFF_POWER_RE =
-  /(?:\\left)?\(\s*\\d?frac\{\\mathrm\{d\}\}\{\\mathrm\{d\}([a-zA-Z])\}\s*(?:\\right)?\)\^\{?(\d+)\}?/g;
+  /(?:\\left)?\(\s*\\d?frac\{(?:d|\\mathrm\{d\})\}\{(?:d|\\mathrm\{d\})([a-zA-Z])\}\s*(?:\\right)?\)\^\{?(\d+)\}?/g;
 const DIFFD_SYMBOL = 
   /(\\differentialD)/g;
 
 export function preprocess(latex: string): string {
   return latex
-    .replace(DIFFD_SYMBOL, (d: string) => '\\mathrm{d}')  // 실측 기반. \differentialD가 포함되어 있으면 뒤의 모든 파싱이 꼬임
+    .replace(DIFFD_SYMBOL, () => '\\mathrm{d}')  // 실측 기반. \differentialD가 포함되어 있으면 뒤의 모든 파싱이 꼬임
     .replace(DIFF_POWER_RE, (_, v: string, n: string) => `\\frac{\\mathrm{d}^{${n}}}{\\mathrm{d}${v}^{${n}}}`)
     .replace(/\\cdot(?![a-zA-Z])/g, ` \\mathrm{${DOT_MARKER}} `)
     .replace(/\\times(?![a-zA-Z])/g, ` \\mathrm{${CROSS_MARKER}} `);
