@@ -96,14 +96,10 @@ function readSelection(field: 'input' | 'result', selected: string, env: Env): S
     return { field, latex: selected, replacements, error: parsed.errors[0].message };
   }
 
-  // 기준선은 원본 LaTeX이 아니라 **다시 렌더한 것**이다 — 그래야 표기 차이(괄호 꼴,
-  // 공백)가 "달라졌다"로 잡히지 않는다.
-  const baseline = render(parsed.value);
   for (const op of TRANSFORM_OPS) {
     const out = OPS[op](parsed.value, env);
     if (!out.ok) continue;
-    const latex = render(out.value);
-    if (norm(latex) !== norm(baseline)) replacements[op] = joinSign(raw, latex);
+    replacements[op] = joinSign(raw, render(out.value));
   }
   return { field, latex: selected, replacements, error: null };
 }
