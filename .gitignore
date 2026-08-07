@@ -1,8 +1,6 @@
 .claude/
 node_modules/
 dist/
-# 랩(lab) 앱 빌드 결과 — 배포하지 않는 검증 도구다
-dist-lab/
 *.tsbuildinfo
 
 # scripts/copy-mathlive-assets.mjs 가 node_modules에서 복사해오는 것

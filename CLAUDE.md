@@ -133,18 +133,9 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 - **`App.tsx`** / **`main.tsx`** — 진입점. main.tsx에서 MathLive 전역 설정
   (폰트/로케일/CE 비활성화).
 
-### `lab/` — `src/algebra` 검증용 랩 (배포 안 함, ⚠ 당분간 미사용)
+### `src/algebra/test` — 개발자 테스트
 
-`npm run lab` (localhost:5174). 주 앱 빌드·Pages 워크플로와 **완전히 분리**돼 있다
-(`vite.lab.config.ts`). 랩이 깨져도 제품은 영향 없다.
-
-**지금은 이 워크플로를 안 쓰고 있다** — 코드는 지우지 않았지만 당분간 돌릴 일이 없다.
-아래는 쓰던 때의 설계 의도이고, 재개 전까지 `src/algebra` 검증은 단위 테스트
-(`*.test.ts`)와 퍼즈(`rewrite.fuzz.test.ts`)만으로 돈다: 자동 테스트가 보는 건
-"값이 바뀌지 않았는가"뿐이라, 원래는 **정리된 꼴이 쓸 만한가**를 랩에서 사람이 눈으로
-봤다 — 정의 패널(`v=벡터`, `A=행렬`, `a=3`)을 바꿔가며 같은 식이 다르게 해석되는지
-확인하고, 진단 패널에서 Syntax IR → Typed IR → 노드별 모양 → CE 위임 여부를 보는 식.
-판정(OK/NG/보류)은 케이스로 localStorage에 남고 JSON으로 내보낼 수 있다.
+ - 정리된 꼴이 쓸 만한가를 사람이 눈으로 판단.
 
 ### 기타
 
@@ -194,7 +185,6 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 ```bash
 npm run dev            # 개발 서버 (Vite, localhost:5173)
 npm run preview        # build 결과물 로컬 프리뷰
-npm run lab            # src/algebra 검증용 랩 (localhost:5174, 배포 안 함, ⚠ 당분간 미사용)
 ```
 
 ### 테스트
