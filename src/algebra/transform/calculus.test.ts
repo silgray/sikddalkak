@@ -73,6 +73,16 @@ describe('미분 — 순수 스칼라는 CE로 계산한다', () => {
     );
   });
 
+  it('d/dx 는 바로 다음 항에만 묶인다 — 뒤따르는 +를 안 삼킨다', () => {
+    // d/dx(x) + x = 1 + x, 합 전체를 미분한 게 아니다.
+    expect(evaluatedLatex(String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}x+x`)).toBe('x+1');
+    expect(evaluatedLatex(String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}\left(x\right)+x`)).toBe(
+      'x+1',
+    );
+    // 대조: 합 전체를 괄호로 감싸면 진짜로 합 전체가 미분된다.
+    expect(evaluatedLatex(String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}\left(x+x\right)`)).toBe('2');
+  });
+
   it('삼각함수', () => {
     expect(evaluatedLatex(String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}\left(\sin\left(x\right)\right)`)).toBe(
       String.raw`\cos\left(x\right)`,

@@ -38,6 +38,34 @@ describe('단일변수 미분 — \\frac{d}{dx}', () => {
     );
   });
 
+  it('d/dx 는 뒤따르는 +를 삼키지 않는다 — 바로 다음 항에만 묶인다', () => {
+    // CE 실측: \frac{d}{dx}x+x 도 \frac{d}{dx}\left(x\right)+x 도 똑같이
+    // D(Add(x,x),x) 로 온다(첫 항을 따로 괄호 쳤는지는 CE가 구분하지 않는다) — 그래서
+    // 둘 다 같은 결과여야 한다. 합 전체를 미분하려면 \left(x+x\right) 처럼 합 전체를
+    // 감싸야 한다(바로 아래 테스트).
+    expect(opsOf(String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}x+x`)).toBe(
+      '(add (deriv x [x] 1) x)',
+    );
+    expect(opsOf(String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}\left(x\right)+x`)).toBe(
+      '(add (deriv x [x] 1) x)',
+    );
+  });
+
+  it('셋 이상, 뺄셈 섞인 경우도 첫 항만 미분된다', () => {
+    expect(opsOf(String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}x+y+z`)).toBe(
+      '(add (deriv x [x] 1) y z)',
+    );
+    expect(opsOf(String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}x-y`)).toBe(
+      '(add (deriv x [x] 1) (neg y))',
+    );
+  });
+
+  it('N계 미분에서도 첫 항만 미분되고 order는 유지된다', () => {
+    expect(opsOf(String.raw`\dfrac{\mathrm{d}^{3}}{\mathrm{d}x^{3}}x+y`)).toBe(
+      '(add (deriv x [x] 3) y)',
+    );
+  });
+
   it('\\dfrac{df(x)}{dx} — 분자에 본문이 붙은 표기도 D 로 읽힌다', () => {
     expect(opsOf(String.raw`\dfrac{\mathrm{d}f(x)}{\mathrm{d}x}`)).toBe(
       '(deriv (scalarMul f x) [x] 1)',

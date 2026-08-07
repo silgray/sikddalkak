@@ -72,10 +72,41 @@ function boundVariableName(json: unknown): Result<string> {
   return fail('malformed', 'A bound variable must be a plain symbol');
 }
 
+/** `flattenAdditiveChain` 이 뽑아내는 부호 있는 항 하나. */
+type SignedTerm = { readonly json: unknown; readonly negative: boolean };
+
+/**
+ * `Add`/`Subtract` 트리를 왼쪽부터 부호 있는 항의 평평한 목록으로 편다.
+ *
+ * `Add` 는 n항 평평한 배열로 온다(실측: `x+y+z` → `["Add","x","y","z"]`). `Subtract` 는
+ * 좌결합 중첩으로 온다(실측: `x-y-z` → `["Subtract",["Subtract","x","y"],"z"]`) — 그래서
+ * 왼쪽 가지를 재귀로 마저 편다. 둘 다 아니면(사용자가 `\left(\right)` 로 명시적으로
+ * 감싼 덩어리 등) 그 자체가 원자 항 하나다.
+ */
+function flattenAdditiveChain(json: unknown): readonly SignedTerm[] {
+  if (Array.isArray(json) && json[0] === 'Add' && json.length >= 2) {
+    return (json.slice(1) as readonly unknown[]).flatMap(flattenAdditiveChain);
+  }
+  if (Array.isArray(json) && json[0] === 'Subtract' && json.length === 3) {
+    const left = flattenAdditiveChain(json[1]);
+    const right = flattenAdditiveChain(json[2]).map((t) => ({ json: t.json, negative: !t.negative }));
+    return [...left, ...right];
+  }
+  return [{ json, negative: false }];
+}
+
 /**
  * `D(body, x)` — 단일변수 미분. 같은 변수로 중첩된 `D` 는 즉시 접어 `order` 로 담는다
  * (`\frac{\mathrm{d}^3}{\mathrm{d}x^3}f` → CE가 `D(D(D(f,x),x),x)` 를 주므로, 실측).
  * 변수가 다른 중첩(`D(D(f,x),y)`)은 안 접고 안쪽이 그대로 `diff` 자식 노드가 된다.
+ *
+ * **CE는 `D` 뒤따르는 덧셈/뺄셈을 통째로 몸통에 삼킨다** — `\frac{d}{dx}x+y` 도
+ * `\frac{d}{dx}\left(x\right)+y` 도 똑같이 `D(Add(x,y),x)` 로 온다(실측, 첫 항을
+ * 따로 괄호 쳤는지는 구분하지 않는다). 표준 표기 관례는 `d/dx` 가 **바로 다음 항에만**
+ * 묶이는 쪽이라(`+`/`-` 는 더 약하게 묶인다), 여기서 **첫 항만** 미분 대상으로 떼어내고
+ * 나머지는 미분 밖에 그대로 더한다. 사용자가 합 전체를 `\left(x+y\right)` 처럼 명시적으로
+ * 감싼 경우는 몸통이 `Add` 가 아니라 `Delimiter(Add(...))` 로 오므로(실측) 여기 안 걸리고
+ * 합 전체가 미분된다 — 그게 유일하게 "합 전체를 미분"하는 표기다.
  */
 function translateDiffToTree(bodyJson: unknown, varJson: unknown): Result<SyntaxNode> {
   const varName = boundVariableName(varJson);
@@ -91,9 +122,33 @@ function translateDiffToTree(bodyJson: unknown, varJson: unknown): Result<Syntax
     order += 1;
     currentBody = currentBody[1];
   }
-  const body = translateToTree(currentBody);
-  if (!body.ok) return body;
-  return ok({ kind: 'diff', body: body.value, vars: [varName.value], order });
+
+  const terms = flattenAdditiveChain(currentBody);
+  if (terms.length < 2) {
+    const body = translateToTree(currentBody);
+    if (!body.ok) return body;
+    return ok({ kind: 'diff', body: body.value, vars: [varName.value], order });
+  }
+
+  const [first, ...rest] = terms;
+  const diffBody = translateToTree(first.json);
+  const restNodes = rest.map((t) => translateToTree(t.json));
+  const errors: AlgebraError[] = [
+    ...(diffBody.ok ? [] : diffBody.errors),
+    ...restNodes.flatMap((r) => (r.ok ? [] : r.errors)),
+  ];
+  if (errors.length > 0) return failWith(errors);
+  const diffNode: SyntaxNode = {
+    kind: 'diff',
+    body: (diffBody as { value: SyntaxNode }).value,
+    vars: [varName.value],
+    order,
+  };
+  const restTerms = rest.map((t, i) => {
+    const node = (restNodes[i] as { value: SyntaxNode }).value;
+    return t.negative ? ({ kind: 'neg', operand: node } as const) : node;
+  });
+  return ok({ kind: 'add', terms: [diffNode, ...restTerms] });
 }
 
 type BoundSpec = { readonly variable: string; readonly lower: unknown | null; readonly upper: unknown | null };
