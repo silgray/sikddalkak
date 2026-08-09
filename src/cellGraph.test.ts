@@ -185,6 +185,117 @@ describe('캐시 정합성', () => {
   });
 });
 
+describe('사용자 정의 함수', () => {
+  it('정의한 함수를 호출한다', () => {
+    const [, call] = run([String.raw`f\left(x\right)=x^2`, String.raw`f\left(3\right)`]);
+    expect(latexOf(call)).toBe('9');
+  });
+
+  it('인수는 임의의 식일 수 있다', () => {
+    const [, call] = run([String.raw`f\left(x\right)=x^2`, String.raw`f\left(y+1\right)`]);
+    expect(latexOf(call)).toBe(norm(String.raw`\left(y+1\right)^{2}`));
+  });
+
+  it('인수 여러 개', () => {
+    const [, call] = run([String.raw`f\left(x,y\right)=xy`, String.raw`f\left(2,3\right)`]);
+    expect(latexOf(call)).toBe('6');
+  });
+
+  it('중첩 호출', () => {
+    const rows = run([
+      String.raw`f\left(x\right)=x^2`,
+      String.raw`g\left(x\right)=x+1`,
+      String.raw`f\left(g\left(2\right)\right)`,
+    ]);
+    expect(latexOf(rows[2])).toBe('9');
+  });
+
+  it('후위가 apply 바깥에 걸린다 — f(x)^2 는 (f(x))^2', () => {
+    const [, call] = run([String.raw`f\left(x\right)=x+1`, String.raw`f\left(2\right)^2`]);
+    expect(latexOf(call)).toBe('9');
+  });
+
+  it('미분 안의 함수 호출도 전개된다', () => {
+    const rows = run([
+      String.raw`f\left(x\right)=x^2`,
+      String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}\left(f\left(x\right)\right)`,
+    ]);
+    expect(latexOf(rows[1])).toBe('2x');
+  });
+
+  describe('모양 다형 — 호출부 인수 모양에 따라 갈린다', () => {
+    it('스칼라 인수 → 스칼라', () => {
+      const rows = run([String.raw`f\left(x\right)=x^2`, String.raw`f\left(3\right)`]);
+      expect(rows[1]).toMatchObject({ kind: 'ok' });
+    });
+
+    it('정사각 행렬 인수 → 행렬 거듭제곱', () => {
+      const rows = run([String.raw`f\left(x\right)=x^2`, `A=${M.a}`, String.raw`f\left(A\right)`]);
+      expect(rows[2]).toMatchObject({ kind: 'ok' });
+    });
+
+    it('정사각이 아닌 인수 → 오류', () => {
+      const rows = run([
+        String.raw`f\left(x\right)=x^2`,
+        String.raw`v=\begin{pmatrix}1\\2\\3\end{pmatrix}`,
+        String.raw`f\left(v\right)`,
+      ]);
+      expect(rows[2]).toMatchObject({ kind: 'error' });
+    });
+  });
+
+  it('아직 정의되지 않은 이름은 기존대로 곱(행렬곱)으로 읽힌다', () => {
+    const rows = run([`A=${M.a}`, String.raw`v=\begin{pmatrix}1\\1\end{pmatrix}`, String.raw`A\left(v\right)`]);
+    expect(rows[2]).toMatchObject({ kind: 'ok' });
+  });
+
+  it('인수 개수가 안 맞으면 오류다', () => {
+    const rows = run([String.raw`f\left(x,y\right)=x+y`, String.raw`f\left(1\right)`]);
+    expect(rows[1]).toMatchObject({ kind: 'error' });
+    expect((rows[1] as { message: string }).message).toContain('f');
+  });
+
+  it('변수와 함수는 한 이름 공간이다 — 같은 이름이면 둘 다 에러', () => {
+    const rows = run(['a=3', String.raw`a\left(x\right)=x`]);
+    expect(rows[0]).toMatchObject({ kind: 'error' });
+    expect(rows[1]).toMatchObject({ kind: 'error' });
+    expect((rows[0] as { message: string }).message).toContain('duplicate');
+  });
+
+  it('매개변수 이름이 다른 정의와 겹치면 에러', () => {
+    const rows = run(['x=5', String.raw`f\left(x\right)=x^2`]);
+    expect(rows[1]).toMatchObject({ kind: 'error' });
+  });
+
+  it('서로 다른 함수는 같은 매개변수 이름을 써도 된다', () => {
+    const rows = run([
+      String.raw`f\left(x\right)=x^2`,
+      String.raw`g\left(x\right)=x+1`,
+      String.raw`f\left(2\right)+g\left(2\right)`,
+    ]);
+    expect(latexOf(rows[2])).toBe('7');
+  });
+
+  it('자기 참조 함수 정의는 순환으로 본다', () => {
+    const [self] = run([String.raw`f\left(x\right)=f\left(x-1\right)+1`]);
+    expect(self).toMatchObject({ kind: 'error' });
+  });
+
+  it('정의 셀은 정리하지 않고 본문을 그대로 보여준다', () => {
+    const [def] = run([String.raw`f\left(x\right)=x+x`]);
+    expect(latexOf(def)).toBe(norm(String.raw`f\left(x\right)=x+x`));
+  });
+
+  it('함수 셀을 고치면 호출 셀도 다시 계산된다 (캐시 지문)', () => {
+    expect(
+      latexOf(run([String.raw`f\left(x\right)=x^2`, String.raw`f\left(3\right)`])[1]),
+    ).toBe('9');
+    expect(
+      latexOf(run([String.raw`f\left(x\right)=x^3`, String.raw`f\left(3\right)`])[1]),
+    ).toBe('27');
+  });
+});
+
 describe('에러 처리', () => {
   it('불완전한 식(placeholder)을 에러로 표시하고 죽지 않는다', () => {
     expect(one(String.raw`x+\placeholder{}`)).toEqual({

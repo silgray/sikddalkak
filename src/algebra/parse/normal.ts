@@ -92,6 +92,11 @@ export function exprKey(e: TypedExpr): string {
       return `p(${exprKey(e.base)},${exprKey(e.exponent)})`;
     case 'call':
       return `${e.name}(${e.args.map(exprKey).join(',')})`;
+    // `call` 처럼 맨 이름으로 접두하지 않는다 — 사용자가 `abs` 같은 내장 함수 이름과
+    // 겹치는 이름으로 함수를 정의할 수 있어서(`call`의 `name` 은 SCALAR_FUNCTIONS 값
+    // 중 하나뿐이다), 그대로 두면 서로 다른 두 op가 같은 키를 낼 수 있다.
+    case 'apply':
+      return `apply(${e.name},${e.args.map(exprKey).join(',')})`;
     case 'frac':
       return `f(${exprKey(e.numerator)},${exprKey(e.denominator)})`;
     case 'matIdentity':
@@ -231,6 +236,7 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
     case 'sym':
     case 'matrix':
     case 'call':
+    case 'apply':
     case 'frac':
     case 'matIdentity':
     case 'deriv':

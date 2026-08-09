@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { sexpTyped } from './debug';
 import { render } from './render';
 import { TEST_ENV, typedOf } from './testEnv';
+import { parseSyntax } from './parse/parseSymbol';
+import type { Env, FunctionDef } from './types-TypedExpr';
+import { shape } from './types-shape';
 
 /**
  * 렌더러의 계약은 **왕복**이다: 낸 LaTeX을 다시 읽으면 같은 연산 트리가 나와야 한다.
@@ -77,6 +80,35 @@ describe('왕복 — 다시 읽으면 같은 연산 트리', () => {
   }
 });
 
+describe('apply 도입으로 생긴 재파싱 위험 (실측 회귀, 퍼즈가 잡음)', () => {
+  it('맨 심볼이 좌결합 이웃과 묶인 채 자체 구분자 인수 앞에 서면 괄호로 보호한다', () => {
+    // rv(sum) 을 그대로 다시 읽으면 v 가 sum 쪽으로 먼저 묶여(apply 후보) r 과의
+    // 좌결합이 깨진다 — v(3,1)·sum(3,1) 은 안 되는데 (rv)(1,1)·sum 은 되므로 값 자체가
+    // 못 나온다(예전엔 apply가 없어 항상 좌결합이라 문제가 없었다).
+    expect(
+      rendered(String.raw`\left(r\right)\left(v\right)\left(\sum_{k=1}^{3}\left(w\right)\right)`),
+    ).toBe(String.raw`\left(rv\right)\left(\sum_{k=1}^{3}\left(w\right)\right)`);
+    expectRoundTrip(
+      String.raw`\left(r\right)\left(v\right)\left(\sum_{k=1}^{3}\left(w\right)\right)`,
+    );
+  });
+
+  it('맨 앞(왼쪽에 아무것도 없는) 심볼은 감쌀 필요가 없다', () => {
+    // A 는 이 곱의 첫 인수라 오른쪽으로 apply 후보가 돼도 값이 똑같다 — 과잉 괄호 방지.
+    expect(rendered(String.raw`A\left(B+C\right)`)).toBe(String.raw`A\left(B+C\right)`);
+  });
+
+  it('명시적으로 한 번 더 감싼 후위는 apply 전체를 감싼다 (§3 규칙과 별개 경로)', () => {
+    // `A(B)^T`(괄호 한 겹, 안 감쌈)와 `(A(B))^T`(괄호 두 겹, 명시적으로 감쌈)는
+    // CE JSON부터 다르게 온다(실측) — 후자는 사용자가 후위 범위를 통째로 못박은
+    // 것이므로, A가 함수가 아니면 (A·B) 전체가 전치돼야지 B만 전치되면 안 된다.
+    expectRoundTrip(String.raw`\left(r\left(\sum_{k=1}^{3}\left(w\right)\right)\right)^3`);
+    expect(
+      rendered(String.raw`\left(A\left(B\right)\right)^T`),
+    ).toBe(String.raw`\left(AB\right)^T`);
+  });
+});
+
 describe('괄호는 필요한 곳에만', () => {
   it('좌결합 병치는 괄호가 없다', () => {
     expect(rendered('ABC')).toBe('ABC');
@@ -149,5 +181,43 @@ describe('잎 렌더', () => {
 
   it('음수 지수는 중괄호로 감싼다', () => {
     expect(rendered('A^{-1}')).toBe('A^{-1}');
+  });
+});
+
+describe('apply — 사용자 정의 함수 호출', () => {
+  function fn(params: readonly string[], bodyLatex: string): FunctionDef {
+    const s = parseSyntax(bodyLatex);
+    if (!s.ok) throw new Error('bad body');
+    return { params, body: s.value };
+  }
+
+  const FN_ENV: Env = {
+    ...TEST_ENV,
+    shapes: { ...TEST_ENV.shapes, y: shape(1, 1) },
+    functions: { f: fn(['x'], 'x^2') },
+  };
+
+  /** 왕복이 성립하는지 — **같은 env** 안에서만 계약이 성립한다(render.ts 서두 참고). */
+  function expectRoundTripIn(latex: string, env: Env): void {
+    const once = typedOf(latex, env);
+    const out = render(once);
+    const twice = typedOf(out, env);
+    expect(sexpTyped(twice), `round-trip broke via ${out}`).toBe(sexpTyped(once));
+  }
+
+  it('f(y) 는 f\\left(y\\right) 로 렌더된다 — call 처럼 뭉개지 않는다', () => {
+    expect(render(typedOf('f(y)', FN_ENV))).toBe(String.raw`f\left(y\right)`);
+  });
+
+  it('같은 env 안에서 왕복이 성립한다', () => {
+    expectRoundTripIn('f(y)', FN_ENV);
+    expectRoundTripIn('f(y)^2', FN_ENV);
+  });
+
+  it('함수 정의가 없는 env로 다시 읽으면 곱으로 돌아온다 (render.ts 서두의 계약 그대로)', () => {
+    const rerendered = render(typedOf('f(y)', FN_ENV));
+    const rereadElsewhere = typedOf(rerendered, TEST_ENV);
+    // TEST_ENV엔 y도 없어 둘 다 미정 스칼라로 가정된다 → scalarMul.
+    expect(sexpTyped(rereadElsewhere)).toBe('(scalarMul f y)');
   });
 });

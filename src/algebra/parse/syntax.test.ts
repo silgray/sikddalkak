@@ -100,13 +100,32 @@ describe('기타 구성', () => {
     expect(parsed('v^T')).toBe('(^ v T)');
   });
 
-  it('대문자 뒤 괄호는 함수 적용이 아니라 병치다', () => {
-    // CE는 홑 대문자 뒤 괄호를 함수 호출로 읽는다(실측). 우리 도메인에선 행렬 곱이다.
-    expect(parsed(String.raw`A\left(v+w\right)`)).toBe('(juxt A (+ v w))');
-    expect(parsed(String.raw`AB\left(v\right)`)).toBe('(juxt A (juxt B v))');
-    // 소문자·첨자 있는 이름은 CE도 병치로 준다 — 같은 결과가 나와야 한다.
-    expect(parsed(String.raw`g\left(x\right)`)).toBe('(juxt g x)');
-    expect(parsed(String.raw`A_1\left(v\right)`)).toBe('(juxt A_1 v)');
+  it('이름 뒤 괄호는 apply 노드다 — 함수인지 곱인지는 이 층에서 안 정한다', () => {
+    // CE는 홑 대문자 뒤 괄호를 함수 호출로 읽고(실측), 소문자·첨자 있는 이름은 병치로
+    // 준다 — 이 층은 둘을 같은 `apply` 로 모은다. `A` 가 함수로 정의됐는지 몰라야
+    // 정상이다(모양 문맥이 없다) — 함수/곱 판정은 elaborate가 한다(evaluate.test.ts 참고).
+    expect(parsed(String.raw`A\left(v+w\right)`)).toBe('(apply A (+ v w))');
+    expect(parsed(String.raw`AB\left(v\right)`)).toBe('(juxt A (apply B v))');
+    expect(parsed(String.raw`g\left(x\right)`)).toBe('(apply g x)');
+    expect(parsed(String.raw`A_1\left(v\right)`)).toBe('(apply A_1 v)');
+  });
+
+  it('인수가 여러 개면 apply 가 전부 담는다', () => {
+    expect(parsed(String.raw`f\left(x,y\right)`)).toBe('(apply f x y)');
+    expect(parsed(String.raw`A\left(v,w\right)`)).toBe('(apply A v w)');
+  });
+
+  it('빈 괄호는 함수 이름이든 아니든 오류다', () => {
+    expect(errorCode(String.raw`f\left(\right)`)).toBe('malformed');
+  });
+
+  it('후위는 대문자·소문자 경로 모두 apply 밖을 감싼다 (같은 트리)', () => {
+    // CE는 두 경로에서 후위 결합 위치를 다르게 주지만(실측, translateToTree.ts 서두
+    // 참고), 여기서 같은 "바깥" 꼴로 정규화되는지가 이 테스트의 요점이다.
+    expect(parsed(String.raw`f\left(x\right)^2`)).toBe('(^ (apply f x) 2)');
+    expect(parsed(String.raw`F\left(x\right)^2`)).toBe('(^ (apply F x) 2)');
+    expect(parsed(String.raw`f\left(x\right)^T`)).toBe('(^ (apply f x) T)');
+    expect(parsed(String.raw`A\left(v\right)^T`)).toBe('(^ (apply A v) T)');
   });
 
   it('역삼각함수는 \\sin^{-1} 로 써도 \\arcsin 과 같은 곳에 도착한다', () => {

@@ -12,6 +12,11 @@ import { isOne, isZero, splitSign, type Literal } from './types-Literal';
  * 그래서 **구조 렌더를 CE에 맡기지 않는다.** CE는 `["Power","A",-1]` 을 `\frac{1}{A}` 로
  * 되돌려 역행렬을 행렬 나눗셈으로 바꿔버린다(실측). CE에 맡기는 건 **잎 심볼 이름**뿐 —
  * `Pi`→`\pi`, `A_bold`→`\mathbf{A}` 같은 이름 사전은 CE가 정확히 알고 있다.
+ *
+ * ⚠ `apply`(사용자 정의 함수 호출) 노드가 섞이면 왕복 계약이 **"같은 env 안에서"로
+ * 좁아진다** — `render` 는 `env` 를 안 받으므로, `f\left(x\right)` 를 함수 정의가 없는
+ * 환경에서 다시 읽으면 곱으로 돌아온다(`elaborate` 가 판단한다, `apply` case 참고).
+ * 모양이 이미 `env` 에 의존하는 것과 같은 성질이라 새로운 종류의 빚은 아니다.
  */
 
 const ce = new ComputeEngine();
@@ -95,6 +100,7 @@ function precedence(e: TypedExpr): number {
     case 'sym':
     case 'matrix':
     case 'call':
+    case 'apply':
     case 'matIdentity':
     case 'frac':
       return ATOM;
@@ -141,11 +147,61 @@ const CALL_LATEX: Record<string, string> = {
   exp: '\\exp', ln: '\\ln', log: '\\log',
 };
 
+/** `\left(` 나 `\begin{pmatrix}` 로 시작하는가 — CE가 "이름 뒤 자체 구분자"로 읽어
+ * `apply` 후보로 삼는 두 모양(`Delimiter`/`Matrix`, `translateToTree.ts` 참고)이다. */
+const startsWithSelfDelimiter = (s: string): boolean =>
+  s.startsWith('\\left(') || s.startsWith('\\begin{pmatrix}');
+
+/**
+ * `render(e)` 의 **끝**이 보호 안 된 맨 이름(`sym`, 또는 `matIdentity`→`"I"`)으로
+ * 끝나면서, 그 이름 **왼쪽에 이미 같은 병치줄의 다른 토큰이 있는가**(중첩까지 통틀어).
+ *
+ * 왼쪽에 아무것도 없으면(정말 맨 처음 토큰) 안전하다 — 함수든 아니든 오른쪽으로 묶여도
+ * 값이 같다(`A\left(B+C\right)` 는 `A` 가 함수든 아니든 결국 "A times (B+C)"). 위험은
+ * **왼쪽 이웃과 묶였어야 하는 이름을 자체 구분자가 가로챌 때**뿐이다 — `rv(\Sigma)` 에서
+ * `v` 는 이미 `r` 과 같은 곱 안에 있었는데(`matMul(r,v)`), 다시 읽을 때 `v` 가 `\Sigma`
+ * 쪽으로 먼저 묶이면 `r` 과의 결합이 깨진다(실측, 퍼즈가 잡음).
+ *
+ * `hasPrecedingSibling` 은 **바깥(호출자) 쪽에 이미 다른 인수가 있는지**를 실어 나른다.
+ * `scalarMul`/`matMul`(정규화 후 길이 ≥ 2)로 재귀할 때는 그 안에서 마지막 인수 앞에
+ * 이미 다른 인수가 있으므로 바깥 사정과 무관하게 무조건 `true` 를 넘긴다.
+ *
+ * 그 밖의 모든 op(`add`,`transpose`,`matPow`,`call`,`apply`,`frac`, …)는 각자 자기
+ * 표기의 닫는 기호(`}`,`\right)`, 연산자 등)로 끝나 안전하다 — 여기 열거 안 해도
+ * `default: false` 로 정확하다.
+ */
+function hasBareNameHazard(e: TypedExpr, hasPrecedingSibling: boolean): boolean {
+  switch (e.op) {
+    case 'sym':
+    case 'matIdentity':
+      return hasPrecedingSibling;
+    case 'scalarMul':
+    case 'matMul':
+      return hasBareNameHazard(e.factors[e.factors.length - 1], true);
+    case 'mul':
+      // renderProduct([e.scalar, e.matrix]) — 마지막 자리는 항상 matrix.
+      return hasBareNameHazard(e.matrix, true);
+    default:
+      return false;
+  }
+}
+
 /**
  * 병치로 n개의 인수를 잇는다.
  *
  * 뒤따르는 인수마다 `POW` 세기를 요구하는 이유: 병치는 좌결합이라 `A(BC)` 의 괄호가
  * 사라지면 `(AB)C` 로 다시 읽혀 **비가환 순서가 바뀐다**.
+ *
+ * **`apply` 도입 이후 새로 생긴 위험**: 맨 심볼(`v`)이나 `I` 바로 뒤에 자체 구분자로
+ * 시작하는 인수(괄호로 감싸인 것/행렬 리터럴)가 오면, 다시 읽을 때 CE가 그 심볼을
+ * **함수 이름**으로 오독한다(실측: `rv\left(\sum...\right)` 를 다시 읽으면 `v` 가
+ * `\sum(...)` 을 호출한 것으로 파싱된다 — `v` 가 함수가 아니라 원래 `r` 과 좌결합했어야
+ * 하는데, `elaborate` 가 대신 `v` 를 그 괄호에 먼저 묶어버려 결합 순서 자체가 바뀐다,
+ * 퍼즈가 잡음). 그래서 그런 심볼은 **먼저 괄호로 감싸** 다시 읽을 때 `Delimiter`(배열)
+ * 로 오게 만든다 — `apply` 판정은 맨 문자열 이름에만 걸리므로 이걸로 막힌다.
+ *
+ * 오른쪽부터 도는 이유: 이 감싸기 자체가 "자체 구분자로 시작함"을 새로 만들 수 있다
+ * (`rv(sum)` 에서 `w` 를 감싸면 `r` 앞도 위험해진다) — 전파가 왼쪽으로 흘러야 한다.
  */
 function renderProduct(factors: readonly TypedExpr[]): string {
   // 맨 앞에 붙은 음수는 곱 **밖으로** 빼낸다.
@@ -159,9 +215,22 @@ function renderProduct(factors: readonly TypedExpr[]): string {
     const { negative, magnitude } = splitSign(head.value);
     if (negative) return `-${renderProduct([{ ...head, value: magnitude }, ...rest])}`;
   }
-  return factors.reduce((acc, factor, i) => {
-    if (i === 0) return at(factor, MUL);
-    const r = at(factor, POW);
+
+  const pieces: string[] = new Array(factors.length);
+  for (let i = factors.length - 1; i >= 0; i -= 1) {
+    const factor = factors[i];
+    let piece = i === 0 ? at(factor, MUL) : at(factor, POW);
+    if (
+      hasBareNameHazard(factor, i > 0) &&
+      i + 1 < pieces.length &&
+      startsWithSelfDelimiter(pieces[i + 1])
+    ) {
+      piece = paren(render(factor));
+    }
+    pieces[i] = piece;
+  }
+
+  return pieces.reduce((acc, r) => {
     // `2`·`3` 을 그냥 붙이면 `23` 이 된다. 그렇다고 `\cdot` 를 끼우면 **묶음이 달라진다** —
     // `\cdot` 는 병치보다 느슨해서 `2\cdot 3x` 가 `2·(3x)` 로 읽힌다. 괄호로 떼어놓는 게
     // 유일하게 안전한 방법이다. (매 접합마다 확인해야 한다 — n-항이라 중간에도 숫자끼리
@@ -264,6 +333,14 @@ export function render(e: TypedExpr): string {
       const command = CALL_LATEX[e.name] ?? `\\operatorname{${e.name}}`;
       return `${command}${paren(arg)}`;
     }
+
+    // 사용자 정의 함수 — 내장 표기 사전(`CALL_LATEX`) 없이 이름 그대로 낸다(`sym` 과
+    // 같은 방식, `symbolLatex`). **`env` 없이는 함수인지 다시 판별 못 한다** — 함수
+    // 정의가 없는 환경에서 이 LaTeX을 다시 읽으면 곱(`elaborate` 의 juxt 되돌리기)으로
+    // 온다. 그래서 렌더 멱등성은 "같은 `env` 안에서" 로 좁아진다(`call`은 `env` 와
+    // 무관하게 항상 함수라 이 제약이 없다).
+    case 'apply':
+      return `${symbolLatex(e.name)}${paren(e.args.map((a) => render(a)).join(','))}`;
 
     case 'frac':
       return `\\frac{${render(e.numerator)}}{${render(e.denominator)}}`;

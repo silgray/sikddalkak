@@ -387,6 +387,20 @@ export function foldMatrices(e: TypedExpr): Result<TypedExpr> {
       return ok({ op: 'call', shape: SCALAR, name: e.name, args });
     }
 
+    // 사용자 정의 함수 자체는 여기서 전개하지 않는다 — 그건 `foldCalculus` 뒤에 오는
+    // `foldFunctions`(`transform/functions.ts`)의 몫이다. 여기서는 인수 안의 리터럴
+    // 행렬 산술만 먼저 접는다. `call` 과 달리 모양은 그대로 지킨다 — 인수가 스칼라란
+    // 보장이 없다.
+    case 'apply': {
+      const args: TypedExpr[] = [];
+      for (const a of e.args) {
+        const r = foldMatrices(a);
+        if (!r.ok) return r;
+        args.push(r.value);
+      }
+      return ok({ op: 'apply', shape: e.shape, name: e.name, args });
+    }
+
     case 'frac': {
       const numerator = foldMatrices(e.numerator);
       if (!numerator.ok) return numerator;

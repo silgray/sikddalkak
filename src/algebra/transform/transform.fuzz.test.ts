@@ -133,6 +133,7 @@ function containsResolvedIdentity(e: TypedExpr): boolean {
     case 'scalarPow':
       return containsResolvedIdentity(e.base) || containsResolvedIdentity(e.exponent);
     case 'call':
+    case 'apply':
       return e.args.some(containsResolvedIdentity);
     case 'frac':
       return containsResolvedIdentity(e.numerator) || containsResolvedIdentity(e.denominator);

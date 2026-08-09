@@ -36,6 +36,8 @@ export function sexpSyntax(node: SyntaxNode): string {
       return `(/ ${sexpSyntax(node.numerator)} ${sexpSyntax(node.denominator)})`;
     case 'call':
       return `(${node.name} ${node.args.map(sexpSyntax).join(' ')})`;
+    case 'apply':
+      return `(apply ${node.callee} ${node.args.map(sexpSyntax).join(' ')})`;
     case 'diff':
       return `(diff ${sexpSyntax(node.body)} [${node.vars.join(',')}] ${node.order})`;
     case 'sum':
@@ -80,6 +82,8 @@ export function sexpTyped(e: TypedExpr): string {
       return `(scalarPow ${sexpTyped(e.base)} ${sexpTyped(e.exponent)})`;
     case 'call':
       return `(${e.name} ${e.args.map(sexpTyped).join(' ')})`;
+    case 'apply':
+      return `(apply ${e.name} ${e.args.map(sexpTyped).join(' ')})`;
     case 'frac':
       return `(frac ${sexpTyped(e.numerator)} ${sexpTyped(e.denominator)})`;
     case 'matIdentity':
@@ -128,6 +132,8 @@ export function sexpTypedWithShapes(e: TypedExpr): string {
         return `(scalarPow ${sexpTypedWithShapes(e.base)} ${sexpTypedWithShapes(e.exponent)})`;
       case 'call':
         return `(${e.name} ${e.args.map(sexpTypedWithShapes).join(' ')})`;
+      case 'apply':
+        return `(apply ${e.name} ${e.args.map(sexpTypedWithShapes).join(' ')})`;
       case 'frac':
         return `(frac ${sexpTypedWithShapes(e.numerator)} ${sexpTypedWithShapes(e.denominator)})`;
       case 'matIdentity':

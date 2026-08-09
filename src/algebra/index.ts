@@ -1,5 +1,5 @@
 import { elaborate } from './parse/elaborate';
-import { type Env, type TypedExpr } from './types-TypedExpr';
+import { type Env, type FunctionDef, type TypedExpr } from './types-TypedExpr';
 import { normalize } from './parse/normalize';
 import { exprKey } from './parse/normal';
 import { fail, failWith, ok, type AlgebraError, type Result } from './types-result';
@@ -7,6 +7,7 @@ import { render } from './render';
 import { expand, factor, simplify, substitute } from './transform/transform';
 import { SCALAR, formatShape, type Shape } from './types-shape';
 import { parseSyntax } from './parse/parseSymbol';
+export { parseSyntax } from './parse/parseSymbol';
 import { withCeBudget } from './ceLimit';
 import type { SyntaxNode } from './types-SyntaxNode';
 
@@ -20,7 +21,7 @@ import type { SyntaxNode } from './types-SyntaxNode';
 export type { Dim, Shape, ShapeKind } from './types-shape';
 export { SCALAR, classify, formatShape, isScalar, isVector, shape } from './types-shape';
 export type { AlgebraError, ErrorCode, Result } from './types-result';
-export type { Env, TypedExpr } from './types-TypedExpr';
+export type { Env, TypedExpr, FunctionDef } from './types-TypedExpr';
 export type { SyntaxNode } from './types-SyntaxNode';
 export { render } from './render';
 export { expand, factor, simplify, substitute, isPureScalar } from './transform/transform';
@@ -109,8 +110,16 @@ export type BuiltEnv = {
  * ⚠ **순환 참조는 여기서 잡지 못한다.** `P = Q^T`, `Q = P^T` 는 2판의 스칼라 가정으로
  * 조용히 풀린다. 순환 검출은 셀 사이 의존 그래프의 일이라 이 모듈 밖에 있다 —
  * 이 모듈은 식 하나와 심볼 환경만 안다.
+ *
+ * **함수 정의(`functions`)는 이 고정점에 안 들어간다** — 함수 자체는 모양이 없다
+ * (호출부마다 다시 정해진다, `elaborate.ts` 의 `instantiateFunction`). 미리 채워
+ * 두면 되고, 이 고정점은 그걸 `env` 에 실어 **변수** 정의가 함수를 호출하는 경우
+ * (`w = f(v)`)를 풀 수 있게만 하면 된다.
  */
-export function buildEnv(definitions: Definitions): BuiltEnv {
+export function buildEnv(
+  definitions: Definitions,
+  functions: Readonly<Record<string, FunctionDef>> = {},
+): BuiltEnv {
   const shapes: Record<string, Shape> = {};
   const bindings: Record<string, TypedExpr> = {};
   let pending = Object.entries(definitions);
@@ -123,7 +132,7 @@ export function buildEnv(definitions: Definitions): BuiltEnv {
       progressed = false;
       const stillPending: [string, string][] = [];
       for (const [name, latex] of pending) {
-        const parsed = parse(latex, { shapes, assumeScalarForUnknown: false });
+        const parsed = parse(latex, { shapes, functions, assumeScalarForUnknown: false });
         if (parsed.ok) {
           shapes[name] = parsed.value.shape;
           bindings[name] = parsed.value;
@@ -149,7 +158,7 @@ export function buildEnv(definitions: Definitions): BuiltEnv {
       changed = false;
       const failing: [string, string][] = [];
       for (const [name, latex] of pending) {
-        const parsed = parse(latex, { shapes, assumeScalarForUnknown: true });
+        const parsed = parse(latex, { shapes, functions, assumeScalarForUnknown: true });
         if (!parsed.ok) {
           failing.push([name, latex]);
           continue;
@@ -170,7 +179,7 @@ export function buildEnv(definitions: Definitions): BuiltEnv {
   }
 
   return {
-    env: { shapes, bindings },
+    env: { shapes, bindings, functions },
     unresolved: pending.map(([name]) => ({
       code: 'unknown-shape' as const,
       message: `Could not determine a shape for ${name}`,

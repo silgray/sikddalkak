@@ -15,7 +15,7 @@ import {
 } from '../types-shape';
 import { fail, failWith, ok, type AlgebraError, type Result } from '../types-result';
 import type { SyntaxNode } from '../types-SyntaxNode';
-import type { TypedExpr, Env } from '../types-TypedExpr';
+import type { TypedExpr, Env, FunctionDef } from '../types-TypedExpr';
 
 /**
  * Elaborate — 연산자 해석 + 차원 검사 + 모양 계산을 한 패스로 한다.
@@ -186,6 +186,141 @@ function elaborateJuxt(left: TypedExpr, right: TypedExpr): Result<TypedExpr> {
 export const mulTyped = elaborateJuxt;
 export const dotTyped = elaborateCDot;
 export const crossTyped = elaborateTimes;
+
+// ---------------------------------------------------------------------------
+// 사용자 정의 함수 — `apply` 는 이름 뒤 괄호가 함수 적용인지 곱(행렬곱)인지 여기서 정한다
+// ---------------------------------------------------------------------------
+
+/**
+ * 함수 인스턴스화 재귀 상한. 상호 재귀(`f(x)=g(x)`, `g(x)=f(x)`)가 무한히 elaborate를
+ * 되부르지 않게 막는다 — `transform/evaluate.ts` 의 `MAX_SUBSTITUTION_DEPTH` 와 같은
+ * 취지(진짜 순환 검출은 셀 사이 의존 그래프의 몫이라 여기서는 상한만 둔다).
+ */
+const MAX_APPLY_DEPTH = 64;
+let applyDepth = 0;
+
+/**
+ * `apply` 노드 하나를 함수 정의로 인스턴스화한다 — 매개변수에 **호출부 인수의 실제
+ * 모양**을 걸고 본문을 다시 elaborate한다.
+ *
+ * `f` 는 고정 시그니처가 없는 모양 다형이다: 같은 본문이 인수 모양에 따라 스칼라가
+ * 되기도, 오류가 되기도, 다른 모양의 행렬이 되기도 한다(`types-TypedExpr.ts` 의
+ * `apply` 문서, §설계 결정). 그래서 **호출부마다 다시 elaborate하는 게 유일한 방법**
+ * 이다 — `apply(f,args)` 에 인스턴스 결과를 캐시로 달아두면 `exprKey`(치환 고정점·
+ * 캐시 지문이 쓰는 구조 키)가 오염되고 렌더 왕복도 깨지므로, 재계산을 받아들인다.
+ *
+ * 이 함수는 elaborate(모양만 필요, 트리는 버린다)와 `evaluate`의 `foldFunctions`
+ * (값까지 필요, 이 결과에 `substitute` 를 한 번 더 얹어 실제 인수 **값**을 채운다)가
+ * 공유한다 — 인스턴스화 규칙이 두 벌이 되면 어긋난다.
+ */
+export function instantiateFunction(
+  fn: FunctionDef,
+  args: readonly TypedExpr[],
+  env: Env,
+): Result<TypedExpr> {
+  if (applyDepth >= MAX_APPLY_DEPTH) {
+    return fail('unsupported', 'Function recursion is too deep (possibly a cycle)');
+  }
+  const shapes = { ...env.shapes };
+  for (let i = 0; i < fn.params.length; i += 1) shapes[fn.params[i]] = args[i].shape;
+  applyDepth += 1;
+  try {
+    return elaborate(fn.body, { ...env, shapes });
+  } finally {
+    applyDepth -= 1;
+  }
+}
+
+/** 인수 개수가 맞는지 보고, 맞으면 인스턴스화해 결과 모양을 확정한다. */
+function elaborateApply(
+  callee: string,
+  fn: FunctionDef,
+  args: readonly TypedExpr[],
+  env: Env,
+): Result<TypedExpr> {
+  if (args.length !== fn.params.length) {
+    return shapeMismatch(
+      `${callee} expects ${fn.params.length} argument${fn.params.length === 1 ? '' : 's'} (got ${args.length})`,
+    );
+  }
+  const instantiated = instantiateFunction(fn, args, env);
+  if (!instantiated.ok) {
+    // 본문 오류에 호출 맥락을 붙인다 — 안 붙이면 어느 함수 탓인지 안 보인다
+    // (`f: sin expects a scalar argument (got 3x3)`, 중첩 호출이면 바깥부터 쌓인다).
+    return failWith(instantiated.errors.map((e) => ({ ...e, message: `${callee}: ${e.message}` })));
+  }
+  return ok({ op: 'apply', shape: instantiated.value.shape, name: callee, args });
+}
+
+/**
+ * `apply` Syntax 노드를 해소한다 — `callee` 가 정의된 함수인지 `env.functions` 로
+ * 판단한다. 이 판단이 여기(elaborate) 있는 이유는 `cdot`/`juxt` 가 내적·스칼라곱·
+ * 외적 중 뭔지 모양을 알아야 정해지는 것과 같다 — 함수인지 곱인지도 문맥(env) 없이는
+ * 모른다(`types-SyntaxNode.ts` 의 `apply` 문서 참고).
+ *
+ * **함수가 아니면 병치로 되돌린다** — `A(v+w)` 가 `A` 미정의면 기존 그대로 행렬곱
+ * 해석(`elaborateJuxt`)에 맡긴다. 인수를 이미 elaborate했으므로(모양이 있어야 함수
+ * 여부를 나중에 또 물을 일이 없다) 다시 Syntax로 안 돌아가고 `elaborateJuxt` 를
+ * 바로 왼쪽부터 접는다 — `f(x,y)` 가 함수가 아니면 `f·x·y` 다.
+ */
+function elaborateApplyNode(
+  node: Extract<SyntaxNode, { kind: 'apply' }>,
+  env: Env,
+): Result<TypedExpr> {
+  const argResults = node.args.map((a) => elaborate(a, env));
+  const errors = argResults.flatMap((a) => (a.ok ? [] : a.errors));
+  if (errors.length > 0) return failWith(errors);
+  const args = argResults.map((a) => (a as { value: TypedExpr }).value);
+
+  const fn = env.functions?.[node.callee];
+  if (fn === undefined) {
+    const callee = elaborate({ kind: 'sym', name: node.callee }, env);
+    if (!callee.ok) return callee;
+    return args.reduce<Result<TypedExpr>>(
+      (acc, arg) => (acc.ok ? elaborateJuxt(acc.value, arg) : acc),
+      ok(callee.value),
+    );
+  }
+  return elaborateApply(node.callee, fn, args, env);
+}
+
+/**
+ * `apply` 바로 위에 후위(`^n`,`^T`)가 얹힌 경우(Syntax IR로는 `pow(apply(...), exp)`)를
+ * `callee` 가 함수인지에 따라 갈라 처리한다 — `case 'pow':` 에서 여기로 위임한다.
+ *
+ * **왜 `case 'pow':` 에서 미리 갈라야 하는가**: `translateToTree` 는 대문자·소문자 두
+ * 경로 모두 후위를 "apply 바깥" 꼴로 정규화해 둔다(`types-SyntaxNode.ts` 의 `apply`
+ * 문서 참고) — 함수인지 아직 모르니 일단 그렇게 담아둔 것뿐이다. `callee` 가 함수면
+ * 그 정규화가 맞다(`f(x)^2` = `(f(x))^2`). 하지만 함수가 **아니면** 기존 행렬 규칙이
+ * 후위를 **마지막 인수 안으로** 요구한다(`A(X)^T` = `A·(X^T)`, 설계 §3) — `case 'pow':`
+ * 가 먼저 `node.base` 를 평범하게 elaborate해버리면 결과는 이미 `matMul([A,X^T 아닌
+ * X])` 같은 값으로 굳어 있어서, 그 뒤에 `elaboratePow` 가 씌우는 지수는 **전체**에
+ * 걸릴 수밖에 없다("apply였다"는 사실 자체가 사라졌기 때문) — `(A·X)^2` 가 나와
+ * 버려 값이 달라진다(실측, 퍼즈가 잡음). 그래서 `case 'pow':` 가 `node.base` 를
+ * elaborate하기 **전에** 갈라야 한다.
+ */
+function elaboratePowOverApply(
+  applyNode: Extract<SyntaxNode, { kind: 'apply' }>,
+  exponent: SyntaxNode,
+  env: Env,
+): Result<TypedExpr> {
+  const argResults = applyNode.args.map((a) => elaborate(a, env));
+  const errors = argResults.flatMap((a) => (a.ok ? [] : a.errors));
+  if (errors.length > 0) return failWith(errors);
+  const args = argResults.map((a) => (a as { value: TypedExpr }).value);
+
+  const callee = elaborate({ kind: 'sym', name: applyNode.callee }, env);
+  if (!callee.ok) return callee;
+
+  const last = args[args.length - 1];
+  const wrappedLast = elaboratePow(last, exponent, env);
+  if (!wrappedLast.ok) return wrappedLast;
+  const allArgs = [...args.slice(0, -1), wrappedLast.value];
+  return allArgs.reduce<Result<TypedExpr>>(
+    (acc, arg) => (acc.ok ? elaborateJuxt(acc.value, arg) : acc),
+    ok(callee.value),
+  );
+}
 
 /** 전치. 모양을 뒤집는다. 스칼라에는 쓰지 않는다 (그건 일반 지수다). */
 export function transposeTyped(operand: TypedExpr): Result<TypedExpr> {
@@ -561,6 +696,18 @@ export function elaborate(node: SyntaxNode, env: Env): Result<TypedExpr> {
     }
 
     case 'pow': {
+      // `apply` 바로 위의 **꽉 묶인**(`tightPostfix`) 후위는 함수인지 먼저 갈라야
+      // 한다 — `elaboratePowOverApply` 문서 참고. 느슨한 후위(사용자가 명시적으로
+      // 한 번 더 괄호를 쳐서 후위 범위를 이미 통째로 정한 경우, `types-SyntaxNode.ts`
+      // 의 `pow.tightPostfix` 문서 참고)는 여기서 안 갈라야 한다 — `base` 를 통째로
+      // elaborate한 뒤 후위를 씌우는 아래 일반 경로가 정확히 "괄호 친 전체"를 감싼다.
+      if (
+        node.base.kind === 'apply' &&
+        node.tightPostfix === true &&
+        env.functions?.[node.base.callee] === undefined
+      ) {
+        return elaboratePowOverApply(node.base, node.exponent, env);
+      }
       const base = elaborate(node.base, env);
       if (!base.ok) return base;
       return elaboratePow(base.value, node.exponent, env);
@@ -585,14 +732,17 @@ export function elaborate(node: SyntaxNode, env: Env): Result<TypedExpr> {
       const values = args.map((a) => (a as { value: TypedExpr }).value);
       const nonScalar = values.find((v) => !isScalar(v.shape));
       if (nonScalar !== undefined) {
-        // 심볼릭 함수가 들어오면 elaborate 이전 전개 패스에서 이미 펼쳐져 있다.
-        // 여기까지 온 비스칼라 인자는 `\sin(행렬)` 처럼 뜻이 정해지지 않은 경우다.
+        // `\sin(행렬)` 처럼 내장 스칼라 함수에 비스칼라 인자가 들어온 경우 — 뜻이
+        // 정해지지 않았으므로 오류다.
         return shapeMismatch(
           `${node.name} expects a scalar argument (got ${classify(nonScalar.shape)})`,
         );
       }
       return ok({ op: 'call', shape: SCALAR, name: node.name, args: values });
     }
+
+    case 'apply':
+      return elaborateApplyNode(node, env);
 
     case 'diff':
       return elaborateDiff(node, env);

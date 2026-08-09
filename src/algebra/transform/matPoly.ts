@@ -220,6 +220,8 @@ export function liftFromScalarPolynomial(
       }
 
       // 순수 스칼라 다항식의 CE factor 결과엔 나타날 수 없는 연산들 — 방어적으로 거절한다.
+      // `apply`(사용자 정의 함수)도 같은 이유: 이 경로는 CE 왕복 전용이고 CE는 사용자
+      // 함수를 모르므로 그 결과에 `apply` 가 나올 수 없다.
       case 'matrix':
       case 'matMul':
       case 'mul':
@@ -232,6 +234,7 @@ export function liftFromScalarPolynomial(
       case 'sum':
       case 'prod':
       case 'integral':
+      case 'apply':
         return fail('unsupported', `되돌리는 중 예상 밖의 ${node.op} 을 만났다`);
     }
   };

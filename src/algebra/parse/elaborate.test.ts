@@ -4,6 +4,7 @@ import { elaborate } from './elaborate';
 import { formatShape } from '../types-shape';
 import { parseSyntax } from './parseSymbol';
 import { TEST_ENV, typedOf } from '../testEnv';
+import type { Env, FunctionDef } from '../types-TypedExpr';
 
 /**
  * §4 표 테스트 — **표가 곧 명세**다.
@@ -12,16 +13,16 @@ import { TEST_ENV, typedOf } from '../testEnv';
  */
 
 /** 해석된 연산 트리. */
-const opsOf = (latex: string): string => sexpTyped(typedOf(latex));
+const opsOf = (latex: string, env: Env = TEST_ENV): string => sexpTyped(typedOf(latex, env));
 
 /** 결과 모양. */
-const shapeOf = (latex: string): string => formatShape(typedOf(latex).shape);
+const shapeOf = (latex: string, env: Env = TEST_ENV): string => formatShape(typedOf(latex, env).shape);
 
 /** 실패를 기대하고 오류 코드를 돌려준다. */
-function errorCode(latex: string): string {
+function errorCode(latex: string, env: Env = TEST_ENV): string {
   const syntax = parseSyntax(latex);
   if (!syntax.ok) return syntax.errors[0].code;
-  const typed = elaborate(syntax.value, TEST_ENV);
+  const typed = elaborate(syntax.value, env);
   if (typed.ok) throw new Error(`expected failure, got shape ${formatShape(typed.value.shape)}`);
   return typed.errors[0].code;
 }
@@ -260,6 +261,114 @@ describe('미분/적분/합/곱 — 모양 규칙 (파싱 표는 calculus.test.t
 
   it('상하한은 스칼라여야 한다', () => {
     expect(errorCode(String.raw`\sum_{k=A}^{n}\left(k\right)`)).toBe('shape-mismatch');
+  });
+});
+
+describe('사용자 정의 함수 — apply 는 호출부마다 모양이 다시 정해진다 (모양 다형)', () => {
+  /** `params` 매개변수, `bodyLatex` 본문으로 함수 정의를 만든다. */
+  function fn(params: readonly string[], bodyLatex: string): FunctionDef {
+    const syntax = parseSyntax(bodyLatex);
+    if (!syntax.ok) throw new Error(`fn body parse failed: ${syntax.errors[0].message}`);
+    return { params, body: syntax.value };
+  }
+
+  const envWith = (functions: Readonly<Record<string, FunctionDef>>): Env => ({
+    ...TEST_ENV,
+    functions,
+  });
+
+  describe('f(x)=x^2 — 같은 정의가 인수 모양에 따라 갈린다', () => {
+    const env = envWith({ f: fn(['x'], 'x^2') });
+
+    it('스칼라 인수 → 스칼라', () => {
+      expect(shapeOf('f(3)', env)).toBe('scalar');
+      expect(opsOf('f(3)', env)).toBe('(apply f 3)');
+    });
+
+    it('정사각 행렬 인수 → 행렬 거듭제곱과 같은 모양', () => {
+      expect(shapeOf('f(A)', env)).toBe('3x3');
+    });
+
+    it('정사각이 아닌 인수 → 오류 (행렬 거듭제곱이 정사각을 요구하므로)', () => {
+      expect(errorCode('f(v)', env)).toBe('shape-mismatch');
+    });
+  });
+
+  it('f(x)=x^Tx — 벡터를 받으면 스칼라(내적), 행렬을 받으면 행렬', () => {
+    const env = envWith({ f: fn(['x'], 'x^Tx') });
+    expect(shapeOf('f(v)', env)).toBe('scalar');
+    expect(shapeOf('f(A)', env)).toBe('3x3');
+  });
+
+  it('본문이 행렬 리터럴이면 인수 모양과 무관하게 그 모양 — 스칼라가 아니면 오류', () => {
+    const env = envWith({ f: fn(['x'], String.raw`\begin{pmatrix}x\\1\end{pmatrix}`) });
+    expect(shapeOf('f(3)', env)).toBe('2x1');
+    expect(errorCode('f(v)', env)).toBe('shape-mismatch');
+  });
+
+  it('모양 오류에 호출 맥락(함수 이름)이 붙는다', () => {
+    const env = envWith({ f: fn(['x'], String.raw`\sin\left(x\right)`) });
+    const syntax = parseSyntax('f(A)');
+    if (!syntax.ok) throw new Error('unexpected parse failure');
+    const typed = elaborate(syntax.value, env);
+    if (typed.ok) throw new Error('expected failure');
+    expect(typed.errors[0].message).toMatch(/^f: /);
+  });
+
+  it('f(v)·w 는 f 의 결과 모양에 따라 dot/mul 이 갈리고, 몰랐으면 못 정했을 오류도 난다', () => {
+    // elaborate가 apply의 모양을 그 자리에서 확정지어야 하는 이유 그 자체 — 확정 안
+    // 하면 뒤이은 `·` 가 내적인지 스칼라곱인지, 심지어 길이가 맞는지도 정할 수가 없다.
+    const identityFn = envWith({ f: fn(['x'], 'x') });
+    // f(v) 는 v 와 같은 모양(3,1) → 같은 열벡터끼리의 `·` 는 내적.
+    expect(opsOf(String.raw`f(v)\cdot w`, identityFn)).toBe('(dot (apply f v) w)');
+    // f(p) 는 (2,1) — w(3,1)과 길이가 달라 내적이 안 선다.
+    expect(errorCode(String.raw`f(p)\cdot w`, identityFn)).toBe('shape-mismatch');
+
+    const scalarFn = envWith({ f: fn(['x'], 'x^Tx') }); // f(v): scalar
+    expect(opsOf(String.raw`f(v)\cdot w`, scalarFn)).toBe('(mul (apply f v) w)');
+  });
+
+  it('인수가 여러 개인 함수', () => {
+    const env = envWith({ f: fn(['x', 'y'], 'x+y') });
+    expect(shapeOf('f(a,b)', env)).toBe('scalar');
+  });
+
+  it('인수 개수가 안 맞으면 오류다', () => {
+    const env = envWith({ f: fn(['x', 'y'], 'x+y') });
+    expect(errorCode('f(a)', env)).toBe('shape-mismatch');
+  });
+
+  it('정의되지 않은 이름 뒤 괄호는 기존대로 곱(행렬곱)으로 해석된다', () => {
+    // env.functions가 비어 있으면 동작이 하나도 안 바뀐다는 게 이번 설계의 계약이다.
+    expect(opsOf('A(v)')).toBe('(matMul A v)');
+    expect(opsOf(String.raw`A\left(v+w\right)`)).toBe('(matMul A (add v w))');
+  });
+
+  it('후위는 apply 전체를 감싼다 — f(x)^2 는 (f(x))^2', () => {
+    const env = envWith({ f: fn(['x'], 'x+1') });
+    expect(opsOf('f(x)^2', env)).toBe('(scalarPow (apply f x) 2)');
+  });
+
+  it('함수가 아니면 후위가 마지막 인수 안으로 다시 들어간다 (§3 규칙 유지, 실측 회귀)', () => {
+    // env.functions가 비어 있을 때 A(B)^T 는 여전히 A·(B^T) 다 — apply로 정규화됐다가
+    // 도로 juxt로 접힐 때 후위 위치를 잃으면 (A·B)^T 로 둔갑해 값이 달라진다(퍼즈가 잡음).
+    expect(opsOf(String.raw`A\left(B\right)^T`)).toBe('(matMul A (transpose B))');
+    expect(opsOf(String.raw`A\left(B\right)^2`)).toBe('(matMul A (matPow B 2))');
+    // 다중 인수여도 후위는 맨 마지막 인수에만 붙는다.
+    expect(opsOf(String.raw`A\left(B,C\right)^T`)).toBe(
+      '(matMul (matMul A B) (transpose C))',
+    );
+  });
+
+  it('명시적으로 한 번 더 괄호를 치면 후위가 apply 전체를 감싼다 (tightPostfix, 실측 회귀)', () => {
+    // `A(B)^T`(괄호 한 겹)와 `(A(B))^T`(괄호 두 겹)는 CE JSON부터 다르게 온다(실측,
+    // translateToTree.ts 참고) — 후자는 사용자가 후위 범위를 이미 통째로 못박은
+    // 것이므로, A가 함수가 아니어도 (A·B) 전체가 전치돼야지 B만 전치되면 안 된다.
+    // 대문자·소문자 양쪽 경로 다 확인한다.
+    expect(opsOf(String.raw`\left(A\left(B\right)\right)^T`)).toBe(
+      '(transpose (matMul A B))',
+    );
+    expect(opsOf(String.raw`\left(g\left(v\right)\right)^T`)).toBe('(transpose (mul g v))');
   });
 });
 

@@ -721,6 +721,18 @@ export function normalize(e: TypedExpr, foldPowers = true): Result<TypedExpr> {
       return ok({ op: 'call', shape: SCALAR, name: e.name, args });
     }
 
+    // `call` 과 같은 취급 — 원자 하나로 두고 인수만 재귀한다. 모양은 정규화로
+    // 안 바뀐다(호출부 모양은 elaborate가 이미 확정했다).
+    case 'apply': {
+      const args: TypedExpr[] = [];
+      for (const a of e.args) {
+        const r = normalize(a, foldPowers);
+        if (!r.ok) return r;
+        args.push(r.value);
+      }
+      return ok({ op: 'apply', shape: e.shape, name: e.name, args });
+    }
+
     case 'frac': {
       const numerator = normalize(e.numerator, foldPowers);
       if (!numerator.ok) return numerator;

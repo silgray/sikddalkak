@@ -209,6 +209,13 @@ export function evalNumeric(e: TypedExpr, assignment: Assignment): Result<Matrix
       return x === null ? fail('shape-mismatch', 'Expected a scalar argument') : ok([[fn(x)]]);
     }
 
+    // 사용자 정의 함수 호출 — 이 평가기가 대조하는 건 재작성 전후 값이지, 함수 정의를
+    // 다시 해석해 값을 매기는 일이 아니다(`deriv`/`integral` 과 같은 이유, 아래 참고).
+    // `foldFunctions`(`transform/evaluate.ts`)가 이미 전개했어야 정상이라 여기 남아
+    // 있으면 그 자체가 미평가 상태라는 뜻이고, 대조할 값이 없다.
+    case 'apply':
+      return fail('unsupported', 'Numeric check does not cover unexpanded function calls');
+
     case 'frac': {
       const numerator = evalNumeric(e.numerator, assignment);
       if (!numerator.ok) return numerator;

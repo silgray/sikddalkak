@@ -74,6 +74,12 @@
   정해져야 나오는 상호 의존이라 나눌 수 없다). 정규화는 하지 않는다 — 곱을 둘씩만
   중첩해서 담아둔다 (`normalize.ts` 몫). `\frac{p}{q}` 는 `p·q^{-1}` 로 풀어버리지 않고
   전용 `frac` 노드로 남긴다 — 그래야 `\frac{x^2+2x+1}{x+1}` 이 원문 형태로 렌더된다.
+  **`apply`(사용자 정의 함수 호출) 도 여기서 해소한다** — `name(args)` 가 함수 적용인지
+  곱(행렬곱)인지는 `env.functions` 를 봐야 아는데, 그건 elaborate만 갖고 있다(`cdot`/
+  `juxt` 판정과 같은 이유). 함수면 `instantiateFunction` 이 매개변수에 **그 호출의
+  실제 인수 모양**을 걸고 본문을 다시 elaborate한다(모양 다형 — `f(x)=x^2` 는 인수가
+  스칼라면 스칼라, 정사각 행렬이면 그 행렬 거듭제곱, 그 밖엔 오류). 아니면 병치로
+  되돌려 기존 행렬곱 해석에 맡긴다(§아래 실측 함정의 `tightPostfix`도 이 언저리).
 - **`normalize.ts`** — elaborate 직후에 도는 별도 정규화 패스. 평탄화·스칼라 호이스팅·
   `neg`/숫자 접기·정렬·항등원 제거. **이웃 인수를 거듭제곱으로 자동으로 접지는 않는다**
   (`AA` 는 `AA` 로 남는다) — 사용자가 쓴 곱의 모양을 임의로 바꾸지 않는다는 결정.
@@ -87,12 +93,27 @@
 - **`ceLimit.ts`** — CE 호출의 **시간 예산**. 바깥 진입점(`evaluate`/`transform`)이 예산을
   한 번 깔고(`withCeBudget`) 안쪽 CE 호출들이 나눠 쓴다(`guardCe`). 호출당이 아니라
   연산당인 게 요점 — 원소별 적분처럼 CE를 n번 부르는 경로에서 상한이 n배로 불어나면 안 된다.
+- **`transform/functions.ts`** — `evaluate` 의 한 단계. `apply` 노드를 실제 값으로 편다
+  (`foldCalculus`와 같은 규율: 인수를 먼저 완전히 계산 → 함수 정의를 그 값으로 인스턴스화
+  → 재귀 `evaluate`). 실패하면 원래 `apply` 노드를 그대로 돌려준다. `foldMatrices` 보다
+  **먼저** 돈다 — `A·f(x)` 에서 `f(x)` 가 행렬 리터럴로 펴져야 `foldMatrices` 가 이웃과
+  묶을 수 있다.
 - **`types-result.ts`** — `Result<T>` / `AlgebraError` 등 공용 결과 타입.
 - **`index.ts`** — 공개 API (`parse`/`transform`/`buildEnv`/`analyze`/`solveFor` 자리).
 
 ⚠ **CE 0.90 실측 함정** (전부 테스트에 핀으로 고정돼 있다):
 - `Add`/`Power` 정규화 폼은 항을 재배열하고 `A^{-1}` 을 `\frac{1}{A}` 로 바꾼다 → `Number` 만 쓴다
-- 홑 대문자 + 괄호(`A(v)`)를 **함수 호출로 읽는다** → 병치로 되돌린다 (후위가 붙어도)
+- 이름 + 괄호(`f(v)`, 홑 대문자만이 아니라 소문자·첨자도)를 **`apply` 후보로 옮긴다** —
+  함수인지 곱(행렬곱)인지는 `elaborate` 가 `env.functions` 를 보고 정한다(§사용자 정의
+  함수). `\begin{pmatrix}...\end{pmatrix}` 는 `\left(\right)` 로 감싸도 그 델리미터를
+  CE가 흡수해버려(실측) `Matrix` 노드가 바로 오므로 `Delimiter` 뿐 아니라 `Matrix` 도
+  적용 후보로 받는다.
+- **후위(`^n`,`^T`)가 이름+괄호 바로 뒤에 붙는지, 아니면 사용자가 한 번 더 괄호를 쳤는지에
+  따라 CE JSON 모양이 달라진다**(실측: `f(x)^2` 는 `Power` 가 곱셈 인수열 안쪽에, 반면
+  `(f(x))^2` 는 `Power` 가 그 바깥의 `Delimiter` 를 잡는다) — 그런데 `translateToTree`
+  를 거치면 **똑같은** `pow(apply(...), exp)` 꼴이 되어 이 구분이 사라진다. 함수가
+  아닐 때 후위가 어디로 가야 하는지(마지막 인수 안 vs 전체를 감쌈, 설계 §3)가 이 구분에
+  달려 있어서, `pow` Syntax 노드에 `tightPostfix` 필드로 남겨둔다(퍼즈가 잡음).
 - **`.latex` 직렬화에 버그가 있다** — `Power(Divide(X,a),2)` → `\frac{1}{a}(X)^2` 로 지수 범위가
   바뀐다. 그래서 CE 결과는 **MathJSON으로 받는다**
 - **심볼릭 적분이 안 끝나는 입력이 있다** — `\int_{-\pi}^{\pi}\frac{1}{2}e^{3x}\sin(2x)dx` 는
@@ -148,10 +169,16 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 - **`cellGraph.ts`** — 셀 사이 층. 이름 기반 의존성 그래프로 `src/algebra` 를 셀 목록에
   얹는다(`src/engine/evaluate.ts` 의 `evaluateGraph` 후계). 위상정렬은 순환 감지·캐시
   지문 전파 전용, 실제 계산은 algebra의 `substituteDeep`/`evaluate`. `evaluateCells`가
-  결과와 선택 변환용 `Env` 를 한 번에 돌려준다.
-- **`cellEnv.ts`** — 정의 판정(`splitDefinition`: `a=3` 의 좌변/우변 분리)과 `Env` 조립
-  (`buildCellEnv`, algebra의 `buildEnv` 얇은 재노출). 그래프 구성 자체는 안 한다 —
-  그건 `cellGraph.ts` 몫.
+  결과와 선택 변환용 `Env` 를 한 번에 돌려준다. **함수 정의 셀**(`f(x)=x^2`)도 같은
+  `defName` 필드를 쓰므로(매개변수는 `params`) 변수와 **한 이름 공간**을 자동으로
+  공유한다 — 중복 정의 판정에 분기가 안 늘어난다. 매개변수 이름이 워크스페이스의 다른
+  정의와 겹치면 오류, 서로 다른 함수끼리는 겹쳐도 된다. 함수 정의 셀의 결과 행은
+  **계산하지 않고 본문을 그대로 되뇐다**(`computeFunctionNode`) — 인수가 없어 모양을
+  모르니 계산할 수가 없다(모양 다형, `elaborate.ts` 참고).
+- **`cellEnv.ts`** — 정의 판정(`splitDefinition`: `a=3` 의 좌변/우변 분리,
+  `splitFunctionDefinition`: `f(x)=x^2` 의 이름/매개변수/우변 분리)과 `Env` 조립
+  (`buildCellEnv`, algebra의 `buildEnv` 얇은 재노출 — 이제 `functions` 도 받는다).
+  그래프 구성 자체는 안 한다 — 그건 `cellGraph.ts` 몫.
 - **`types.ts`** — `FormulaObject`(정본), `EvalResult`, `CellMode` 등 공용 타입.
 - **`styles.css`** — 전역 CSS (라이트/다크 자동, CSS 변수).
 - **`scripts/copy-mathlive-assets.mjs`** — 빌드 전 MathLive 폰트를 public으로 복사.

@@ -1,5 +1,6 @@
 import { type Shape } from "./types-shape";
 import { type Literal } from "./types-Literal";
+import { type SyntaxNode } from "./types-SyntaxNode";
 
 export type TypedExpr =
   | { readonly op: 'num'; readonly shape: Shape; readonly value: Literal }
@@ -38,6 +39,19 @@ export type TypedExpr =
   | { readonly op: 'matPow'; readonly shape: Shape; readonly base: TypedExpr; readonly exponent: TypedExpr }
   | { readonly op: 'scalarPow'; readonly shape: Shape; readonly base: TypedExpr; readonly exponent: TypedExpr }
   | { readonly op: 'call'; readonly shape: Shape; readonly name: string; readonly args: readonly TypedExpr[] }
+  /**
+   * 사용자 정의 함수 호출 (`f(x)=x^2` 를 정의한 뒤 `f(3)`). `call`(내장 스칼라 함수
+   * 전용, `SCALAR` 로 못박혀 있다)과 다른 op — 사용자 함수는 본문에 따라 **어떤
+   * 모양이든** 돌려줄 수 있다(`f(x)=\begin{pmatrix}x\\1\end{pmatrix}`).
+   *
+   * **모양은 호출부마다 다시 정해진다** — `f` 는 고정 시그니처가 없는 모양 다형이다
+   * (`elaborate.ts` 의 `instantiateFunction` 참고). `f(3)` 과 `f(A)` 가 같은 정의에서
+   * 서로 다른 모양(또는 한쪽만 오류)이 나올 수 있다.
+   *
+   * **전개는 `evaluate` 에서만 한다** — `deriv`/`integral`/`sum` 과 같은 규율이다.
+   * 그 전까지 이 노드는 `f(x)` 그대로 남고, `render` 도 `f\left(x\right)` 를 낸다.
+   */
+  | { readonly op: 'apply'; readonly shape: Shape; readonly name: string; readonly args: readonly TypedExpr[] }
   /**
    * `\frac{p}{q}` — **나눗셈 표기 자체를 보존**한다. `p·q^{-1}` 로 바꿔버리면
    * `\frac{x^2+2x+1}{x+1}` 이 `\left(x^2+2x+1\right)\left(x+1\right)^{-1}` 로 렌더돼
@@ -108,11 +122,24 @@ export type TypedExpr =
     };
 
 /**
+ * 사용자 정의 함수 하나 (`f(x,y) = ...`).
+ *
+ * 본문을 **`SyntaxNode`(elaborate 이전)로** 들고 있다 — `bindings` 가 `TypedExpr`(이미
+ * elaborate된 값)인 것과 다르다. 이유는 결과 모양이 **호출부 인수 모양에 따라
+ * 달라지기 때문**이다(`f(x)=\begin{pmatrix}x\\1\end{pmatrix}` 는 인수가 스칼라일 때만
+ * 뜻이 있다) — 미리 한 번 elaborate해서 굳혀둘 수가 없다. 호출마다 `elaborate.ts` 의
+ * `instantiateFunction` 이 매개변수에 그 호출의 실제 모양을 걸고 다시 elaborate한다.
+ */
+export type FunctionDef = {
+  readonly params: readonly string[];
+  readonly body: SyntaxNode;
+};
+
+/**
  * 심볼 환경.
  *
- * elaborate 자신은 `shapes` 만 본다. `bindings` 는 치환이, `functions` 는 나중에 들어올
- * 심볼릭 함수 전개 패스가 쓴다 — **레코드 형태를 미리 잡아두는** 이유는 나중에 시그니처를
- * 전부 고치지 않기 위해서다 (설계 §11).
+ * elaborate 자신은 `shapes` 만 본다. `bindings` 는 치환이, `functions` 는 `apply` 노드의
+ * 모양 계산·전개가 쓴다.
  *
  * 값이 `TypedExpr` 인 건 이 모듈의 내부 통화가 그것이기 때문이다. LaTeX을 받는 건
  * 바깥 경계(`index.ts`)의 몫이다.
@@ -121,8 +148,9 @@ export type Env = {
   readonly shapes: Readonly<Record<string, Shape>>;
   /** 심볼 → 그 심볼이 정의된 식. 치환이 쓴다. */
   readonly bindings?: Readonly<Record<string, TypedExpr>>;
-  /** 심볼릭 함수 정의 자리 — 지금은 비어 있다 (설계 §11). */
-  readonly functions?: Readonly<Record<string, unknown>>;
+  /** 이름 → 사용자 정의 함수. 변수(`bindings`)와 **한 이름 공간을 공유**한다 — 같은
+   * 이름을 변수와 함수로 동시에 정의할 수 없다(셀 층, `cellGraph.ts` 가 검사한다). */
+  readonly functions?: Readonly<Record<string, FunctionDef>>;
   /**
    * 모르는 심볼을 스칼라로 볼 것인가 (기본 `true`).
    *

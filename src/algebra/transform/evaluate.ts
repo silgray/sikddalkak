@@ -3,6 +3,7 @@ import { constantInteger, exprKey } from '../parse/normal';
 import { normalize } from '../parse/normalize';
 import { foldMatrices } from './matrixFold';
 import { foldCalculus } from './calculus';
+import { foldFunctions } from './functions';
 import { simplify, substitute } from './transform';
 import { withCeBudget } from '../ceLimit';
 import { fail, ok, type Result } from '../types-result';
@@ -14,12 +15,18 @@ import { ONE, ZERO } from '../types-Literal';
  * 셀 하나를 값으로 접는다. **치환은 안 한다** — 어떤 이름을 무엇으로 바꿀지는 호출자
  * (그래프 층) 몫이다. 이 함수가 아는 건 식 하나와 그 모양 환경뿐이다.
  *
- * 파이프라인: `normalize` (입력 형태 불문 항상 평탄화된 상태로) → `foldMatrices`
- * (리터럴 행렬 산술) → `foldCalculus`(`calculus.ts`, 미분/적분/`\sum`/`\prod` 를 값으로)
- * → `simplify` (순수 스칼라는 CE로, 마지막에 거듭제곱 접기까지). 맨 앞의 `normalize` 는
- * `foldMatrices` 가 n-항 `matMul`/`scalarMul` 이 평탄화돼 있다고 가정하기 때문이다 —
- * `substituteDeep` 처럼 트리를 다시 조립하는 경로를 거친 입력도 안전하게 받으려면
- * 여기서 한 번 더 다져야 한다.
+ * 파이프라인: `normalize` (입력 형태 불문 항상 평탄화된 상태로) → `foldFunctions`
+ * (`functions.ts`, 사용자 정의 함수 호출을 값으로) → `foldMatrices`(리터럴 행렬 산술)
+ * → `foldCalculus`(`calculus.ts`, 미분/적분/`\sum`/`\prod` 를 값으로) → `simplify`
+ * (순수 스칼라는 CE로, 마지막에 거듭제곱 접기까지). 맨 앞의 `normalize` 는 `foldMatrices`
+ * 가 n-항 `matMul`/`scalarMul` 이 평탄화돼 있다고 가정하기 때문이다 — `substituteDeep`
+ * 처럼 트리를 다시 조립하는 경로를 거친 입력도 안전하게 받으려면 여기서 한 번 더 다져야
+ * 한다.
+ *
+ * **`foldFunctions` 가 `foldMatrices` 보다 먼저인 이유**: `A\cdot f(x)` 에서 `f(x)` 가
+ * 행렬 리터럴로 펴지는 게 `foldMatrices` 가 `A` 와 합쳐 접을 수 있으려면 그보다 **먼저**
+ * 끝나 있어야 한다 — 순서를 바꾸면 `f(x)` 가 여전히 미펼쳐진 채라 `foldMatrices` 가
+ * 이웃 리터럴을 못 알아본다.
  *
  * 이 호출 하나가 **CE 예산의 단위**다(`ceLimit.ts`) — 안에서 CE를 몇 번 부르든 합쳐서
  * 상한을 넘지 않는다. CE 0.90의 적분이 안 끝나는 입력이 있어서, 없으면 앱이 통째로 멈춘다.
@@ -32,7 +39,9 @@ export function evaluate(e: TypedExpr, env: Env): Result<TypedExpr> {
     if (badExponent !== null) {
       return fail('unsupported', `A matrix can only be raised to an integer power: ${badExponent}`);
     }
-    const folded = foldMatrices(normalized.value);
+    const expanded = foldFunctions(normalized.value, env);
+    if (!expanded.ok) return expanded;
+    const folded = foldMatrices(expanded.value);
     if (!folded.ok) return folded;
     const calculated = foldCalculus(folded.value, env);
     if (!calculated.ok) return calculated;
@@ -85,6 +94,7 @@ function childrenOf(e: TypedExpr): readonly TypedExpr[] {
     case 'scalarPow':
       return [e.base, e.exponent];
     case 'call':
+    case 'apply':
       return e.args;
     case 'frac':
       return [e.numerator, e.denominator];
@@ -166,6 +176,7 @@ function materializeIdentities(e: TypedExpr): TypedExpr {
         exponent: materializeIdentities(e.exponent),
       };
     case 'call':
+    case 'apply':
       return { ...e, args: e.args.map(materializeIdentities) };
     case 'frac':
       return {
@@ -260,6 +271,13 @@ export function freeSymbols(e: TypedExpr): readonly string[] {
         walk(node.exponent);
         return;
       case 'call':
+        node.args.forEach(walk);
+        return;
+      // `call` 과 달리 **함수 이름도 넣는다** — 셀 의존 간선이 여기서 나온다(`sym` 을
+      // 위 주석에서 굳이 뺄 이유가 없다는 것과 같은 논리: 함수 정의 셀이 바뀌면 이
+      // 셀도 무효화돼야 한다).
+      case 'apply':
+        names.add(node.name);
         node.args.forEach(walk);
         return;
       case 'frac':

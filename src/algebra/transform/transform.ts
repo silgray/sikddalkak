@@ -105,6 +105,11 @@ export function isPureScalar(e: TypedExpr): boolean {
     case 'prod':
     case 'integral':
       return false;
+    // CE는 사용자 정의 함수를 전혀 모른다 — `f\left(x\right)` 를 통째로 넘기면 `f` 를
+    // 미지 심볼로 읽어 곱으로 오해한다(`A(v)` 가 곱으로 읽히는 것과 같은 CE 실측 함정).
+    // 전개는 `evaluate` 의 `foldFunctions` 몫이라 여기선 절대 위임하지 않는다.
+    case 'apply':
+      return false;
   }
 }
 
@@ -278,6 +283,22 @@ export function mapChildren(
         args.push(mapped.value);
       }
       return ok({ op: 'call', shape: SCALAR, name: e.name, args });
+    }
+
+    // `call` 과 다르다 — 사용자 함수는 인수가 스칼라가 아닐 수 있고(모양은 함수 정의에
+    // 달렸다), 모양을 다시 정하려면 `env`(와 함수 정의)가 있어야 하는데 `mapChildren`
+    // 은 그걸 모른다. 그래서 **모양은 원래 값을 그대로 지킨다** — 안전한 이유는 이
+    // 함수를 부르는 재작성(`substitute` 등)이 심볼을 그 심볼과 **같은 모양의** 값으로만
+    // 바꾸기 때문이다(`buildEnv` 가 심볼마다 모양을 하나로 고정한다) — 인수 모양이
+    // 바뀔 일이 없다.
+    case 'apply': {
+      const args: TypedExpr[] = [];
+      for (const arg of e.args) {
+        const mapped = f(arg);
+        if (!mapped.ok) return mapped;
+        args.push(mapped.value);
+      }
+      return ok({ op: 'apply', shape: e.shape, name: e.name, args });
     }
 
     case 'frac': {

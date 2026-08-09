@@ -345,6 +345,109 @@ function foldMultiplyRun(items: readonly SyntaxNode[], markers: readonly (string
 // CE JSON -> Syntax IR
 // ---------------------------------------------------------------------------
 
+/** CE가 괄호를 표현하는 노드인가 (`Delimiter(...)`). */
+function isDelimiterNode(json: unknown): json is readonly unknown[] {
+  return Array.isArray(json) && json[0] === 'Delimiter';
+}
+
+/**
+ * 괄호(`Delimiter`) 대신 `\begin{pmatrix}...\end{pmatrix}` 자체가 온 경우인가.
+ *
+ * `f\left(\begin{pmatrix}1&0\\2&1\end{pmatrix}\right)` 를 실측하면 `Delimiter` 가
+ * 아예 없다 — `["InvisibleOperator","f",["Matrix",...]]`, `\left(\right)` 를 명시적으로
+ * 썼든 안 썼든 똑같다(pmatrix가 자체 괄호라 CE가 감싸는 델리미터를 흡수해버린다).
+ * `Delimiter` 만 찾으면 `f(\begin{pmatrix}...\end{pmatrix})` 같은 함수 호출이 통째로
+ * 곱으로 새므로, `Matrix` 도 "단일 인수 하나짜리 적용 후보"로 같이 받는다.
+ */
+function isMatrixNode(json: unknown): json is readonly unknown[] {
+  return Array.isArray(json) && json[0] === 'Matrix';
+}
+
+/**
+ * `Delimiter`/`Matrix` 안의 인수 목록을 뽑는다. `f\left(x,y\right)` 는 안이 `Sequence`
+ * 로 묶여 오고(실측: `Delimiter(Sequence(x,y),"'(,)'")`, 셋째 원소는 구분자 스타일이라
+ * 무시한다), 인수 하나뿐이면 `Sequence` 없이 바로 온다. `f\left(\right)` 처럼 완전히
+ * 비면(`Delimiter` 가 길이 1) 빈 배열. `Matrix` 는 그 자체가 인수 하나다 — 안 풀고
+ * 통째로 돌려줘야 `translateToTree` 가 행렬 리터럴로 읽는다.
+ */
+function argSourceArgs(source: readonly unknown[]): readonly unknown[] {
+  if (source[0] === 'Matrix') return [source];
+  if (source.length < 2) return [];
+  const inner = source[1];
+  return Array.isArray(inner) && inner[0] === 'Sequence' ? inner.slice(1) : [inner];
+}
+
+/**
+ * `name` 바로 다음에 올 수 있는 "적용 후보" 꼴 — 괄호(또는 자체 괄호인 행렬 리터럴)
+ * 그대로거나, 그 바로 뒤에 후위(`^n`,`^T`)가 붙은 것. 후위가 있으면 **감싸개를 apply
+ * 노드 밖으로 끌어낸다** (`types-SyntaxNode.ts` 의 `apply` 문서 참고 — 대문자 경로와
+ * 같은 "바깥" 꼴로 정규화해야 뒤따르는 패스가 두 경로를 안 갈라도 된다).
+ */
+type ApplyTarget = {
+  readonly source: readonly unknown[];
+  readonly wrap: (node: SyntaxNode) => Result<SyntaxNode>;
+};
+
+function asApplyTarget(json: unknown): ApplyTarget | null {
+  if (isDelimiterNode(json) || isMatrixNode(json)) return { source: json, wrap: ok };
+  if (
+    Array.isArray(json) &&
+    json[0] === 'Power' &&
+    json.length === 3 &&
+    (isDelimiterNode(json[1]) || isMatrixNode(json[1]))
+  ) {
+    const exponentJson = json[2];
+    return {
+      source: json[1],
+      // 이름 바로 뒤(괄호 안)에 붙은 후위다 — 항상 "꽉 묶임"(`tightPostfix`, 위
+      // types-SyntaxNode.ts 문서 참고). 함수가 아니면 이 후위는 마지막 인수로 간다.
+      wrap: (base) => {
+        const exponent = translateToTree(exponentJson);
+        return exponent.ok
+          ? ok({ kind: 'pow', base, exponent: exponent.value, tightPostfix: true })
+          : exponent;
+      },
+    };
+  }
+  if (
+    Array.isArray(json) &&
+    json[0] === 'Transpose' &&
+    json.length === 2 &&
+    (isDelimiterNode(json[1]) || isMatrixNode(json[1]))
+  ) {
+    return {
+      source: json[1],
+      wrap: (base) =>
+        ok({ kind: 'pow', base, exponent: { kind: 'sym', name: 'T' }, tightPostfix: true }),
+    };
+  }
+  return null;
+}
+
+/**
+ * `name` + 적용 후보를 `apply` 노드(후위가 있으면 그걸 감싼 `pow`)로 접는다. 함수인지
+ * 곱인지는 아직 안 정한다 — `elaborate` 가 `env.functions` 를 보고 정한다(모양을 알아야
+ * 하는 판단이라 `elaborate`의 몫이다, `cdot`/`juxt` 와 같은 이유 — 파일 서두 참고).
+ *
+ * 인수가 비면(`f()`) `Delimiter` 를 여기서 가로채지 않았을 때와 같은 오류를 낸다 —
+ * 함수인지 여부와 무관하게 `f()` 는 뜻이 없다(정의 쪽은 `cellEnv.ts` 가 "매개변수
+ * 1개 이상" 을 따로 요구한다). `Matrix` 는 절대 비지 않으므로(행렬 리터럴은 원소가
+ * 최소 하나 있어야 한다) 이 관문에 안 걸린다.
+ */
+function buildApplyNode(callee: string, target: ApplyTarget): Result<SyntaxNode> {
+  const rawArgs = argSourceArgs(target.source);
+  if (rawArgs.length === 0) return fail('malformed', 'Empty parentheses');
+  const parsedArgs = rawArgs.map(translateToTree);
+  const errors = parsedArgs.flatMap((a) => (a.ok ? [] : a.errors));
+  if (errors.length > 0) return failWith(errors);
+  const apply: SyntaxNode = {
+    kind: 'apply',
+    callee,
+    args: parsedArgs.map((a) => (a as { value: SyntaxNode }).value),
+  };
+  return target.wrap(apply);
+}
+
 function translateMultiplyToTree(args: readonly unknown[]): Result<SyntaxNode> {
   // 인수열을 [피연산자, 마커, 피연산자, …] 로 읽는다. 마커가 없는 인접은 병치.
   const items: SyntaxNode[] = [];
@@ -353,7 +456,8 @@ function translateMultiplyToTree(args: readonly unknown[]): Result<SyntaxNode> {
   let expectOperand = true;
   const errors: AlgebraError[] = [];
 
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
     if (isMarker(arg)) {
       if (expectOperand) {
         return fail('malformed', 'A product operator is missing its left operand');
@@ -365,7 +469,18 @@ function translateMultiplyToTree(args: readonly unknown[]): Result<SyntaxNode> {
       expectOperand = true;
       continue;
     }
-    const node = translateToTree(arg);
+
+    // 이름 바로 뒤에 괄호(±후위)가 곧장 붙으면 하나의 원자(apply)로 합친다 — 그래야
+    // `f(x)` 와 `fx` 가 이 층부터 구분된다(실측: CE JSON에서 `Delimiter` 가 살아있다).
+    let node: Result<SyntaxNode>;
+    if (typeof arg === 'string' && !isMarker(arg) && i + 1 < args.length) {
+      const target = asApplyTarget(args[i + 1]);
+      node = target !== null ? buildApplyNode(arg, target) : translateToTree(arg);
+      if (target !== null) i += 1; // Delimiter(+후위)를 같이 소비했다
+    } else {
+      node = translateToTree(arg);
+    }
+
     if (!node.ok) {
       errors.push(...node.errors);
       continue;
@@ -418,7 +533,9 @@ function translateMatrixToTree(body: unknown): Result<SyntaxNode> {
 
 /**
  * CE가 **홑 대문자 + 괄호**를 함수 적용으로 읽어버린 흔적인가 (실측: `A(v)` → `["A","v"]`).
- * 우리 도메인에서 그건 함수가 아니라 곱이다.
+ * 함수인지 곱(행렬곱)인지는 아직 안 정한다 — `elaborate` 가 `env.functions` 를 보고
+ * 정한다(모양을 알아야 하는 판단이라 elaborate 몫, `cdot`/`juxt` 와 같은 이유). 여기서는
+ * 그 판단에 쓸 `apply` 노드로만 옮긴다.
  */
 function asUppercaseApplication(json: unknown): { head: string; args: unknown[] } | null {
   if (!Array.isArray(json)) return null;
@@ -428,46 +545,46 @@ function asUppercaseApplication(json: unknown): { head: string; args: unknown[] 
     : null;
 }
 
-/** `A`, `B`, … 뒤에 붙은 인수들을 병치 사슬로 되돌린다. */
-function foldUppercaseApplicationToTree(
-  head: string,
-  args: readonly unknown[],
-  wrapLast: (node: SyntaxNode) => SyntaxNode = (n) => n,
-): Result<SyntaxNode> {
+/** `A`, `B`, … 뒤에 붙은 인수들을 `apply` 노드로 옮긴다. */
+function applyFromUppercase(head: string, args: readonly unknown[]): Result<SyntaxNode> {
   const parsed = args.map(translateToTree);
   const errors = parsed.flatMap((a) => (a.ok ? [] : a.errors));
   if (errors.length > 0) return failWith(errors);
-  const values = parsed.map((a) => (a as { value: SyntaxNode }).value);
-  return ok(
-    values.reduce<SyntaxNode>(
-      (left, arg, i) => ({
-        kind: 'juxt',
-        left,
-        right: i === values.length - 1 ? wrapLast(arg) : arg,
-      }),
-      { kind: 'sym', name: head },
-    ),
-  );
+  return ok({
+    kind: 'apply',
+    callee: head,
+    args: parsed.map((a) => (a as { value: SyntaxNode }).value),
+  });
 }
 
 /**
  * 후위 연산자(`^T`, `^n`)를 붙인다.
  *
- * 밑이 위의 "대문자 함수 적용"이면 **후위를 괄호 안으로 밀어 넣는다.** CE는
- * `A\left(X\right)^T` 를 "A 호출의 전치"로 읽지만, 우리 우선순위표에서는 후위가 병치보다
- * 강하므로 `A·(X^T)` 다 (설계 §3). 이걸 안 하면 `A\left(B+C\right)^2` 같은 식이
- * 조용히 다른 뜻으로 읽힌다.
+ * 밑이 위의 "대문자 함수 적용"이면 **`apply` 노드를 후위로 감싼다** — 소문자 경로
+ * (`translateMultiplyToTree`의 `buildApplyNode`)와 같은 "후위가 바깥" 꼴이다. 함수가
+ * 아닌 것으로 판명되면 `elaborate` 가 후위를 다시 안으로 밀어 넣어 기존 행렬 규칙
+ * (`A(X)^T` = `A·(X^T)`, 설계 §3)을 복원한다 — 단 `wrap` 의 둘째 인수(`tight`)가
+ * `true` 일 때만이다.
+ *
+ * **`tight` 를 갈라 넘기는 이유**: `F(X)^T`(밑이 바로 대문자 적용, `Delimiter` 없이
+ * 옴)와 `\left(F(X)\right)^T`(사용자가 한 번 더 괄호를 쳤다, 밑이 `Delimiter` 로
+ * 옴)는 CE 실측으로 다르게 오는데, 후자는 `asUppercaseApplication` 이 안 걸려
+ * 일반 `translateToTree` 경로로 새 버려 **똑같은** `pow(apply(...), exp)` 꼴이
+ * 된다 — `tightPostfix` 가 없으면 구분이 사라진다. 전자만 "꽉 묶임"이고, 후자는
+ * 사용자가 괄호로 후위의 범위를 이미 통째로 못박은 것이므로 "느슨함"이다
+ * (`types-SyntaxNode.ts` 의 `pow.tightPostfix` 문서 참고).
  */
 function translatePostfixToTree(
   baseJson: unknown,
-  wrap: (base: SyntaxNode) => SyntaxNode,
+  wrap: (base: SyntaxNode, tight: boolean) => SyntaxNode,
 ): Result<SyntaxNode> {
   const application = asUppercaseApplication(baseJson);
   if (application !== null) {
-    return foldUppercaseApplicationToTree(application.head, application.args, wrap);
+    const applied = applyFromUppercase(application.head, application.args);
+    return applied.ok ? ok(wrap(applied.value, true)) : applied;
   }
   const base = translateToTree(baseJson);
-  return base.ok ? ok(wrap(base.value)) : base;
+  return base.ok ? ok(wrap(base.value, false)) : base;
 }
 
 /** CE JSON 한 노드를 Syntax IR로. */
@@ -531,29 +648,32 @@ export function translateToTree(json: unknown): Result<SyntaxNode> {
   // `a^T` 는 전치가 아니라 **일반 지수연산**이어야 하므로, 여기서는 `^T` 라는 표기 그대로
   // 되돌려두고 의미 판단은 모양을 아는 elaborate에 맡긴다.
   if (head === 'Transpose' && args.length === 1) {
-    return translatePostfixToTree(args[0], (base) => ({
+    return translatePostfixToTree(args[0], (base, tight) => ({
       kind: 'pow',
       base,
       exponent: { kind: 'sym', name: 'T' },
+      tightPostfix: tight,
     }));
   }
   if (head === 'Power' && args.length === 2) {
     const exponent = translateToTree(args[1]);
     if (!exponent.ok) return exponent;
-    return translatePostfixToTree(args[0], (base) => ({
+    return translatePostfixToTree(args[0], (base, tight) => ({
       kind: 'pow',
       base,
       exponent: exponent.value,
+      tightPostfix: tight,
     }));
   }
   // CE는 **리터럴 행렬**(`\begin{pmatrix}...\end{pmatrix}^{-1}`)의 밑을 `Power(M,-1)`
   // 대신 `Inverse(M)` 로 정규화한다(실측) — 심볼 밑(`A^{-1}`)은 이 경로를 안 타고
   // 그냥 `Power` 로 온다. `pow(base, -1)` 로 되돌려 elaborate가 똑같이 처리하게 한다.
   if (head === 'Inverse' && args.length === 1) {
-    return translatePostfixToTree(args[0], (base) => ({
+    return translatePostfixToTree(args[0], (base, tight) => ({
       kind: 'pow',
       base,
       exponent: { kind: 'num', value: intLit(-1) },
+      tightPostfix: tight,
     }));
   }
   // `Rational` 은 **숫자 리터럴**이지 나눗셈 표기가 아니다.
@@ -648,17 +768,16 @@ export function translateToTree(json: unknown): Result<SyntaxNode> {
   }
 
   // CE는 **홑 대문자** 뒤에 괄호가 오면 함수 적용으로 읽는다 (실측: `A(v)` → `["A","v"]`,
-  // 그런데 `g(v)`·`\Gamma(v)`·`A_1(v)` 는 병치로 온다). 우리 도메인에서 `A(v+w)` 는
-  // 함수가 아니라 **행렬 곱**이므로 병치로 되돌린다.
+  // 그런데 `g(v)`·`\Gamma(v)`·`A_1(v)` 는 병치 경로로 와서 `translateMultiplyToTree` 의
+  // `buildApplyNode` 가 처리한다). `apply` 노드로 옮기고, 함수인지 곱(행렬곱)인지는
+  // `elaborate` 가 `env.functions` 를 보고 정한다 — `A(v+w)` 가 `A` 미정의면 병치(행렬곱)
+  // 로 되돌아가는 것도 그 몫이다.
   //
   // 되돌리는 범위를 홑 대문자로 좁게 잡은 건, `Sum`·`Integrate` 처럼 진짜 모르는 머리까지
-  // 곱으로 둔갑시켜 조용한 오답을 만들지 않기 위해서다.
-  //
-  // 심볼릭 함수(`f(x)=x^2`)를 도입할 때 손볼 곳이 여기다 — 그때는 `f` 가 정의된 함수인지
-  // 보고 갈라야 하는데, 그 판단은 parse 다음의 전개 패스 몫이다.
+  // 함수 적용 후보로 삼아 조용한 오답을 만들지 않기 위해서다.
   const application = asUppercaseApplication(json);
   if (application !== null) {
-    return foldUppercaseApplicationToTree(application.head, application.args);
+    return applyFromUppercase(application.head, application.args);
   }
 
   return fail('unsupported', `Unsupported operation: ${head}`);
