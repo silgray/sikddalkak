@@ -84,6 +84,9 @@
 - **`render.ts`** — Typed IR → LaTeX. 계약은 **렌더 멱등성**(낸 걸 다시 읽어 또 내면 같다).
 - **`numeric.ts`** — 수치 평가기. 재작성 전후 값 대조 **전용**(역행렬은 일부러 뺐다).
 - **`debug.ts`** — Syntax/Typed IR → 사람이 읽는 s-식. 테스트 기대값과 랩 진단 패널이 공유.
+- **`ceLimit.ts`** — CE 호출의 **시간 예산**. 바깥 진입점(`evaluate`/`transform`)이 예산을
+  한 번 깔고(`withCeBudget`) 안쪽 CE 호출들이 나눠 쓴다(`guardCe`). 호출당이 아니라
+  연산당인 게 요점 — 원소별 적분처럼 CE를 n번 부르는 경로에서 상한이 n배로 불어나면 안 된다.
 - **`types-result.ts`** — `Result<T>` / `AlgebraError` 등 공용 결과 타입.
 - **`index.ts`** — 공개 API (`parse`/`transform`/`buildEnv`/`analyze`/`solveFor` 자리).
 
@@ -92,6 +95,9 @@
 - 홑 대문자 + 괄호(`A(v)`)를 **함수 호출로 읽는다** → 병치로 되돌린다 (후위가 붙어도)
 - **`.latex` 직렬화에 버그가 있다** — `Power(Divide(X,a),2)` → `\frac{1}{a}(X)^2` 로 지수 범위가
   바뀐다. 그래서 CE 결과는 **MathJSON으로 받는다**
+- **심볼릭 적분이 안 끝나는 입력이 있다** — `\int_{-\pi}^{\pi}\frac{1}{2}e^{3x}\sin(2x)dx` 는
+  `.evaluate()` 에서 안 돌아온다 (`e^{x}` 면 111ms). 우리 호출은 전부 동기라 곧 앱 프리즈다 →
+  `ceLimit.ts` 가 시간 예산을 걸고, 걸리면 미평가로 남긴다
 
 ### `src/editor/` — MathLive 경계 레이어 (구조 안전성)
 
@@ -135,7 +141,7 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 
 ### `src/algebra/test` — 개발자 테스트
 
- - 정리된 꼴이 쓸 만한가를 사람이 눈으로 판단.
+ - 정리된 꼴이 쓸 만한가를 사람이 눈으로 판단. 건들지 말것.
 
 ### 기타
 

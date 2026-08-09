@@ -4,6 +4,7 @@ import { normalize } from '../parse/normalize';
 import { foldMatrices } from './matrixFold';
 import { foldCalculus } from './calculus';
 import { simplify, substitute } from './transform';
+import { withCeBudget } from '../ceLimit';
 import { fail, ok, type Result } from '../types-result';
 import { render } from '../render';
 import { SCALAR, isSquare, shape } from '../types-shape';
@@ -19,19 +20,24 @@ import { ONE, ZERO } from '../types-Literal';
  * `foldMatrices` 가 n-항 `matMul`/`scalarMul` 이 평탄화돼 있다고 가정하기 때문이다 —
  * `substituteDeep` 처럼 트리를 다시 조립하는 경로를 거친 입력도 안전하게 받으려면
  * 여기서 한 번 더 다져야 한다.
+ *
+ * 이 호출 하나가 **CE 예산의 단위**다(`ceLimit.ts`) — 안에서 CE를 몇 번 부르든 합쳐서
+ * 상한을 넘지 않는다. CE 0.90의 적분이 안 끝나는 입력이 있어서, 없으면 앱이 통째로 멈춘다.
  */
 export function evaluate(e: TypedExpr, env: Env): Result<TypedExpr> {
-  const normalized = normalize(e);
-  if (!normalized.ok) return normalized;
-  const badExponent = findNonIntegerMatPow(normalized.value);
-  if (badExponent !== null) {
-    return fail('unsupported', `A matrix can only be raised to an integer power: ${badExponent}`);
-  }
-  const folded = foldMatrices(normalized.value);
-  if (!folded.ok) return folded;
-  const calculated = foldCalculus(folded.value, env);
-  if (!calculated.ok) return calculated;
-  return simplify(calculated.value, env);
+  return withCeBudget(() => {
+    const normalized = normalize(e);
+    if (!normalized.ok) return normalized;
+    const badExponent = findNonIntegerMatPow(normalized.value);
+    if (badExponent !== null) {
+      return fail('unsupported', `A matrix can only be raised to an integer power: ${badExponent}`);
+    }
+    const folded = foldMatrices(normalized.value);
+    if (!folded.ok) return folded;
+    const calculated = foldCalculus(folded.value, env);
+    if (!calculated.ok) return calculated;
+    return simplify(calculated.value, env);
+  });
 }
 
 /**

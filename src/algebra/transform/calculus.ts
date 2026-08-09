@@ -5,6 +5,7 @@ import { render } from '../render';
 import { isPureScalar, mapChildren } from './transform';
 import { evaluate } from './evaluate';
 import { constantInteger } from '../parse/normal';
+import { guardCe } from '../ceLimit';
 import { ok, type Result } from '../types-result';
 import { SCALAR, isKnownShape, isScalar, type Shape } from '../types-shape';
 import { intLit } from '../types-Literal';
@@ -53,7 +54,7 @@ function ceDerivOnce(body: TypedExpr, variable: string, env: Env): TypedExpr | n
     const node: TypedExpr = { op: 'deriv', shape: body.shape, body, vars: [variable], order: 1 };
     const parsed = ce.parse(render(node));
     if (!parsed.isValid) return null;
-    const evaluated = parsed.evaluate();
+    const evaluated = guardCe(ce, 'deriv', () => parsed.evaluate());
     const syntax = parseCeJson(evaluated.json);
     if (!syntax.ok) return null;
     const typed = elaborate(syntax.value, env);
@@ -160,7 +161,9 @@ function ceIntegrateOnce(
     const node: TypedExpr = { op: 'integral', shape: SCALAR, body, variable, lower, upper };
     const parsed = ce.parse(render(node));
     if (!parsed.isValid) return null;
-    const evaluated = parsed.evaluate();
+    // CE 0.90은 어떤 적분에서 안 돌아온다 — 상한을 걸고, 걸리면 미평가로 남긴다
+    // (`ceLimit.ts` 서두에 실측 사례).
+    const evaluated = guardCe(ce, 'integral', () => parsed.evaluate());
     const syntax = parseCeJson(evaluated.json);
     if (!syntax.ok) return null;
     const typed = elaborate(syntax.value, env);

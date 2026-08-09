@@ -4,6 +4,7 @@ import { render } from '../render';
 import { sexpTyped } from '../debug';
 import type { Env } from '../types-TypedExpr';
 import { typedOf } from '../testEnv';
+import { CE_BUDGET_MS } from '../ceLimit';
 
 /**
  * `evaluate` 가 미분/적분/`\sum`/`\prod` 를 실제로 계산하는지 보는 표.
@@ -162,5 +163,28 @@ describe('적분 — 행렬 본문은 원소별', () => {
         String.raw`\int\left(\begin{pmatrix}x&1\\0&x^2\end{pmatrix}\right)\,\mathrm{d}x`,
       ),
     ).toBe(String.raw`\begin{pmatrix}\frac{1}{2}x^{2}&x\\0&\frac{1}{3}x^{3}\end{pmatrix}`);
+  });
+});
+
+describe('적분 — CE가 안 끝나는 입력에도 돌아온다 (동작 핀)', () => {
+  /**
+   * 실측 회귀. CE 0.90의 `.evaluate()` 는
+   * `\int_{-\pi}^{\pi}\frac{1}{2}e^{3x}\sin(2x)dx` (본문 정리 후의 모습)에서 **안 돌아온다**.
+   * 지수 계수가 `1` 이면 111ms 만에 풀리는데 `3` 이면 멈추는 CE 쪽 버그라, 우리는
+   * 시간 상한(`ceLimit.ts`)으로만 막을 수 있다. 상한이 걸리면 적분은 **미평가로 남는다** —
+   * 접을 수 없으면 원래 노드를 돌려준다는 이 파일의 규약 그대로다.
+   */
+  it('e^{3x}sin/cos — 상한 안에 미평가로 돌아온다', () => {
+    const latex = String.raw`\int_{-\pi}^{\pi}\cos\left(x\right)\sin\left(x\right)e^{3x}\,\mathrm{d}x`;
+    const started = Date.now();
+    expect(evaluatedOp(latex)).toBe('integral');
+    expect(Date.now() - started).toBeLessThan(CE_BUDGET_MS * 3);
+  });
+
+  /** 같은 모양의 잘 풀리는 이웃은 여전히 값이 나와야 한다 — 상한이 과잉이 아니라는 확인. */
+  it('e^{x}sin/cos — 이건 그대로 계산된다', () => {
+    expect(
+      evaluatedLatex(String.raw`\int_{-\pi}^{\pi}\cos\left(x\right)\sin\left(x\right)e^{x}\,\mathrm{d}x`),
+    ).toBe(String.raw`\frac{1}{5}\exponentialE^{-\pi}-\frac{1}{5}\exponentialE^{\pi}`);
   });
 });

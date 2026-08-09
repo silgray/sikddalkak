@@ -5,6 +5,7 @@ import { parseCeJson } from '../parse/parseSymbol';
 import { render } from '../render';
 import { toCeJson } from '../literalMath';
 import { constantInteger } from '../parse/normal';
+import { guardCe } from '../ceLimit';
 import { ok, type Result } from '../types-result';
 import { SCALAR } from '../types-shape';
 import type { TypedExpr, Env } from '../types-TypedExpr';
@@ -190,7 +191,8 @@ function invertLiteral(base: MatrixLiteral, exponent: number): TypedExpr | null 
     const baseJson = matrixLiteralToJson(base);
     if (baseJson === null) return null;
     const json = ['Power', baseJson, exponent] as unknown as MathJsonExpression;
-    const evaluated = ce.box(json).evaluate();
+    // 심볼 원소 여인수 전개는 `n!` 로 커진다 — 크기 상한만으로는 부족해 시간도 막는다.
+    const evaluated = guardCe(ce, 'matInverse', () => ce.box(json).evaluate());
     // 성공하면 `List`의 `List`로 온다(행렬 결과의 CE 관례). 특이행렬이면 `Power`/
     // `Inverse`/`Error` 머리가 그대로 남는다.
     if (!Array.isArray(evaluated.json) || evaluated.json[0] !== 'List') return null;
