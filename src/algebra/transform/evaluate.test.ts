@@ -9,7 +9,7 @@ import { buildEnv } from '../index';
 /**
  * `evaluate` 계약 테스트.
  *
- * `src/engine/evaluate.test.ts` 의 **표현식 단위** 계약을 옮겨온다 — 그래프·캐시·
+ * 구 엔진(`src/engine/`, 제거됨)의 **표현식 단위** 계약을 옮겨온다 — 그래프·캐시·
  * 정의 바인딩(셀 간 의존)은 다음 라운드(`src/cellGraph.ts`) 몫이라 여기 없다.
  */
 

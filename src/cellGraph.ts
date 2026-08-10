@@ -17,9 +17,7 @@ import type { EvalResult, FormulaObject } from './types';
  * 셀 사이 층 — 이름 기반 의존성 그래프로 `src/algebra` 를 셀 목록에 얹는다.
  *
  * algebra는 "식 하나와 심볼 환경"만 안다(index.ts 서두). 위상정렬·순환 감지·중복정의·
- * 캐시는 여기, algebra 밖에 있다. `src/engine/evaluate.ts` 의 `evaluateGraph` 후계다 —
- * 그래프 알고리즘은 CE 의존이 없어서 그대로 옮겼고, CE 자리에 algebra의
- * `substituteDeep`/`evaluate` 가 들어간다.
+ * 캐시는 여기, algebra 밖에 있다.
  *
  * **관계식은 아직 없다.** `a=3`(변수)·`f(x)=x^2`(함수) 같은 정의만 지원하고,
  * `1=1`·`x^2=4`·`2<1` 처럼 최상위에 관계 기호가 있는데 정의가 아니면 오류로 표시한다.
@@ -138,7 +136,7 @@ function readStructure(latex: string): Structure {
 }
 
 // ---------------------------------------------------------------------------
-// 캐시 — engine/evaluate.ts 와 같은 설계 (지문 = 식 + 의존 대상들의 지문)
+// 캐시 (지문 = 식 + 의존 대상들의 지문)
 // ---------------------------------------------------------------------------
 
 type Computed = { result: EvalResult };
@@ -200,10 +198,10 @@ function computeFunctionNode(node: Node): Computed {
 /**
  * 셀 하나를 실제 환경으로 다시 파싱해 계산한다. `readStructure` 의 파싱(BLIND_ENV)을
  * 재사용하지 않는다 — 모양을 모르고 판단한 연산(스칼라곱 vs 행렬곱)이 실제와 다를 수
- * 있어서다(engine의 같은 이유, `computeNode` 문서 참고).
+ * 있어서다.
  *
  * **정의 셀도 치환·평가를 거친다** — 결과 행에는 `B=A^T` 의 `A` 까지 실제로 풀린 값이
- * 보여야 한다(engine도 그랬다: 정의를 그때까지의 바인딩으로 치환한 값을 보여준다).
+ * 보여야 한다(정의를 그때까지의 바인딩으로 치환한 값을 보여준다).
  * **함수 정의 셀은 예외다** — `computeFunctionNode` 로 갈라진다(위 문서 참고).
  */
 function computeNode(node: Node, env: Env): Computed {
@@ -230,14 +228,12 @@ function computeNode(node: Node, env: Env): Computed {
 }
 
 /**
- * 오브젝트 집합을 이름 기반 의존성 그래프로 평가한다. 알고리즘은
- * [`engine/evaluate.ts`](./engine/evaluate.ts) 의 `evaluateGraph` 와 같다 — 배열 순서가
- * 아니라 "누가 무엇을 정의하고 누가 그 이름을 참조하는가"로 계산 순서가 정해진다.
+ * 오브젝트 집합을 이름 기반 의존성 그래프로 평가한다. 배열 순서가 아니라 "누가 무엇을
+ * 정의하고 누가 그 이름을 참조하는가"로 계산 순서가 정해진다.
  *
- * **환경은 한 번만 만든다.** engine은 CE 전역에 이름을 순서대로 `declare` 해야 해서
- * 위상 순서대로 값을 누적해야 했지만, algebra의 `buildEnv`/`substituteDeep` 은 순수
- * 함수라 유효한 정의를 한 번에 몰아넣고 끝이다 — 위상정렬은 이제 **순환 감지 전용**과
- * 캐시 지문(상류 지문이 하류로 전파되게) 용도로만 쓴다.
+ * **환경은 한 번만 만든다.** algebra의 `buildEnv`/`substituteDeep` 은 순수 함수라 유효한
+ * 정의를 한 번에 몰아넣고 끝이다 — 위상정렬은 **순환 감지 전용**과 캐시 지문(상류 지문이
+ * 하류로 전파되게) 용도로만 쓴다.
  *
  * 선택 변환(`Cell.tsx`)이 쓰는 환경과 결과 계산이 쓰는 환경이 어긋나면 안 되므로
  * `env` 를 같이 돌려준다 — 호출자가 그대로 `Cell` 에 내려준다.

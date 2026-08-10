@@ -81,7 +81,7 @@ function joinSign(source: string, out: string): string {
 
 /**
  * 선택 조각을 **한 번만** 파싱하고, 그 Typed IR 위에서 세 변환을 각각 돌린다.
- * (기존 engine 경로는 op마다 CE 왕복을 따로 했다.)
+ * (구 엔진 경로는 op마다 CE 왕복을 따로 했다.)
  *
  * op 하나가 실패해도 나머지는 살린다 — factor는 못 해도 expand는 되는 식이 흔하다.
  */

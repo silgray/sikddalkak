@@ -4,7 +4,7 @@ import { createElement } from 'react';
 import type { MathfieldElement } from 'mathlive';
 import { createField } from './harness';
 import { MathField } from '../components/MathField';
-import { ce } from '../engine/ce';
+import { parseSyntax } from '../algebra';
 import { finalizeGhostFences, modelOf } from './internals';
 import { expandSelectionSemantic, siblingRunRange } from './selection';
 import { KEY_OPS, dispatchKeyOp } from './keyOps';
@@ -164,7 +164,7 @@ describe('선택 불변식 — 항상 한 레벨의 연속 형제 열', () => {
         seen.add(latex);
         // 연산자로 끝나는 조각(`a+`)은 형제 열이지만 미완성 — 그건 정상이다.
         if (/[+\-*/^_=]$/.test(latex)) continue;
-        expect(ce.parse(latex).isValid, `parse ${latex}`).toBe(true);
+        expect(parseSyntax(latex).ok, `parse ${latex}`).toBe(true);
       }
     }
     expect(seen.size).toBeGreaterThan(10);
@@ -404,7 +404,7 @@ describe('MathField 통합 — 고아 fence 교정 파이프라인', () => {
     // 쌍이 통째로 사라져 원래 식으로 돌아온다 — 미결 괄호가 남지 않는다.
     expect(doc).toBe(base);
     expect(findViolations(doc)).toEqual([]);
-    expect(ce.parse(doc).isValid).toBe(true);
+    expect(parseSyntax(doc).ok).toBe(true);
   });
 
   it('`)` 입력: 미결 평평한 `(`가 있으면 거기부터 닫고, 없으면 왼쪽 전체를 감싼다', async () => {

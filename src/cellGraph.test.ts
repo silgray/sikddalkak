@@ -3,7 +3,7 @@ import { clearCellGraphCache, evaluateCells } from './cellGraph';
 import type { EvalResult, FormulaObject } from './types';
 
 /**
- * 그래프 층 회귀 테스트. `engine/evaluate.test.ts` 의 그래프 계약(순서 비의존·순환·
+ * 그래프 층 회귀 테스트. 구 엔진(`src/engine/`, 제거됨)의 그래프 계약(순서 비의존·순환·
  * 중복정의·캐시 정합성)을 그대로 옮겼다 — 그 파일이 이 작업의 사양서였다. 스칼라
  * 정리·행렬 연산 자체의 세부 계약(CE 함정 회피 등)은 `src/algebra` 쪽 테스트가 이미
  * 촘촘히 덮고 있으므로 여기서 반복하지 않는다.
@@ -70,7 +70,7 @@ describe('정의와 변수 바인딩', () => {
 
   it('한 평가가 다음 평가로 새지 않는다', () => {
     // env는 매번 evaluateCells 호출마다 그 objects만으로 새로 만들어진다 — 이전 호출의
-    // 정의가 남아 있으면 안 된다(engine은 CE 전역 declare를 pushScope로 가뒀던 자리).
+    // 정의가 남아 있으면 안 된다(구 엔진은 CE 전역 declare를 pushScope로 가뒀던 자리).
     run([`a=${M.wide}`]);
     const [onlyCell] = run(['a+1']);
     expect(latexOf(onlyCell)).toBe(norm('a+1'));

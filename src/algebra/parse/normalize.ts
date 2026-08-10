@@ -194,7 +194,9 @@ function stripTermSign(t: TypedExpr): { negative: boolean; core: TypedExpr } {
  *
  * 순서를 고정해야 `parse` 와 `expand` 가 같은 값에 같은 LaTeX 을 낸다 (퍼즈 ③).
  */
-function sortTerms(terms: readonly TypedExpr[]): TypedExpr[] {
+function sortTerms(terms: readonly TypedExpr[],
+  key: (((a: { term: TypedExpr; constant: number; sign: number; key: string; }, b: { term: TypedExpr; constant: number; sign: number; key: string; }) => number) | undefined) = undefined
+): TypedExpr[] {
   const keyed = terms.map((t) => {
     const { negative, core } = stripTermSign(t);
     return {
@@ -204,12 +206,17 @@ function sortTerms(terms: readonly TypedExpr[]): TypedExpr[] {
       key: exprKey(core),
     };
   });
-  keyed.sort(
-    (a, b) =>
-      a.constant - b.constant ||
-      a.sign - b.sign ||
-      (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
-  );
+  if(key === undefined) {
+    keyed.sort(
+      (a, b) =>
+        a.constant - b.constant ||
+        a.sign - b.sign ||
+        (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
+    );
+  }
+  else {
+    keyed.sort(key);
+  }
   return keyed.map((k) => k.term);
 }
 
@@ -543,7 +550,9 @@ function asSingleMatrix(factors: readonly TypedExpr[]): Result<TypedExpr> {
  * 파일 서두 참고). 기본은 `false` — parse/expand/factor/substitute는 곱의 모양을
  * 그대로 둔다.
  */
-export function normalize(e: TypedExpr, foldPowers = true): Result<TypedExpr> {
+export function normalize(e: TypedExpr, foldPowers = true,
+  _key: (((a: { term: TypedExpr; constant: number; sign: number; key: string; }, b: { term: TypedExpr; constant: number; sign: number; key: string; }) => number) | undefined) = undefined
+): Result<TypedExpr> {
   switch (e.op) {
     case 'num':
     case 'sym':
@@ -575,7 +584,7 @@ export function normalize(e: TypedExpr, foldPowers = true): Result<TypedExpr> {
         if (!r.ok) return r;
         terms.push(r.value);
       }
-      return addTyped(sortTerms(combineTerms(terms, e.shape, foldPowers)));
+      return addTyped(sortTerms(combineTerms(terms, e.shape, foldPowers), _key));
     }
 
     case 'neg': {

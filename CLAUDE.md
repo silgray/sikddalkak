@@ -12,7 +12,8 @@
 
 ⚠ **버전 격리**: mathlive는 내부에 CE 0.58을 따로 물고 있다. 우리 0.90과 섞이면
 안 되므로 `MathfieldElement.computeEngine`을 설정하지 않고 `mf.getValue('math-json')`도
-쓰지 않는다. **MathLive↔CE 경계는 오직 LaTeX 문자열만 건넌다** (`src/engine/ce.ts` 참고).
+쓰지 않는다. **MathLive↔CE 경계는 오직 LaTeX 문자열만 건넌다** (`src/main.tsx`의
+`MathfieldElement.computeEngine = null`, `src/editor/harness.ts` 참고).
 
 ## 표현 형식과 변환 경계
 
@@ -30,33 +31,14 @@
 
 ## 프로젝트 구조
 
-### `src/engine/` — 계산 로직 구 버전 (⚠ 대체됨, 대부분 죽은 코드)
-
-`src/algebra/` 로 교체 완료. 주 앱(`cellGraph.ts`/`cellEnv.ts`/`Cell.tsx`)은 더 이상
-이 디렉터리를 쓰지 않는다. 남은 참조는 `src/editor/editor.browser.test.tsx` 하나뿐
-(파싱 유효성 오라클로 `ce` 를 빌려 쓴다) — 이것도 걷어내면 디렉터리째 지울 수 있다.
-삭제 전까지는 아래 설명을 참고용으로만 남겨둔다.
-
-- **`ce.ts`** — 앱 전역 단일 CE 인스턴스. 버전 격리 규칙의 근거.
-- **`evaluate.ts`** — 핵심 평가기. `evaluateGraph(inputs)`가 셀들을 받아
-  `freeVariables`로 의존성 그래프를 만들고 위상 정렬 → `subs`로 치환 →
-  `simplify().evaluate()`. 두 단계 캐시(구조/결과)로 바뀐 노드만 재계산.
-  정의(`a=3`) 감지, 관계식(`=`,`<`) 불리언 판정, 순환/중복 정의 에러.
-- **`matrixPipeline.ts`** — 행렬 전용 경로. CE가 곱셈을 교환법칙으로 재배열하는
-  걸 막는 축소 정규화 파싱(`ORDER_PRESERVING_FORMS`), Transpose/Power 사전 접기
-  (`foldMatrixFns`), 1×1→스칼라, 벡터 내적/외적 마커 처리. evaluate·transform 공용.
-- **`transform.ts`** — 선택 영역 구문 변환. `transformSelection(latex, op)`,
-  op ∈ expand/simplify/factor. 다변수·비다항 공통인자 추출(CE factor 보강),
-  행렬 선택 변환, 부동소수점 부스러기 chop.
-
 ### `src/algebra/` — 모양(shape) 기반 심볼릭 대수 (주 앱에 연결됨)
 
-`src/engine/` 의 후계. **`src/cellGraph.ts`/`src/cellEnv.ts`/`src/components/Cell.tsx`
-가 이걸 쓴다** — `src/engine/` 은 대체됐다(위 참고).
+**`src/cellGraph.ts`/`src/cellEnv.ts`/`src/components/Cell.tsx` 가 이걸 쓴다** — 주 앱의
+계산 코어.
 
-만든 이유: `src/engine/transform.ts` 의 `transformSelection(latex, op)` 은 **문맥이 없어서**
-심볼이 스칼라인지 행렬인지 모른다. 그래서 `ABA` 를 `A²B` 로 만드는 등 교환법칙을 잘못
-적용한다. CE의 무타입 `Multiply` 위에 얹힌 구조라 우회로는 못 고친다.
+만든 이유: 구 엔진(`src/engine/`, 제거됨)의 `transformSelection(latex, op)` 은 **문맥이
+없어서** 심볼이 스칼라인지 행렬인지 모른다. 그래서 `ABA` 를 `A²B` 로 만드는 등 교환법칙을
+잘못 적용한다. CE의 무타입 `Multiply` 위에 얹힌 구조라 우회로는 못 고친다.
 
 - **`types-shape.ts`** — 모양 도메인. **모든 것이 `(rows, cols)` 이고 `(1,1)` 이 스칼라다.**
   벡터는 파생 술어. 이 한 선택으로 `v^Tv → 스칼라` 가 하드코딩 없이 나온다.
@@ -167,8 +149,8 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 ### 기타
 
 - **`cellGraph.ts`** — 셀 사이 층. 이름 기반 의존성 그래프로 `src/algebra` 를 셀 목록에
-  얹는다(`src/engine/evaluate.ts` 의 `evaluateGraph` 후계). 위상정렬은 순환 감지·캐시
-  지문 전파 전용, 실제 계산은 algebra의 `substituteDeep`/`evaluate`. `evaluateCells`가
+  얹는다. 위상정렬은 순환 감지·캐시 지문 전파 전용, 실제 계산은 algebra의
+  `substituteDeep`/`evaluate`. `evaluateCells`가
   결과와 선택 변환용 `Env` 를 한 번에 돌려준다. **함수 정의 셀**(`f(x)=x^2`)도 같은
   `defName` 필드를 쓰므로(매개변수는 `params`) 변수와 **한 이름 공간**을 자동으로
   공유한다 — 중복 정의 판정에 분기가 안 늘어난다. 매개변수 이름이 워크스페이스의 다른
