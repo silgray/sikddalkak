@@ -1,4 +1,5 @@
 import {
+  buildAdd,
   buildCross,
   buildDeriv,
   buildDot,
@@ -8,15 +9,16 @@ import {
   buildSum,
   buildTranspose,
 } from '../expression/builders';
-import { asKnownInteger, asLiteral } from '../expression/key';
+import { asKnownInteger, asLiteral, exprKey, sortScalars } from '../expression/key';
 import { ok, type Result } from '../result/result';
 import { SCALAR, isKnownShape } from '../shape/shape';
 import type { TypedExpr } from '../expression/node';
-import { asInteger, intLit, ONE as ONE_LIT } from '../literal/literal';
+import { asInteger, intLit, isZero, splitSign, ONE as ONE_LIT } from '../literal/literal';
 import { mulLit, powLit } from '../literal/arith';
 import { asSingleMatrix, toMonomial, normalizeNeg, normalizeProduct } from './product';
-import { fromMonomial } from '../polynomial/convert';
-import { normalizeAdd } from './add';
+import { combineLikeTerms } from '../polynomial/combine';
+import { fromMonomial, zeroOf } from '../polynomial/convert';
+import type { Monomial } from '../polynomial/polynomial';
 import { normalizeFrac } from './frac';
 
 /**
@@ -32,7 +34,7 @@ import { normalizeFrac } from './frac';
  *  4. 숫자 접기 + 정렬 — 숫자 리터럴을 하나로 묶어 맨 앞에, 나머지 스칼라는 `exprKey` 순
  *  5. 항등원 제거 — 인수 열에서 `I` 를 걷어낸다
  *  6. 축약 — 1원소 `scalarMul`/`matMul` 은 그 원소 자체로
- *  7. **덧셈 항 합치기 + 정렬** — 동류항을 합치고(`2A+3A` → `5A`) 항 순서를 고정 (`add.ts`)
+ *  7. **덧셈 항 합치기 + 정렬** — 동류항을 합치고(`2A+3A` → `5A`) 항 순서를 고정
  *
  * ⚠ **7 때문에 `parse()` 는 순수한 구조 정규화가 아니다.** `parse("A+A")` 는 `2A` 를,
  * `parse("1+2")` 는 `3` 을 돌려준다 — 의미를 보존하는 재작성이지만 사용자가 쓴 글자
@@ -48,13 +50,105 @@ import { normalizeFrac } from './frac';
  *
  * ## 파일 구성
  *
- * 케이스가 16개지만 성격은 여섯이다. 덩치 큰 셋을 따로 뒀다:
- * `product.ts`(곱) · `add.ts`(덧셈) · `frac.ts`(분수). 여기 남은 건 디스패처와, 짧아서
- * 나눌 이유가 없는 셋 — 모양 연산(`dot`/`cross`/`transpose`), 거듭제곱, 잎·불투명 노드다.
+ * 케이스가 16개지만 성격은 여섯이다. 덩치 큰 둘을 따로 뒀다:
+ * `product.ts`(곱) · `frac.ts`(분수). 여기 남은 건 디스패처와, 짧아서 나눌 이유가 없는
+ * 넷 — 덧셈, 모양 연산(`dot`/`cross`/`transpose`), 거듭제곱, 잎·불투명 노드다.
  *
  * **핸들러는 `normalize` 를 import 하지 않는다.** 자식 재귀가 필요하면 `recur` 를 인자로
  * 받는다 — 그래야 `normalize ↔ product` 순환이 안 생긴다.
  */
+
+// ---------------------------------------------------------------------------
+// 덧셈
+// ---------------------------------------------------------------------------
+
+/**
+ * 항 하나에서 부호를 벗겨낸다. 정렬 키가 부호를 1순위로 보기 위해서다.
+ *
+ * `renderProduct`/`fromMonomial` 와 같은 "부호는 바깥" 관례를 읽는 쪽이다.
+ */
+function stripTermSign(t: TypedExpr): { negative: boolean; core: TypedExpr } {
+  if (t.op === 'neg') return { negative: true, core: t.operand };
+  if (t.op === 'num') {
+    const { negative, magnitude } = splitSign(t.value);
+    if (negative) return { negative: true, core: buildNum(magnitude) };
+  }
+  return { negative: false, core: t };
+}
+
+/**
+ * 덧셈 항 정렬. 덧셈은 교환 가능하므로 순서를 고정해도 되고, 고정해야 `parse` 와
+ * `expand` 가 같은 값에 같은 LaTeX 을 낸다 (퍼즈 ③).
+ *
+ * 키는 세 겹이다. **순수 `exprKey` 하나로는 사람이 읽기 나쁜 순서가 나온다:**
+ *  1. **상수항은 맨 뒤로** — `n`(0x6E) < `s`(0x73) 라 `exprKey` 만 쓰면 `a+1` 이 `1+a` 가 된다
+ *  2. **양수 먼저** — `-`(0x2D)가 모든 글자보다 앞서서 `A-B` 가 `-B+A` 로 뒤집힌다.
+ *     렌더가 첫 항의 `-` 를 그대로 내보내므로 사용자에게 보이는 문자열이 나빠진다
+ *  3. 나머지는 `exprKey` 순 — 안정적이기만 하면 되므로 임의로 정한다
+ */
+function sortTerms(terms: readonly TypedExpr[]): TypedExpr[] {
+  return terms
+    .map((term) => {
+      const { negative, core } = stripTermSign(term);
+      return {
+        term,
+        constant: core.op === 'num' ? 1 : 0,
+        sign: negative ? 1 : 0,
+        key: exprKey(core),
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.constant - b.constant ||
+        a.sign - b.sign ||
+        (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
+    )
+    .map((keyed) => keyed.term);
+}
+
+/**
+ * `add` — 자식을 정규화하고, 동류항을 합친 뒤, 항 순서를 고정한다.
+ * (`AcB + cAB` → `2cAB`, `\frac{3}{7}A + \frac{1}{5}A` → `\frac{22}{35}A`)
+ *
+ * **자식이 이미 정규화됐다는 걸 쓴다.** 그래서 항을 가르는 데 `toMonomial` 이면 충분하다 —
+ * 다항식으로 왕복할 이유가 없다. 예전엔 `toPolynomial`(곱을 합 위로 **완전히 분배**) →
+ * `combineLikeTerms` → `fromPolynomial` → **항마다 다시 `normalize`** 를 돌았는데,
+ * 분배는 애초에 하면 안 되는 일이라 "단항식이 여럿 나오면 통째로 원자 취급" 이라는
+ * 가드로 되돌리고 있었다. `toMonomial` 은 분배를 안 하므로 그 가드 자체가 필요 없다.
+ * 재조립도 `fromMonomial` 이 처음부터 정규형(n-항·정렬·접기)으로 내주니 두 번째 패스가
+ * 사라진다.
+ *
+ * ❗ **실패를 새로 만들지 않는다.** 여기서 실패를 전파하면 `parse()` 가 지금까지 받던
+ * 식을 거부하기 시작하고, 그건 퍼즈가 아니라 주 앱에서 터진다.
+ *
+ * 아무것도 안 합쳐졌으면 **원래 항을 그대로 유지한다** — 재조립은 합칠 게 없어도 트리를
+ * 건드리므로, 굳이 통과시키면 렌더 멱등만 위태로워진다.
+ */
+function normalizeAdd(
+  e: Extract<TypedExpr, { op: 'add' }>,
+  foldPowers: boolean,
+  recur: (child: TypedExpr) => Result<TypedExpr>,
+): Result<TypedExpr> {
+  const terms: TypedExpr[] = [];
+  const monomials: Monomial[] = [];
+  for (const term of e.terms) {
+    const r = recur(term);
+    if (!r.ok) return r;
+    terms.push(r.value);
+    const m = toMonomial(r.value);
+    // `monomialKey` 가 이 순서를 쓰므로 키를 뽑기 전에 정렬해야 한다 (`Monomial` 문서의 경고).
+    monomials.push({ ...m, scalars: sortScalars(m.scalars) });
+  }
+
+  const combined = combineLikeTerms(monomials);
+  // 개수가 그대로면 합쳐진 게 없다 — 원본을 건드리지 않는다.
+  if (combined.length === monomials.length) return buildAdd(sortTerms(terms));
+
+  const live = combined.filter((m) => !isZero(m.coefficient));
+  // 전부 상쇄됐다. 스칼라 0이 아니라 **모양에 맞는 영행렬**이어야 한다 — `zeroOf` 참고.
+  if (live.length === 0) return ok(zeroOf(e.shape));
+  return buildAdd(sortTerms(live.map((m) => fromMonomial(m, foldPowers))));
+}
 
 /**
  * Typed IR을 받아 평탄화·스칼라 호이스팅·정렬·항등원 제거를 적용한 Typed IR을 낸다.
@@ -62,9 +156,6 @@ import { normalizeFrac } from './frac';
  * `foldPowers` 는 이웃한 같은 인수를 `matPow` 로 접을지 정한다. **기본값 `true` 이고
  * 지금 호출부 7곳이 전부 그대로 쓴다** — 접는 게 정규화 단계에서 맞는 동작이다.
  * (인자는 "안 접는 모드"가 다시 필요해질 때를 위해 남겨뒀다.)
- *
- * `key` 는 덧셈 항 정렬 키를 갈아끼우는 실험용 훅이다. **자식 재귀에는 전달되지 않는다** —
- * 최상위 `add` 한 번에만 걸린다.
  */
 export function normalize(
   e: TypedExpr,
@@ -85,7 +176,7 @@ export function normalize(
 
     // --- 덩치 큰 셋은 따로 ---
     case 'add':
-      return normalizeAdd(e, recur);
+      return normalizeAdd(e, foldPowers, recur);
 
     case 'neg':
       return normalizeNeg(e, foldPowers, recur);

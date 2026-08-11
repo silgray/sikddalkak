@@ -475,7 +475,7 @@ export function fromMonomial(m: Monomial, foldPowers: boolean): TypedExpr {
  * 스칼라가 되어 `\left(A-A\right)+B` 같은 합성이 "행렬+스칼라" 오류로 막힌다 —
  * 재작성이 식의 모양을 바꿔선 안 된다는 원칙이 깨지는 자리다.
  */
-function zeroOf(target: Shape): TypedExpr {
+export function zeroOf(target: Shape): TypedExpr {
   if (isScalar(target)) return buildNum(ZERO_LIT);
   if (!isKnownShape(target)) return buildNum(ZERO_LIT);
   const rows = Array.from({ length: target.rows as number }, () =>

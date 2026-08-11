@@ -16,6 +16,11 @@ import type { TypedExpr } from './node';
  * 언제든 바뀔 수 있고, 이건 동류항 판정이 걸린 의미 계약이다.
  *
  * **단사여야 한다** — 서로 다른 두 식이 같은 키를 내면 동류항 판정이 조용히 무너진다.
+ *
+ * ⚠ **`WeakMap` 캐시를 달지 말 것 — 재봤고 느려진다.** 노드가 불변이라 캐시 자체는
+ * 안전하지만, 정규화가 다루는 부분식은 대개 잎 한둘짜리라 키가 짧고, 게다가
+ * `fromMonomial` 이 매번 새 노드를 만들어 적중률이 낮다. 넣었더니 정규화 벤치가
+ * 12000회 기준 600ms → 1040ms 로 **1.7배 느려졌다**(실측).
  */
 export function exprKey(e: TypedExpr): string {
   switch (e.op) {
@@ -100,6 +105,13 @@ export function asLiteral(e: TypedExpr): Literal | null {
  *
  * 순서를 고정해야 동류항 키가 안정된다 (`ab` 와 `ba` 가 같은 항으로 잡히려면). 다항식
  * 전용이 아니다 — 정규화가 **곱 인수 열**에도 그대로 쓴다.
+ *
+ * 키를 먼저 뽑아 들고 정렬한다 — 비교 함수 안에서 뽑으면 비교마다 다시 만들게 된다
+ * (`sortTerms` 도 같은 꼴이다). 인수가 두셋뿐인 흔한 경우엔 차이가 없고, 열이 길어질수록
+ * 벌어진다.
  */
 export const sortScalars = (scalars: readonly TypedExpr[]): TypedExpr[] =>
-  [...scalars].sort((a, b) => (exprKey(a) < exprKey(b) ? -1 : exprKey(a) > exprKey(b) ? 1 : 0));
+  scalars
+    .map((expr) => ({ expr, key: exprKey(expr) }))
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+    .map((keyed) => keyed.expr);

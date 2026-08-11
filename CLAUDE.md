@@ -123,13 +123,16 @@
 - **`normalize/`** — elaborate 직후에 도는 별도 정규화 패스. 평탄화·스칼라 호이스팅·
   `neg`/숫자 접기·정렬·항등원 제거, 그리고 **거듭제곱 접기**(`AA`→`A²`, 항상 켜져 있다).
   분배는 **하지 않는다** — `(A+B)C+(A+B)C` 는 `2(A+B)C` 로 남는다.
-  - **`normalize.ts`** — 디스패처. 케이스 16개지만 성격이 여섯이라 덩치 큰 셋을 뺐고,
-    짧은 셋(모양 연산·거듭제곱·잎/불투명)만 여기 남았다.
+  - **`normalize.ts`** — 디스패처. 케이스 16개지만 성격이 여섯이라 덩치 큰 둘을 뺐고,
+    짧은 넷(덧셈·모양 연산·거듭제곱·잎/불투명)만 여기 남았다.
   - **`product.ts`** — 곱 계열. `toMonomial` 이 곱을 (계수, 스칼라들, 비스칼라들)로 **분해**한다.
     조립하는 `fromMonomial` 은 `polynomial/convert.ts` 에 있다 — `Monomial` 이 다항식의
     타입이고 다항식 경로(`fromPolynomial`)도 **같은 조립기**를 쓰기 때문이다. 이 짝은
     `toPolynomial`↔`fromPolynomial` 과 같은 코덱 가족이다.
-  - **`add.ts`** — 동류항 합치기와 항 정렬. / **`frac.ts`** — 유리수 접기와 역수 하강.
+  - **`frac.ts`** — 유리수 접기와 역수 하강.
+    덧셈(동류항 합치기·항 정렬)은 `normalize.ts` 안에 있다 — 자식이 이미 정규화됐다는
+    걸 쓰면 `toMonomial`+`combineLikeTerms`+`fromMonomial` 로 끝나서 파일을 나눌 만큼
+    크지 않다. (예전엔 `add.ts` 가 따로 있었고, 다항식으로 왕복하느라 그만큼 컸다.)
 
   ⚠ **핸들러는 `normalize` 를 import 하지 않는다.** 자식 재귀가 필요하면 `recur` 를 인자로
   받는다 — 그래야 `normalize ↔ product` 순환이 안 생긴다. (`parse/` 의 `apply` 를 못
