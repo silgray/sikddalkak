@@ -13,6 +13,7 @@ import {
   type Shape,
 } from '../shape/shape';
 import { fail, ok, type Result } from '../result/result';
+import type { Literal } from '../literal/literal';
 import type { TypedExpr } from './node';
 
 /**
@@ -22,9 +23,10 @@ import type { TypedExpr } from './node';
  * 어긋나므로 한 곳에만 둔다. 덕분에 재작성이 만든 트리도 자동으로 검사된다 — 곱해 붙였는데
  * 모양이 안 맞으면 여기서 오류가 나온다.
  *
- * **이 파일은 잎이다.** `shape/`·`result/`·`expr/node` 밖으로 나가지 않는다 —
- * `Env` 도 `SyntaxNode` 도 모른다. 넷째 import 가 붙는다면 그건 여기 있으면 안 되는
- * 코드가 섞여 들어온 것이다.
+ * **이 파일은 잎이다.** 자료 도메인(`shape/`·`literal/`·`result/`)과 자기 노드 타입
+ * (`expr/node`) 밖으로 나가지 않는다 — **`Env` 도 `SyntaxNode` 도 모른다.** 다섯째
+ * import 가 붙는다면 그건 여기 있으면 안 되는 코드가 섞여 들어온 것이다.
+ * (`literal/` 은 `expr/node` 가 이미 의존하는 곳이라 새로 늘어난 의존이 아니다.)
  *
  * **정규화는 하지 않는다.** 중첩된 곱을 평탄화하거나, `neg`/숫자를 끌어올리거나, 이웃
  * 인수를 거듭제곱으로 접는 건 전부 `normalize` 의 몫이다(별도 패스). 여기서는 주어진 걸
@@ -207,11 +209,18 @@ export const buildMulAll = (parts: readonly TypedExpr[]): Result<TypedExpr> =>
 // 그 밖의 노드
 // ---------------------------------------------------------------------------
 
-/** 부호 반전. 모양이 그대로라 실패할 수 없다 — 유일하게 `Result` 를 안 쓰는 빌더다. */
+/** 부호 반전. 모양이 그대로라 실패할 수 없다 — `Result` 를 안 쓰는 빌더 둘 중 하나. */
 export const buildNeg = (operand: TypedExpr): TypedExpr => ({
   op: 'neg',
   shape: operand.shape,
   operand,
+});
+
+/** 숫자 리터럴 노드. 리터럴은 늘 스칼라라 검사할 게 없다. */
+export const buildNum = (value: Literal): TypedExpr => ({
+  op: 'num',
+  shape: SCALAR,
+  value,
 });
 
 /** 전치. 모양을 뒤집는다. 스칼라에는 쓰지 않는다 (그건 일반 지수다). */

@@ -108,6 +108,23 @@ export function isOne(l: Literal): boolean {
 
 export const isReal = (l: Literal): l is RealLiteral => l.kind !== 'complex';
 
+/**
+ * 부호 뒤집기. **정규형을 깨지 않는 유일한 산술이라 실패가 없다** — 그래서 CE가 필요한
+ * `arith.ts` 가 아니라 타입 옆에 있다 (`splitSign` 과 같은 부류의 순수 연산).
+ */
+export function negLit(l: Literal): Literal {
+  switch (l.kind) {
+    case 'int':
+      return intLit(-l.value);
+    case 'rational':
+      return { kind: 'rational', n: -l.n, d: l.d };
+    case 'decimal':
+      return { kind: 'decimal', value: -l.value, text: String(-l.value) };
+    case 'complex':
+      return { kind: 'complex', re: negLit(l.re) as RealLiteral, im: negLit(l.im) as RealLiteral };
+  }
+}
+
 /** 정수로 볼 수 있으면 그 값, 아니면 `null`. `matPow` 지수 판정이 쓴다. */
 export function asInteger(l: Literal): number | null {
   if (l.kind === 'int') return l.value;

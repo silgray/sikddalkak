@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addLit, mulLit, negLit, powLit } from './arith';
+import { addLit, mulLit, powLit } from './arith';
 import { fromCeJson, toCeJson } from './ceJson';
 import {
   asInteger,
@@ -7,6 +7,7 @@ import {
   isOne,
   isZero,
   literalKey,
+  negLit,
   splitSign,
   toRealNumber,
   type Literal,

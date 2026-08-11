@@ -7,17 +7,11 @@ import { defaultEngine } from '../ce/engine';
 import { elaborate } from '../elaborate/elaborate';
 import { buildCross, buildDot, buildMulAll } from '../expr/builders';
 import { mapChildren } from '../expr/traversal';
-import { exprKey } from '../expr/key';
-import {
-  combineLikeTerms,
-  foldNumericScalars,
-  fromPolynomial,
-  sortScalars,
-  toPolynomial,
-  type Monomial,
-  type Polynomial,
-} from '../parse/normal';
-import { normalize } from '../parse/normalize';
+import { exprKey, sortScalars } from '../expr/key';
+import { combineLikeTerms, foldNumericScalars } from '../polynomial/combine';
+import { fromPolynomial, toPolynomial } from '../polynomial/convert';
+import type { Monomial, Polynomial } from '../polynomial/polynomial';
+import { normalize } from '../rewrite/normalize';
 import { asInteger, intLit, isZero, ONE as ONE_LIT, type Literal } from '../literal/literal';
 import { divideByInt } from '../literal/arith';
 import { guardCe } from '../ce/budget';

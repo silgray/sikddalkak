@@ -1,6 +1,6 @@
 import { elaborate } from './elaborate/elaborate';
 import { type Env, type FunctionDef, type TypedExpr } from './expr/node';
-import { normalize } from './parse/normalize';
+import { normalize } from './rewrite/normalize';
 import { exprKey } from './expr/key';
 import { fail, failWith, ok, type AlgebraError, type Result } from './result/result';
 import { render } from './render';
@@ -28,7 +28,7 @@ export { expand, factor, simplify, substitute, isPureScalar } from './transform/
 export { evalNumeric, matricesClose, type Assignment, type Matrix } from './numeric';
 export { sexpSyntax, sexpTyped, sexpTypedWithShapes } from './debug';
 export { OP_PROPERTIES, type BinaryOp, type OpProperties } from './opers';
-export { normalize } from './parse/normalize';
+export { normalize } from './rewrite/normalize';
 export { evaluate, freeSymbols, substituteDeep } from './transform/evaluate';
 
 export type TransformOp = 'expand' | 'simplify' | 'factor' | 'substitute';
@@ -47,10 +47,10 @@ const OPERATIONS: Record<TransformOp, (e: TypedExpr, env: Env) => Result<TypedEx
  * 돌려준다 — 공개 API를 거친 트리는 중첩된 곱이나 흩어진 스칼라가 남아 있지 않다는 게
  * 이 함수의 계약이다.
  *
- * ⚠ **동류항은 합쳐진다.** `parse("A+A")` 는 `2A`, `parse("1+2")` 는 `3` 이다. 값을
- * 보존하는 재작성이지만 사용자가 쓴 글자 그대로는 아니다 (`normalize.ts` 서두 참고).
- * 분배는 하지 않으므로 `(A+B)C+(A+B)C` 는 `2(A+B)C` 로 남는다. 거듭제곱 접기(`AA`→`A²`)는
- * 여전히 `simplify` 전용이다.
+ * ⚠ **동류항은 합쳐지고 거듭제곱도 접힌다.** `parse("A+A")` 는 `2A`, `parse("1+2")` 는
+ * `3`, `parse("AA")` 는 `A²` 다. 값을 보존하는 재작성이지만 사용자가 쓴 글자 그대로는
+ * 아니다 (`rewrite/normalize.ts` 서두 참고). 대신 **분배는 하지 않는다** —
+ * `(A+B)C+(A+B)C` 는 `2(A+B)C` 로 남는다.
  */
 export function parse(latex: string, env: Env): Result<TypedExpr> {
   const syntax = parseSyntax(latex);

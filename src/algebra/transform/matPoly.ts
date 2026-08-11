@@ -1,5 +1,5 @@
 import { buildAdd, buildFrac, buildMul } from '../expr/builders';
-import { fromPolynomial, toPolynomial } from '../parse/normal';
+import { fromPolynomial, toPolynomial } from '../polynomial/convert';
 import { constantInteger, exprKey } from '../expr/key';
 import { intLit } from '../literal/literal';
 import { fail, ok, type Result } from '../result/result';

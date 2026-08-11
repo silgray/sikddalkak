@@ -1,4 +1,4 @@
-import { asInteger, literalKey } from '../literal/literal';
+import { asInteger, literalKey, negLit, type Literal } from '../literal/literal';
 import { formatShape } from '../shape/shape';
 import type { TypedExpr } from './node';
 
@@ -78,10 +78,28 @@ export function exprKey(e: TypedExpr): string {
  * 음수 지수는 `num(-1)` 이 아니라 `neg(num 1)` 일 수 있다.
  */
 export function constantInteger(e: TypedExpr): number | null {
-  if (e.op === 'num') return asInteger(e.value);
-  if (e.op === 'neg' && e.operand.op === 'num') {
-    const n = asInteger(e.operand.value);
-    return n === null ? null : -n;
-  }
+  const lit = literalOf(e);
+  return lit === null ? null : asInteger(lit);
+}
+
+/**
+ * 노드를 리터럴로 읽는다. 리터럴이 아니면 `null`.
+ *
+ * **`neg(num)` 도 받는다** — 정규화가 부호를 바깥 `neg` 로 내보내므로(`buildProduct`),
+ * 정규화 뒤의 음수는 `num(-3)` 이 아니라 `neg(num 3)` 이다. 이 한 줄 때문에 곳곳에서
+ * `num` 만 보다가 음수를 놓치는 일이 있었다.
+ */
+export function literalOf(e: TypedExpr): Literal | null {
+  if (e.op === 'num') return e.value;
+  if (e.op === 'neg' && e.operand.op === 'num') return negLit(e.operand.value);
   return null;
 }
+
+/**
+ * 교환 가능한 인수들을 `exprKey` 순으로 정렬한다.
+ *
+ * 순서를 고정해야 동류항 키가 안정된다 (`ab` 와 `ba` 가 같은 항으로 잡히려면). 다항식
+ * 전용이 아니다 — 정규화가 **곱 인수 열**에도 그대로 쓴다.
+ */
+export const sortScalars = (scalars: readonly TypedExpr[]): TypedExpr[] =>
+  [...scalars].sort((a, b) => (exprKey(a) < exprKey(b) ? -1 : exprKey(a) > exprKey(b) ? 1 : 0));

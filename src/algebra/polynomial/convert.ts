@@ -3,106 +3,36 @@ import {
   buildCross,
   buildDot,
   buildMul,
+  buildNum,
   buildTranspose,
 } from '../expr/builders';
 import { OP_PROPERTIES } from '../opers';
-import { constantInteger, exprKey } from '../expr/key';
+import { constantInteger, sortScalars } from '../expr/key';
 import { fail, ok, type Result } from '../result/result';
 import { SCALAR, isKnownShape, isScalar, type Shape } from '../shape/shape';
 import type { TypedExpr } from '../expr/node';
+import { isOne, isZero, splitSign, ONE as ONE_LIT, ZERO as ZERO_LIT } from '../literal/literal';
+import { mulLit } from '../literal/arith';
 import {
-  isOne,
-  isZero,
-  splitSign,
-  ONE as ONE_LIT,
-  ZERO as ZERO_LIT,
-  type Literal,
-} from '../literal/literal';
-import { addLit, mulLit, negLit } from '../literal/arith';
+  MAX_POWER_EXPANSION,
+  ONE,
+  atom,
+  negate,
+  polyMul,
+  type Monomial,
+  type Polynomial,
+} from './polynomial';
 
 /**
- * 정규형 — **단항식 = (수치 계수, 스칼라 인수 집합, 비스칼라 인수 열)**.
+ * Typed IR ↔ 다항식 왕복.
  *
- * 이 표현 하나가 expand/simplify/factor를 동시에 건전하게 만든다:
- *  - 스칼라 인수는 교환 가능하므로 **집합처럼** 다뤄 정렬한다 (동류항 판정이 쉬워진다)
- *  - 비스칼라 인수는 교환 불가이므로 **열의 순서를 그대로** 유지한다
- *    → `ABA` 와 `A²B` 는 다른 키를 갖는다. 여기가 교환법칙 오적용을 막는 지점이다.
- *  - 동류항 ⇔ (스칼라 인수 집합, 비스칼라 인수 열)이 **완전히 같음**
- *
- * 인수 열로 평탄화해도 되는 근거는 `ops.ts` 의 결합법칙 항목이다. 결합법칙이 없는
- * 외적은 평탄화하지 않고 **통째로 인수 하나**로 남긴다 (`(u×v)×w ≠ u×(v×w)`).
+ * 두 방향을 한 파일에 두는 이유: 왕복이 값을 보존해야 한다는 게 계약이라 한쪽만 고치면
+ * 바로 깨진다.
  */
-
-export type Monomial = {
-  /**
-   * 수치 계수. **`number` 가 아니라 `Literal` 인 이유**: 동류항을 합칠 때 계수를 더하는데
-   * (`combineLikeTerms`), float면 `\frac{3}{7}+\frac{1}{5}` 가 `0.6285714…` 가 된다.
-   * 정확한 유리수여야 `\frac{22}{35}` 가 나온다.
-   */
-  readonly numeric: Literal;
-  /** 스칼라 인수 — 교환 가능하므로 키 기준으로 정렬해 정규화한다. */
-  readonly scalars: readonly TypedExpr[];
-  /** 비스칼라 인수 — **순서가 의미다.** 절대 정렬하지 않는다. */
-  readonly factors: readonly TypedExpr[];
-};
-
-export type Polynomial = readonly Monomial[];
-
-/** `(A+B)^n` 을 풀어쓸 상한. 이보다 크면 접은 채로 둔다 (항이 폭발한다). */
-const MAX_POWER_EXPANSION = 6;
-
-/** 동류항 키 — 수치 계수는 뺀다 (그게 합쳐질 대상이므로). */
-export const monomialKey = (m: Monomial): string =>
-  `${m.scalars.map(exprKey).join('*')}|${m.factors.map(exprKey).join('*')}`;
 
 // ---------------------------------------------------------------------------
 // 전개 — TypedExpr -> Polynomial
 // ---------------------------------------------------------------------------
-
-/**
- * 스칼라 인수를 정렬한다. 스칼라는 교환 가능하므로 순서를 고정해도 되고, 고정해야
- * 동류항 키가 안정된다 (`ab` 와 `ba` 가 같은 항으로 잡히려면).
- */
-export const sortScalars = (scalars: readonly TypedExpr[]): TypedExpr[] =>
-  [...scalars].sort((a, b) => (exprKey(a) < exprKey(b) ? -1 : exprKey(a) > exprKey(b) ? 1 : 0));
-
-const ONE: Monomial = { numeric: ONE_LIT, scalars: [], factors: [] };
-
-/** 잎 하나를 단항식으로. 모양이 결정한다: 스칼라면 계수 쪽, 아니면 인수 열 쪽. */
-const atom = (e: TypedExpr): Monomial =>
-  isScalar(e.shape)
-    ? { numeric: ONE_LIT, scalars: [e], factors: [] }
-    : { numeric: ONE_LIT, scalars: [], factors: [e] };
-
-const negate = (m: Monomial): Monomial => ({ ...m, numeric: negLit(m.numeric) });
-
-/**
- * 두 다항식의 곱. **인수 열을 이어붙이기만 하고 재배열하지 않는다** —
- * 행렬곱은 결합법칙은 있지만(그래서 이어붙일 수 있고) 교환법칙은 없다(그래서 순서를 지킨다).
- */
-function polyMul(left: Polynomial, right: Polynomial): Polynomial {
-  const out: Monomial[] = [];
-  for (const p of left) {
-    for (const q of right) {
-      // 계수를 못 곱하면(안전 정수 밖 등) 접지 않고 인수로 되돌린다 — 값을 뭉개지 않는다.
-      const product = mulLit(p.numeric, q.numeric);
-      out.push(
-        product !== null
-          ? {
-              numeric: product,
-              scalars: sortScalars([...p.scalars, ...q.scalars]),
-              factors: [...p.factors, ...q.factors],
-            }
-          : {
-              numeric: ONE_LIT,
-              scalars: sortScalars([...p.scalars, ...q.scalars, num(p.numeric), num(q.numeric)]),
-              factors: [...p.factors, ...q.factors],
-            },
-      );
-    }
-  }
-  return out;
-}
 
 /**
  * 곱의 결과가 스칼라면 인수 열을 **하나의 스칼라 원자로 접는다.**
@@ -146,7 +76,7 @@ function factorsToExpr(m: Monomial): Result<TypedExpr> {
 /**
  * TypedExpr -> 다항식. 곱을 합 위로 **완전히 분배**한다.
  *
- * 분배가 허용되는 근거는 `ops.ts` 의 `distributesOverAdd` 다 (현재 이항 연산 넷 모두 참).
+ * 분배가 허용되는 근거는 `opers.ts` 의 `distributesOverAdd` 다 (현재 이항 연산 넷 모두 참).
  */
 export function toPolynomial(e: TypedExpr): Result<Polynomial> {
   switch (e.op) {
@@ -164,7 +94,7 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
     case 'prod':
     case 'integral':
       // 순수 스칼라 부분식은 CE 몫이라(§7) 여기서는 통째로 원자 취급한다.
-      // matIdentity도 여기서는 그냥 원자다 — 소거는 normalize의 몫이다. `frac` 도
+      // matIdentity도 여기서는 그냥 원자다 — 소거는 정규화의 몫이다. `frac` 도
       // 나눗셈을 다항식으로 펼치지 않고 통째로 둔다 — 분배 여부는 CE 위임 몫이다.
       // 미분/적분/합/곱도 통째로 원자다 — 곱을 그 안까지 분배할 이유가 없다.
       return ok([atom(e)]);
@@ -240,7 +170,7 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
           const product = mulLit(p.numeric, q.numeric);
           const numeric = product ?? ONE_LIT;
           const carried =
-            product !== null ? [] : [num(p.numeric), num(q.numeric)];
+            product !== null ? [] : [buildNum(p.numeric), buildNum(q.numeric)];
           const scalars = sortScalars([...p.scalars, ...q.scalars, ...carried]);
           out.push(
             OP_PROPERTIES[e.op].yieldsScalar
@@ -285,8 +215,6 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
 // 되돌리기 — Polynomial -> TypedExpr
 // ---------------------------------------------------------------------------
 
-const num = (value: Literal): TypedExpr => ({ op: 'num', shape: SCALAR, value });
-
 /**
  * 단항식 하나를 식으로. 부호는 밖에서 `neg` 로 붙이므로 여기서는 절댓값만 쓴다.
  *
@@ -297,7 +225,7 @@ function monomialToExpr(m: Monomial): Result<TypedExpr> {
   const { magnitude } = splitSign(m.numeric);
   const parts: TypedExpr[] = [];
   const body = [...m.scalars, ...m.factors];
-  if (!isOne(magnitude) || body.length === 0) parts.push(num(magnitude));
+  if (!isOne(magnitude) || body.length === 0) parts.push(buildNum(magnitude));
   parts.push(...body);
   return parts
     .slice(1)
@@ -312,10 +240,10 @@ function monomialToExpr(m: Monomial): Result<TypedExpr> {
  * 재작성이 식의 모양을 바꿔선 안 된다는 원칙이 깨지는 자리다.
  */
 function zeroOf(target: Shape): TypedExpr {
-  if (isScalar(target)) return num(ZERO_LIT);
-  if (!isKnownShape(target)) return num(ZERO_LIT);
+  if (isScalar(target)) return buildNum(ZERO_LIT);
+  if (!isKnownShape(target)) return buildNum(ZERO_LIT);
   const rows = Array.from({ length: target.rows as number }, () =>
-    Array.from({ length: target.cols as number }, () => num(ZERO_LIT)),
+    Array.from({ length: target.cols as number }, () => buildNum(ZERO_LIT)),
   );
   return { op: 'matrix', shape: target, rows };
 }
@@ -340,55 +268,4 @@ export function fromPolynomial(p: Polynomial, target: Shape = SCALAR): Result<Ty
     );
   }
   return buildAdd(terms);
-}
-
-/**
- * 스칼라 인수로 섞여 들어온 순수 숫자를 수치 계수로 흡수한다.
- *
- * CE가 `3^2` 를 `9` 로 정리해 돌려주면 그 `9` 는 스칼라 인수 자리에 앉는다. 그대로 두면
- * 계수 `3` 과 인수 `9` 가 나란히 렌더돼 `3\cdot 9…` 같은 게 나오고, `\cdot` 는 병치보다
- * 느슨해서 다시 읽을 때 묶음이 달라진다. 애초에 하나로 합치는 게 맞다.
- */
-export function foldNumericScalars(p: Polynomial): Polynomial {
-  return p.map((m) => {
-    let numeric = m.numeric;
-    const scalars: TypedExpr[] = [];
-    for (const s of m.scalars) {
-      // 곱이 실패하면(안전 정수 밖 등) 흡수하지 않고 인수로 남긴다.
-      const folded = s.op === 'num' ? mulLit(numeric, s.value) : null;
-      if (folded !== null) numeric = folded;
-      else scalars.push(s);
-    }
-    return { numeric, scalars, factors: m.factors };
-  });
-}
-
-/**
- * 같은 인수 열을 가진 항들을 합친다. 순서는 처음 나온 순서를 유지한다.
- *
- * 계수 덧셈이 실패하면(안전 정수 밖 등) **합치지 않고 따로 남긴다** — 값을 뭉개느니
- * 항이 둘로 남는 게 낫다 (`literal/arith.ts` 의 "실패 = 무변경" 관례).
- */
-export function combineLikeTerms(p: Polynomial): Polynomial {
-  const slots: Monomial[] = [];
-  /** 동류항 키 -> 합칠 수 있는 칸의 위치. */
-  const openSlot = new Map<string, number>();
-  for (const m of p) {
-    const key = monomialKey(m);
-    const at = openSlot.get(key);
-    if (at === undefined) {
-      openSlot.set(key, slots.length);
-      slots.push(m);
-      continue;
-    }
-    const sum = addLit(slots[at].numeric, m.numeric);
-    if (sum !== null) {
-      slots[at] = { ...slots[at], numeric: sum };
-    } else {
-      // 이 칸은 더 이상 합칠 대상이 아니다 — 뒤에 같은 키가 또 오면 새 칸에 쌓는다.
-      openSlot.set(key, slots.length);
-      slots.push(m);
-    }
-  }
-  return slots;
 }

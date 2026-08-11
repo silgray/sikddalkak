@@ -1,6 +1,6 @@
 import { createEngine } from '../ce/engine';
 import type { MathJsonExpression } from '@cortex-js/compute-engine';
-import { intLit, makeRational, type Literal, type RealLiteral } from './literal';
+import { intLit, makeRational, type Literal } from './literal';
 import { fromCeJson, toCeJson } from './ceJson';
 
 /**
@@ -67,20 +67,6 @@ export function addLit(a: Literal, b: Literal): Literal | null {
 
 export function mulLit(a: Literal, b: Literal): Literal | null {
   return fastRat(a, b, (an, ad, bn, bd) => [an * bn, ad * bd]) ?? viaCe('Multiply', a, b);
-}
-
-/** 부호 뒤집기 — 실패가 없다 (정규형을 깨지 않는 유일한 연산). */
-export function negLit(l: Literal): Literal {
-  switch (l.kind) {
-    case 'int':
-      return intLit(-l.value);
-    case 'rational':
-      return { kind: 'rational', n: -l.n, d: l.d };
-    case 'decimal':
-      return { kind: 'decimal', value: -l.value, text: String(-l.value) };
-    case 'complex':
-      return { kind: 'complex', re: negLit(l.re) as RealLiteral, im: negLit(l.im) as RealLiteral };
-  }
 }
 
 /**
