@@ -18,15 +18,15 @@ import { monomialKey, type Monomial, type Polynomial } from './polynomial';
  */
 export function foldNumericScalars(p: Polynomial): Polynomial {
   return p.map((m) => {
-    let numeric = m.numeric;
+    let coefficient = m.coefficient;
     const scalars: TypedExpr[] = [];
     for (const s of m.scalars) {
       // 곱이 실패하면(안전 정수 밖 등) 흡수하지 않고 인수로 남긴다.
-      const folded = s.op === 'num' ? mulLit(numeric, s.value) : null;
-      if (folded !== null) numeric = folded;
+      const folded = s.op === 'num' ? mulLit(coefficient, s.value) : null;
+      if (folded !== null) coefficient = folded;
       else scalars.push(s);
     }
-    return { numeric, scalars, factors: m.factors };
+    return { coefficient, scalars, nonScalars: m.nonScalars };
   });
 }
 
@@ -47,9 +47,9 @@ export function combineLikeTerms(p: Polynomial): Polynomial {
       slots.push(m);
       continue;
     }
-    const sum = addLit(slots[at].numeric, m.numeric);
+    const sum = addLit(slots[at].coefficient, m.coefficient);
     if (sum !== null) {
-      slots[at] = { ...slots[at], numeric: sum };
+      slots[at] = { ...slots[at], coefficient: sum };
     } else {
       // 이 칸은 더 이상 합칠 대상이 아니다 — 뒤에 같은 키가 또 오면 새 칸에 쌓는다.
       openSlot.set(key, slots.length);

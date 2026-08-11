@@ -232,8 +232,8 @@ function simplifyRaw(e: TypedExpr, env: Env): Result<TypedExpr> {
       } else {
         monomials.push(
           isScalar(term.shape)
-            ? { numeric: ONE_LIT, scalars: [term], factors: [] }
-            : { numeric: ONE_LIT, scalars: [], factors: [term] },
+            ? { coefficient: ONE_LIT, scalars: [term], nonScalars: [] }
+            : { coefficient: ONE_LIT, scalars: [], nonScalars: [term] },
         );
       }
     }
@@ -259,7 +259,7 @@ const gcd = (a: number, b: number): number => (b === 0 ? Math.abs(a) : gcd(b, a 
  * 뽑아내면 사용자가 쓴 것보다 오히려 읽기 나빠진다.
  */
 function commonNumeric(p: Polynomial): number {
-  const ints = p.map((m) => asInteger(m.numeric));
+  const ints = p.map((m) => asInteger(m.coefficient));
   if (ints.some((n) => n === null)) return 1;
   const values = ints as number[];
   const g = values.reduce((acc, n) => gcd(acc, n), 0);
@@ -298,11 +298,11 @@ const removeOnce = (scalars: readonly TypedExpr[], remove: readonly TypedExpr[])
  * `matIdentity` 로 채운다(`insertIdentityIfEmpty`). 그래서 상한은 최소 길이까지다.
  */
 function commonPrefixLength(p: Polynomial): number {
-  const limit = Math.min(...p.map((m) => m.factors.length));
+  const limit = Math.min(...p.map((m) => m.nonScalars.length));
   let length = 0;
   while (length < limit) {
-    const key = exprKey(p[0].factors[length]);
-    if (!p.every((m) => exprKey(m.factors[length]) === key)) break;
+    const key = exprKey(p[0].nonScalars[length]);
+    if (!p.every((m) => exprKey(m.nonScalars[length]) === key)) break;
     length += 1;
   }
   return length;
@@ -310,11 +310,11 @@ function commonPrefixLength(p: Polynomial): number {
 
 /** 공통 우인수의 길이. 같은 이유로 전부 내주는 것도 허용한다. */
 function commonSuffixLength(p: Polynomial): number {
-  const limit = Math.min(...p.map((m) => m.factors.length));
+  const limit = Math.min(...p.map((m) => m.nonScalars.length));
   let length = 0;
   while (length < limit) {
-    const key = exprKey(p[0].factors[p[0].factors.length - 1 - length]);
-    if (!p.every((m) => exprKey(m.factors[m.factors.length - 1 - length]) === key)) break;
+    const key = exprKey(p[0].nonScalars[p[0].nonScalars.length - 1 - length]);
+    if (!p.every((m) => exprKey(m.nonScalars[m.nonScalars.length - 1 - length]) === key)) break;
     length += 1;
   }
   return length;
@@ -377,16 +377,16 @@ type BilinearTerm = {
   readonly kind: 'dot' | 'cross';
   readonly left: TypedExpr;
   readonly right: TypedExpr;
-  readonly numeric: Literal;
+  readonly coefficient: Literal;
   readonly otherScalars: readonly TypedExpr[];
 };
 
 function asBilinearTerm(m: Monomial): BilinearTerm | null {
-  if (m.factors.length === 1 && m.factors[0].op === 'cross') {
-    const c = m.factors[0];
-    return { kind: 'cross', left: c.left, right: c.right, numeric: m.numeric, otherScalars: m.scalars };
+  if (m.nonScalars.length === 1 && m.nonScalars[0].op === 'cross') {
+    const c = m.nonScalars[0];
+    return { kind: 'cross', left: c.left, right: c.right, coefficient: m.coefficient, otherScalars: m.scalars };
   }
-  if (m.factors.length === 0) {
+  if (m.nonScalars.length === 0) {
     const dots = m.scalars.filter((s) => s.op === 'dot');
     if (dots.length === 1) {
       const d = dots[0] as TypedExpr & { op: 'dot'; left: TypedExpr; right: TypedExpr };
@@ -394,7 +394,7 @@ function asBilinearTerm(m: Monomial): BilinearTerm | null {
         kind: 'dot',
         left: d.left,
         right: d.right,
-        numeric: m.numeric,
+        coefficient: m.coefficient,
         otherScalars: m.scalars.filter((s) => s !== d),
       };
     }
@@ -421,7 +421,7 @@ function factorBilinear(p: Polynomial): Result<TypedExpr> | null {
 
   const varying = parts.map((t) => (sharedLeft ? t.right : t.left));
   const inner = fromPolynomial(
-    parts.map((t, i) => ({ numeric: t.numeric, scalars: t.otherScalars, factors: [varying[i]] })),
+    parts.map((t, i) => ({ coefficient: t.coefficient, scalars: t.otherScalars, nonScalars: [varying[i]] })),
     varying[0].shape,
   );
   if (!inner.ok) return inner;
@@ -494,30 +494,30 @@ function factorStructural(e: TypedExpr, env: Env): Result<TypedExpr> | null {
   const parsed = toPolynomial(e);
   if (!parsed.ok) return parsed;
   const p = combineLikeTerms(refineScalars(parsed.value, 'simplify', env, false)).filter(
-    (m) => !isZero(m.numeric),
+    (m) => !isZero(m.coefficient),
   );
   if (p.length < 2) return null;
 
-  const numeric = commonNumeric(p);
+  const coefficient = commonNumeric(p);
   const scalars = commonScalars(p);
 
   // 1단계: 앞에서.
   const prefix = commonPrefixLength(p);
-  const prefixShared = p[0].factors.slice(0, prefix);
-  const afterPrefix = p.map((m) => ({ ...m, factors: m.factors.slice(prefix) }));
+  const prefixShared = p[0].nonScalars.slice(0, prefix);
+  const afterPrefix = p.map((m) => ({ ...m, nonScalars: m.nonScalars.slice(prefix) }));
 
   // 2단계: 1단계를 뗀 몫에서, 뒤에서.
   const suffix = commonSuffixLength(afterPrefix);
-  const suffixShared = afterPrefix[0].factors.slice(afterPrefix[0].factors.length - suffix);
+  const suffixShared = afterPrefix[0].nonScalars.slice(afterPrefix[0].nonScalars.length - suffix);
 
   if (prefix === 0 && suffix === 0) {
     // 인수 열에서 뽑을 게 없으면 내적/외적 쪽을 본다 (`u·v + u·w → u·(v+w)`).
     const bilinear = factorBilinear(p);
     if (bilinear !== null) return bilinear;
-    if (numeric === 1 && scalars.length === 0) return null;
+    if (coefficient === 1 && scalars.length === 0) return null;
   }
 
-  const cores = afterPrefix.map((m) => coreFactors(m.factors, suffix));
+  const cores = afterPrefix.map((m) => coreFactors(m.nonScalars, suffix));
   const coreShape = inferCoreShape(cores, prefixShared, suffixShared, e.shape);
   const filledCores: (readonly TypedExpr[])[] = [];
   for (const core of cores) {
@@ -529,10 +529,10 @@ function factorStructural(e: TypedExpr, env: Env): Result<TypedExpr> | null {
   }
 
   const remainder: Monomial[] = p.map((m, i) => ({
-    // `numeric` 은 위에서 정수임이 보장된다 (`commonNumeric`).
-    numeric: divideByInt(m.numeric, numeric),
+    // `coefficient` 은 위에서 정수임이 보장된다 (`commonNumeric`).
+    coefficient: divideByInt(m.coefficient, coefficient),
     scalars: removeOnce(m.scalars, scalars),
-    factors: filledCores[i],
+    nonScalars: filledCores[i],
   }));
 
   const inner = fromPolynomial(remainder, coreShape);
@@ -547,14 +547,14 @@ function factorStructural(e: TypedExpr, env: Env): Result<TypedExpr> | null {
       : inner.value;
 
   const parts: TypedExpr[] = [];
-  if (numeric !== 1) parts.push({ op: 'num', shape: SCALAR, value: intLit(numeric) });
+  if (coefficient !== 1) parts.push({ op: 'num', shape: SCALAR, value: intLit(coefficient) });
   parts.push(...scalars, ...prefixShared, refined, ...suffixShared);
   return buildMulAll(parts);
 }
 
 /** 인수 열의 앞 `suffix` 만큼을 뺀 나머지(뒤에서 뗀 core). */
-const coreFactors = (factors: readonly TypedExpr[], suffix: number): readonly TypedExpr[] =>
-  factors.slice(0, factors.length - suffix);
+const coreFactors = (nonScalars: readonly TypedExpr[], suffix: number): readonly TypedExpr[] =>
+  nonScalars.slice(0, nonScalars.length - suffix);
 
 // ---------------------------------------------------------------------------
 // substitute

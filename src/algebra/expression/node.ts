@@ -22,18 +22,21 @@ export type TypedExpr =
    */
   | { readonly op: 'matMul'; readonly shape: Shape; readonly factors: readonly TypedExpr[] }
   /**
-   * 스칼라 부분과 행렬 부분이 섞인 곱. `scalar` 는 스칼라 모양(단일 심볼이거나
-   * `scalarMul` 일 수 있다), `matrix` 는 비스칼라 모양(단일 심볼이거나 `matMul`일 수
+   * 스칼라 부분과 비스칼라 부분이 섞인 곱. `scalar` 는 스칼라 모양(단일 심볼이거나
+   * `scalarMul` 일 수 있다), `nonScalar` 는 비스칼라 모양(단일 심볼이거나 `matMul`일 수
    * 있다). 한쪽만 있으면 이 노드를 만들지 않고 `scalarMul`/`matMul` 을 그대로 쓴다.
+   *
+   * ⚠ 비스칼라 쪽이 **행렬 리터럴이라는 뜻이 아니다** — `matrix` 는 `op: 'matrix'`
+   * (진짜 행렬 리터럴) 전용어라 이 자리에 쓰지 않는다.
    */
-  | { readonly op: 'mul'; readonly shape: Shape; readonly scalar: TypedExpr; readonly matrix: TypedExpr }
+  | { readonly op: 'mul'; readonly shape: Shape; readonly scalar: TypedExpr; readonly nonScalar: TypedExpr }
   | { readonly op: 'dot'; readonly shape: Shape; readonly left: TypedExpr; readonly right: TypedExpr }
   | { readonly op: 'cross'; readonly shape: Shape; readonly left: TypedExpr; readonly right: TypedExpr }
   | { readonly op: 'transpose'; readonly shape: Shape; readonly operand: TypedExpr }
   /**
    * 행렬의 거듭제곱. **지수는 `scalarPow` 와 같이 `TypedExpr`** — `A^{1+2}` 처럼 지수가
    * 식일 수 있어야 한다. elaborate는 지수가 **스칼라 모양인지만** 보고, "정수인가·양수인가"
-   * 판정은 `constantInteger` 로 값이 확정된 뒤에 한다 (치환 후에도 다시 걸리도록
+   * 판정은 `asKnownInteger` 로 값이 확정된 뒤에 한다 (치환 후에도 다시 걸리도록
    * `normalize` 가 그 자리다).
    */
   | { readonly op: 'matPow'; readonly shape: Shape; readonly base: TypedExpr; readonly exponent: TypedExpr }

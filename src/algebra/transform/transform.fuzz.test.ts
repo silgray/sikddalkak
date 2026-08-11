@@ -122,7 +122,7 @@ function containsResolvedIdentity(e: TypedExpr): boolean {
     case 'matMul':
       return e.factors.some(containsResolvedIdentity);
     case 'mul':
-      return containsResolvedIdentity(e.scalar) || containsResolvedIdentity(e.matrix);
+      return containsResolvedIdentity(e.scalar) || containsResolvedIdentity(e.nonScalar);
     case 'dot':
     case 'cross':
       return containsResolvedIdentity(e.left) || containsResolvedIdentity(e.right);

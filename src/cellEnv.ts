@@ -77,7 +77,7 @@ export function splitFunctionDefinition(
   }
   if (new Set(params).size !== params.length) return null;
 
-  return { name: syntax.value.callee, params, rhs };
+  return { name: syntax.value.name, params, rhs };
 }
 
 /**

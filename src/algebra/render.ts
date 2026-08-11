@@ -162,8 +162,8 @@ function hasBareNameHazard(e: TypedExpr, hasPrecedingSibling: boolean): boolean 
     case 'matMul':
       return hasBareNameHazard(e.factors[e.factors.length - 1], true);
     case 'mul':
-      // renderProduct([e.scalar, e.matrix]) — 마지막 자리는 항상 matrix.
-      return hasBareNameHazard(e.matrix, true);
+      // renderProduct([e.scalar, e.nonScalar]) — 마지막 자리는 항상 matrix.
+      return hasBareNameHazard(e.nonScalar, true);
     default:
       return false;
   }
@@ -282,7 +282,7 @@ export function render(e: TypedExpr): string {
       return renderProduct(e.factors);
 
     case 'mul':
-      return renderProduct([e.scalar, e.matrix]);
+      return renderProduct([e.scalar, e.nonScalar]);
 
     // 내적/외적은 양쪽 피연산자에 병치 세기를 요구한다.
     // 내적이 내적의 피연산자가 되는 일은 애초에 없다 — 내적 결과는 스칼라라서 그 다음 곱은

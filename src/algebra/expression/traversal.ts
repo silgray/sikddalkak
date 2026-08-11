@@ -81,7 +81,7 @@ export function mapChildren(
     case 'mul': {
       const scalar = f(e.scalar);
       if (!scalar.ok) return scalar;
-      const matrix = f(e.matrix);
+      const matrix = f(e.nonScalar);
       if (!matrix.ok) return matrix;
       return buildMul(scalar.value, matrix.value);
     }

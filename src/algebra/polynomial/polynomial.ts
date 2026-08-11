@@ -28,7 +28,7 @@ export type Monomial = {
    * (`combineLikeTerms`), float면 `\frac{3}{7}+\frac{1}{5}` 가 `0.6285714…` 가 된다.
    * 정확한 유리수여야 `\frac{22}{35}` 가 나온다.
    */
-  readonly numeric: Literal;
+  readonly coefficient: Literal;
   /**
    * 스칼라 인수 — 교환 가능하므로 키 기준으로 정렬해 정규화한다.
    *
@@ -39,7 +39,7 @@ export type Monomial = {
    */
   readonly scalars: readonly TypedExpr[];
   /** 비스칼라 인수 — **순서가 의미다.** 절대 정렬하지 않는다. */
-  readonly factors: readonly TypedExpr[];
+  readonly nonScalars: readonly TypedExpr[];
 };
 
 export type Polynomial = readonly Monomial[];
@@ -49,17 +49,17 @@ export const MAX_POWER_EXPANSION = 6;
 
 /** 동류항 키 — 수치 계수는 뺀다 (그게 합쳐질 대상이므로). */
 export const monomialKey = (m: Monomial): string =>
-  `${m.scalars.map(exprKey).join('*')}|${m.factors.map(exprKey).join('*')}`;
+  `${m.scalars.map(exprKey).join('*')}|${m.nonScalars.map(exprKey).join('*')}`;
 
-export const ONE: Monomial = { numeric: ONE_LIT, scalars: [], factors: [] };
+export const ONE: Monomial = { coefficient: ONE_LIT, scalars: [], nonScalars: [] };
 
 /** 잎 하나를 단항식으로. 모양이 결정한다: 스칼라면 계수 쪽, 아니면 인수 열 쪽. */
 export const atom = (e: TypedExpr): Monomial =>
   isScalar(e.shape)
-    ? { numeric: ONE_LIT, scalars: [e], factors: [] }
-    : { numeric: ONE_LIT, scalars: [], factors: [e] };
+    ? { coefficient: ONE_LIT, scalars: [e], nonScalars: [] }
+    : { coefficient: ONE_LIT, scalars: [], nonScalars: [e] };
 
-export const negate = (m: Monomial): Monomial => ({ ...m, numeric: negLit(m.numeric) });
+export const negate = (m: Monomial): Monomial => ({ ...m, coefficient: negLit(m.coefficient) });
 
 /**
  * 두 다항식의 곱. **인수 열을 이어붙이기만 하고 재배열하지 않는다** —
@@ -70,23 +70,23 @@ export function polyMul(left: Polynomial, right: Polynomial): Polynomial {
   for (const p of left) {
     for (const q of right) {
       // 계수를 못 곱하면(안전 정수 밖 등) 접지 않고 인수로 되돌린다 — 값을 뭉개지 않는다.
-      const product = mulLit(p.numeric, q.numeric);
+      const product = mulLit(p.coefficient, q.coefficient);
       out.push(
         product !== null
           ? {
-              numeric: product,
+              coefficient: product,
               scalars: sortScalars([...p.scalars, ...q.scalars]),
-              factors: [...p.factors, ...q.factors],
+              nonScalars: [...p.nonScalars, ...q.nonScalars],
             }
           : {
-              numeric: ONE_LIT,
+              coefficient: ONE_LIT,
               scalars: sortScalars([
                 ...p.scalars,
                 ...q.scalars,
-                buildNum(p.numeric),
-                buildNum(q.numeric),
+                buildNum(p.coefficient),
+                buildNum(q.coefficient),
               ]),
-              factors: [...p.factors, ...q.factors],
+              nonScalars: [...p.nonScalars, ...q.nonScalars],
             },
       );
     }

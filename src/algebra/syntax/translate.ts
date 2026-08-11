@@ -127,7 +127,7 @@ function translateDiffToTree(bodyJson: unknown, varJson: unknown): Result<Syntax
   if (terms.length < 2) {
     const body = translateToTree(currentBody);
     if (!body.ok) return body;
-    return ok({ kind: 'diff', body: body.value, vars: [varName.value], order });
+    return ok({ kind: 'deriv', body: body.value, vars: [varName.value], order });
   }
 
   const [first, ...rest] = terms;
@@ -139,7 +139,7 @@ function translateDiffToTree(bodyJson: unknown, varJson: unknown): Result<Syntax
   ];
   if (errors.length > 0) return failWith(errors);
   const diffNode: SyntaxNode = {
-    kind: 'diff',
+    kind: 'deriv',
     body: (diffBody as { value: SyntaxNode }).value,
     vars: [varName.value],
     order,
@@ -177,7 +177,7 @@ function parseBoundSpec(json: unknown, missingMessage: string): Result<BoundSpec
 
 /** `\sum`/`\prod`/`\int` 공통 골격 — 본문·바운드 변수·상하한을 합쳐 한 노드로. */
 function translateBoundedOp(
-  kind: 'sum' | 'prod' | 'int',
+  kind: 'sum' | 'prod' | 'integral',
   bodyJson: unknown,
   boundsJson: unknown,
   missingMessage: string,
@@ -274,7 +274,7 @@ function translateMultivarDiffToTree(
   const bodyJson = restArgs.length === 1 ? restArgs[0] : ['InvisibleOperator', ...restArgs];
   const body = translateToTree(bodyJson);
   if (!body.ok) return body;
-  return ok({ kind: 'diff', body: body.value, vars: names, order: 1 });
+  return ok({ kind: 'deriv', body: body.value, vars: names, order: 1 });
 }
 
 // ---------------------------------------------------------------------------
@@ -434,7 +434,7 @@ function asApplyTarget(json: unknown): ApplyTarget | null {
  * 1개 이상" 을 따로 요구한다). `Matrix` 는 절대 비지 않으므로(행렬 리터럴은 원소가
  * 최소 하나 있어야 한다) 이 관문에 안 걸린다.
  */
-function buildApplyNode(callee: string, target: ApplyTarget): Result<SyntaxNode> {
+function buildApplyNode(name: string, target: ApplyTarget): Result<SyntaxNode> {
   const rawArgs = argSourceArgs(target.source);
   if (rawArgs.length === 0) return fail('malformed', 'Empty parentheses');
   const parsedArgs = rawArgs.map(translateToTree);
@@ -442,7 +442,7 @@ function buildApplyNode(callee: string, target: ApplyTarget): Result<SyntaxNode>
   if (errors.length > 0) return failWith(errors);
   const apply: SyntaxNode = {
     kind: 'apply',
-    callee,
+    name,
     args: parsedArgs.map((a) => (a as { value: SyntaxNode }).value),
   };
   return target.wrap(apply);
@@ -552,7 +552,7 @@ function applyFromUppercase(head: string, args: readonly unknown[]): Result<Synt
   if (errors.length > 0) return failWith(errors);
   return ok({
     kind: 'apply',
-    callee: head,
+    name: head,
     args: parsed.map((a) => (a as { value: SyntaxNode }).value),
   });
 }
@@ -730,16 +730,16 @@ export function translateToTree(json: unknown): Result<SyntaxNode> {
     );
   }
   if (head === 'Integrate') {
-    return translateBoundedOp('int', args[0], args[1], 'An integral needs a differential (dx)');
+    return translateBoundedOp('integral', args[0], args[1], 'An integral needs a differential (dx)');
   }
 
   // `\sin^{-1}(x)` — CE는 `Apply(InverseFunction(Sin), x)` 로 준다(실측).
   // **여기서 반드시 끊는다** — 아래 홑 대문자 되돌리기로 새면 `Apply` 가 곱으로 둔갑한다.
   if (head === 'Apply') {
-    const [callee, ...callArgs] = args;
+    const [name, ...callArgs] = args;
     const inverseOf =
-      Array.isArray(callee) && callee.length === 2 && callee[0] === 'InverseFunction'
-        ? callee[1]
+      Array.isArray(name) && name.length === 2 && name[0] === 'InverseFunction'
+        ? name[1]
         : null;
     const invName = typeof inverseOf === 'string' ? INVERSE_FUNCTIONS[inverseOf] : undefined;
     if (invName === undefined) {

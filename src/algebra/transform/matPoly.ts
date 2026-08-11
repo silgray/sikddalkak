@@ -1,6 +1,6 @@
 import { buildAdd, buildFrac, buildMul } from '../expression/builders';
 import { fromPolynomial, toPolynomial } from '../polynomial/convert';
-import { constantInteger, exprKey } from '../expression/key';
+import { asKnownInteger, exprKey } from '../expression/key';
 import { intLit } from '../literal/literal';
 import { fail, ok, type Result } from '../result/result';
 import { SCALAR, isScalar, isSquare } from '../shape/shape';
@@ -43,7 +43,7 @@ export function pickPlaceholderName(e: TypedExpr): string | null {
  *
  * 판정 기준: `toPolynomial` 로 편 각 단항식에서 `matIdentity` 를 뺀 비스칼라 인수
  * 열(`effective`)이, 있다면 전부 **같은 밑의 반복**이어야 하고, 그 밑이 모든 항에서
- * **동일**해야 한다. 계수(`m.scalars`/`m.numeric`)는 안 본다 — 안에 `v·w` 같은 게
+ * **동일**해야 한다. 계수(`m.scalars`/`m.coefficient`)는 안 본다 — 안에 `v·w` 같은 게
  * 있어도 상관없다, 모양만 스칼라면 된다(이미 `toPolynomial` 이 보장한다).
  *
  * 상수항만 있거나(밑을 확정 못 함) 항이 하나뿐이면(인수분해할 합이 아님) `null`.
@@ -54,7 +54,7 @@ export function detectSingleMatrixPolynomial(e: TypedExpr): TypedExpr | null {
 
   let base: TypedExpr | null = null;
   for (const m of parsed.value) {
-    const effective = m.factors.filter((f) => f.op !== 'matIdentity');
+    const effective = m.nonScalars.filter((f) => f.op !== 'matIdentity');
     if (effective.length === 0) continue; // 상수항 — 밑 후보가 아니다.
     const key = exprKey(effective[0]);
     if (!effective.every((f) => exprKey(f) === key)) return null; // 한 항 안에서도 밑이 안 같다.
@@ -72,7 +72,7 @@ export function detectSingleMatrixPolynomial(e: TypedExpr): TypedExpr | null {
  * `e`(밑이 `base` 하나뿐인 다항식)를 자리표지 `placeholderName` 의 스칼라 다항식으로.
  *
  * 각 단항식의 비스칼라 인수 개수(= `matIdentity` 를 뺀 차수)를 지수로 삼아
- * `numeric·scalars·placeholder^n` 으로 바꾼다. 계수(`numeric`/`scalars`)는 이미
+ * `coefficient·scalars·placeholder^n` 으로 바꾼다. 계수(`coefficient`/`scalars`)는 이미
  * 스칼라라 손대지 않고 그대로 옮긴다.
  */
 export function lowerToScalarPolynomial(e: TypedExpr, placeholderName: string): Result<TypedExpr> {
@@ -81,16 +81,16 @@ export function lowerToScalarPolynomial(e: TypedExpr, placeholderName: string): 
   const placeholder: TypedExpr = { op: 'sym', shape: SCALAR, name: placeholderName };
 
   const terms = parsed.value.map((m) => {
-    const degree = m.factors.filter((f) => f.op !== 'matIdentity').length;
-    if (degree === 0) return { numeric: m.numeric, scalars: m.scalars, factors: [] };
-    if (degree === 1) return { numeric: m.numeric, scalars: [...m.scalars, placeholder], factors: [] };
+    const degree = m.nonScalars.filter((f) => f.op !== 'matIdentity').length;
+    if (degree === 0) return { coefficient: m.coefficient, scalars: m.scalars, nonScalars: [] };
+    if (degree === 1) return { coefficient: m.coefficient, scalars: [...m.scalars, placeholder], nonScalars: [] };
     const power: TypedExpr = {
       op: 'scalarPow',
       shape: SCALAR,
       base: placeholder,
       exponent: { op: 'num', shape: SCALAR, value: intLit(degree) },
     };
-    return { numeric: m.numeric, scalars: [...m.scalars, power], factors: [] };
+    return { coefficient: m.coefficient, scalars: [...m.scalars, power], nonScalars: [] };
   });
   return fromPolynomial(terms, SCALAR);
 }
@@ -185,7 +185,7 @@ export function liftFromScalarPolynomial(
         const liftedBase = lift(node.base);
         if (!liftedBase.ok) return liftedBase;
         if (!isScalar(liftedBase.value.shape)) {
-          const n = constantInteger(node.exponent);
+          const n = asKnownInteger(node.exponent);
           if (n === null || n < 1) {
             return fail('unsupported', '행렬 밑의 거듭제곱 지수가 양의 정수가 아니다');
           }

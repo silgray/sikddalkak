@@ -44,7 +44,7 @@ function hoistFracNumerator(
   const product = buildMul(recip, numerator);
   if (!product.ok) return null;
   const c = collect(product.value);
-  return buildProduct(c.numeric, c.scalars, c.factors, foldPowers);
+  return buildProduct(c.coefficient, c.scalars, c.nonScalars, foldPowers);
 }
 
 /** `frac` — 유리수 접기, 그리고 비스칼라 분자의 역수 하강. */

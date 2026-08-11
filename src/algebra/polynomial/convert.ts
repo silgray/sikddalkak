@@ -7,7 +7,7 @@ import {
   buildTranspose,
 } from '../expression/builders';
 import { OP_PROPERTIES } from '../opers';
-import { constantInteger, sortScalars } from '../expression/key';
+import { asKnownInteger, sortScalars } from '../expression/key';
 import { fail, ok, type Result } from '../result/result';
 import { SCALAR, isKnownShape, isScalar, type Shape } from '../shape/shape';
 import type { TypedExpr } from '../expression/node';
@@ -47,16 +47,16 @@ function collapseIfScalar(p: Polynomial, target: Shape): Result<Polynomial> {
   if (!isScalar(target)) return ok(p);
   const out: Monomial[] = [];
   for (const m of p) {
-    if (m.factors.length === 0) {
+    if (m.nonScalars.length === 0) {
       out.push(m);
       continue;
     }
     const folded = factorsToExpr(m);
     if (!folded.ok) return folded;
     out.push({
-      numeric: m.numeric,
+      coefficient: m.coefficient,
       scalars: sortScalars([...m.scalars, folded.value]),
-      factors: [],
+      nonScalars: [],
     });
   }
   return ok(out);
@@ -64,12 +64,12 @@ function collapseIfScalar(p: Polynomial, target: Shape): Result<Polynomial> {
 
 /** 단항식의 **비스칼라 부분만** 하나의 식으로 되돌린다 (내적/외적의 피연산자를 만들 때 쓴다). */
 function factorsToExpr(m: Monomial): Result<TypedExpr> {
-  if (m.factors.length === 0) return fail('malformed', 'Expected a non-scalar operand');
-  return m.factors
+  if (m.nonScalars.length === 0) return fail('malformed', 'Expected a non-scalar operand');
+  return m.nonScalars
     .slice(1)
     .reduce<Result<TypedExpr>>(
       (acc, f) => (acc.ok ? buildMul(acc.value, f) : acc),
-      ok(m.factors[0]),
+      ok(m.nonScalars[0]),
     );
 }
 
@@ -81,7 +81,7 @@ function factorsToExpr(m: Monomial): Result<TypedExpr> {
 export function toPolynomial(e: TypedExpr): Result<Polynomial> {
   switch (e.op) {
     case 'num':
-      return ok([{ numeric: e.value, scalars: [], factors: [] }]);
+      return ok([{ coefficient: e.value, scalars: [], nonScalars: [] }]);
 
     case 'sym':
     case 'matrix':
@@ -106,9 +106,9 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
       // `scalars` 다중집합에 넣는다 (`x^2` → `[x, x]`). 이러면 `commonScalars`
       // (다중집합 교집합)가 자동으로 최소 지수를 뽑는다. 지수가 상수 정수 범위
       // 밖이면(심볼·음수·과대) 지금처럼 통째 원자.
-      const n = constantInteger(e.exponent);
+      const n = asKnownInteger(e.exponent);
       if (n === null || n < 1 || n > MAX_POWER_EXPANSION) return ok([atom(e)]);
-      return ok([{ numeric: ONE_LIT, scalars: Array(n).fill(e.base) as TypedExpr[], factors: [] }]);
+      return ok([{ coefficient: ONE_LIT, scalars: Array(n).fill(e.base) as TypedExpr[], nonScalars: [] }]);
     }
 
     case 'neg': {
@@ -143,7 +143,7 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
     case 'mul': {
       const scalar = toPolynomial(e.scalar);
       if (!scalar.ok) return scalar;
-      const matrix = toPolynomial(e.matrix);
+      const matrix = toPolynomial(e.nonScalar);
       if (!matrix.ok) return matrix;
       return collapseIfScalar(polyMul(scalar.value, matrix.value), e.shape);
     }
@@ -167,15 +167,15 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
           const applied = combine(pe.value, qe.value);
           if (!applied.ok) return applied;
           // 계수를 못 곱하면 접지 않고 인수로 되돌린다 (`polyMul` 과 같은 규약).
-          const product = mulLit(p.numeric, q.numeric);
-          const numeric = product ?? ONE_LIT;
+          const product = mulLit(p.coefficient, q.coefficient);
+          const coefficient = product ?? ONE_LIT;
           const carried =
-            product !== null ? [] : [buildNum(p.numeric), buildNum(q.numeric)];
+            product !== null ? [] : [buildNum(p.coefficient), buildNum(q.coefficient)];
           const scalars = sortScalars([...p.scalars, ...q.scalars, ...carried]);
           out.push(
             OP_PROPERTIES[e.op].yieldsScalar
-              ? { numeric, scalars: sortScalars([...scalars, applied.value]), factors: [] }
-              : { numeric, scalars, factors: [applied.value] },
+              ? { coefficient, scalars: sortScalars([...scalars, applied.value]), nonScalars: [] }
+              : { coefficient, scalars, nonScalars: [applied.value] },
           );
         }
       }
@@ -192,7 +192,7 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
         if (!body.ok) return body;
         const t = buildTranspose(body.value);
         if (!t.ok) return t;
-        out.push({ numeric: m.numeric, scalars: m.scalars, factors: [t.value] });
+        out.push({ coefficient: m.coefficient, scalars: m.scalars, nonScalars: [t.value] });
       }
       return ok(out);
     }
@@ -200,7 +200,7 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
     case 'matPow': {
       // `(A+B)²` 를 풀어써야 expand가 뜻대로 동작한다. 음수·과대 지수, 그리고 **값이
       // 확정되지 않은 지수**(`A^n`)는 접은 채로 둔다.
-      const n = constantInteger(e.exponent);
+      const n = asKnownInteger(e.exponent);
       if (n === null || n < 1 || n > MAX_POWER_EXPANSION) return ok([atom(e)]);
       const base = toPolynomial(e.base);
       if (!base.ok) return base;
@@ -218,13 +218,13 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
 /**
  * 단항식 하나를 식으로. 부호는 밖에서 `neg` 로 붙이므로 여기서는 절댓값만 쓴다.
  *
- * **이웃한 같은 인수를 `matPow` 로 접지 않는다** — `m.factors` 를 그대로 곱해나간다.
+ * **이웃한 같은 인수를 `matPow` 로 접지 않는다** — `m.nonScalars` 를 그대로 곱해나간다.
  * `AA` 는 `AA` 로 남는다.
  */
 function monomialToExpr(m: Monomial): Result<TypedExpr> {
-  const { magnitude } = splitSign(m.numeric);
+  const { magnitude } = splitSign(m.coefficient);
   const parts: TypedExpr[] = [];
-  const body = [...m.scalars, ...m.factors];
+  const body = [...m.scalars, ...m.nonScalars];
   if (!isOne(magnitude) || body.length === 0) parts.push(buildNum(magnitude));
   parts.push(...body);
   return parts
@@ -254,7 +254,7 @@ function zeroOf(target: Shape): TypedExpr {
  * `target` 은 원래 식의 모양이다. 전부 상쇄됐을 때 어떤 영(zero)을 낼지 정하는 데만 쓴다.
  */
 export function fromPolynomial(p: Polynomial, target: Shape = SCALAR): Result<TypedExpr> {
-  const live = p.filter((m) => !isZero(m.numeric));
+  const live = p.filter((m) => !isZero(m.coefficient));
   if (live.length === 0) return ok(zeroOf(target));
 
   const terms: TypedExpr[] = [];
@@ -262,7 +262,7 @@ export function fromPolynomial(p: Polynomial, target: Shape = SCALAR): Result<Ty
     const built = monomialToExpr(m);
     if (!built.ok) return built;
     terms.push(
-      splitSign(m.numeric).negative
+      splitSign(m.coefficient).negative
         ? { op: 'neg', shape: built.value.shape, operand: built.value }
         : built.value,
     );

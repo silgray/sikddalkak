@@ -8,7 +8,7 @@ import {
   buildSum,
   buildTranspose,
 } from '../expression/builders';
-import { constantInteger, literalOf } from '../expression/key';
+import { asKnownInteger, literalOf } from '../expression/key';
 import { ok, type Result } from '../result/result';
 import { SCALAR, isKnownShape } from '../shape/shape';
 import type { TypedExpr } from '../expression/node';
@@ -107,9 +107,9 @@ export function normalize(
       const cl = collect(leftR.value);
       const cr = collect(rightR.value);
 
-      const leftCore = asSingleMatrix(cl.factors);
+      const leftCore = asSingleMatrix(cl.nonScalars);
       if (!leftCore.ok) return leftCore;
-      const rightCore = asSingleMatrix(cr.factors);
+      const rightCore = asSingleMatrix(cr.nonScalars);
       if (!rightCore.ok) return rightCore;
       const combine = e.op === 'dot' ? buildDot : buildCross;
       const core = combine(leftCore.value, rightCore.value);
@@ -117,17 +117,17 @@ export function normalize(
       const merged = collect(core.value);
 
       // 세 계수를 한 번에 곱한다. 하나라도 실패하면 접지 않고 인수로 남긴다.
-      const pair = mulLit(cl.numeric, cr.numeric);
-      const all = pair === null ? null : mulLit(pair, merged.numeric);
+      const pair = mulLit(cl.coefficient, cr.coefficient);
+      const all = pair === null ? null : mulLit(pair, merged.coefficient);
       const carried =
         all !== null
           ? []
-          : [buildNum(cl.numeric), buildNum(cr.numeric), buildNum(merged.numeric)];
+          : [buildNum(cl.coefficient), buildNum(cr.coefficient), buildNum(merged.coefficient)];
       return ok(
         buildProduct(
           all ?? ONE_LIT,
           [...cl.scalars, ...cr.scalars, ...merged.scalars, ...carried],
-          merged.factors,
+          merged.nonScalars,
           foldPowers,
         ),
       );
@@ -137,11 +137,11 @@ export function normalize(
       const inner = recur(e.operand);
       if (!inner.ok) return inner;
       const c = collect(inner.value);
-      const operand = asSingleMatrix(c.factors);
+      const operand = asSingleMatrix(c.nonScalars);
       if (!operand.ok) return operand;
       const t = buildTranspose(operand.value);
       if (!t.ok) return t;
-      return ok(buildProduct(c.numeric, c.scalars, [t.value], foldPowers));
+      return ok(buildProduct(c.coefficient, c.scalars, [t.value], foldPowers));
     }
 
     // --- 거듭제곱 ---
@@ -157,7 +157,7 @@ export function normalize(
       // 정수로 확정되면 **단일 리터럴로 되돌려 담는다.** 일반 정규화를 거친 `-1` 은
       // `buildProduct` 의 부호 호이스팅 때문에 `neg(num 1)` 이 되는데, 그러면 s-식이
       // `(matPow A (neg 1))` 이 되어 기존 기대값(`(matPow A -1)`)과 어긋난다.
-      const n = constantInteger(exponent.value);
+      const n = asKnownInteger(exponent.value);
       const folded = n === null ? exponent.value : buildNum(intLit(n));
       // A^0 은 항등원 — elaborate 가 이미 걸렀지만, 정리 뒤에 0이 될 수도 있다.
       if (n === 0) return ok({ op: 'matIdentity', shape: e.shape });

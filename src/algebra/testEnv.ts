@@ -1,6 +1,6 @@
 import { elaborate } from './elaborate/elaborate';
 import { parse, simplify } from './index';
-import { evalNumeric, matricesClose, type Assignment } from './numeric';
+import { evalNumeric, matricesClose, type NumericBindings } from './numeric';
 import { shape } from './shape/shape';
 import type { TypedExpr, Env } from './index';
 import { parseSyntax } from './syntax/parse';
@@ -64,7 +64,7 @@ export function simplifiedOf(latex: string, env: Env = TEST_ENV): TypedExpr {
  * **대칭 행렬도, 교환하는 행렬도 일부러 피했다** — `AB = BA` 인 값을 골라두면 교환법칙
  * 오적용 버그가 수치 대조를 그냥 통과해버린다. 대조가 잡아야 할 게 바로 그거다.
  */
-export const TEST_VALUES: Assignment = {
+export const TEST_VALUES: NumericBindings = {
   u: [[2], [-1], [4]],
   v: [[1], [3], [-2]],
   w: [[-3], [5], [1]],

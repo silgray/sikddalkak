@@ -6,7 +6,7 @@ import { render } from '../render';
 import { isPureScalar } from './transform';
 import { mapChildren } from '../expression/traversal';
 import { evaluate } from './evaluate';
-import { constantInteger } from '../expression/key';
+import { asKnownInteger } from '../expression/key';
 import { guardCe } from '../ce/budget';
 import { ok, type Result } from '../result/result';
 import { SCALAR, isKnownShape, isScalar, type Shape } from '../shape/shape';
@@ -272,8 +272,8 @@ function foldSumProd(
     return ok({ op: e.op, shape: e.shape, body: bodyResult.value, variable: e.variable, lower, upper });
   };
 
-  const lo = lower !== null ? constantInteger(lower) : null;
-  const hi = upper !== null ? constantInteger(upper) : null;
+  const lo = lower !== null ? asKnownInteger(lower) : null;
+  const hi = upper !== null ? asKnownInteger(upper) : null;
   if (lo === null || hi === null || hi - lo + 1 > MAX_EXPANSION) return fallback();
   if (hi < lo) return ok(emptyRangeValue(e.op, e.shape));
 

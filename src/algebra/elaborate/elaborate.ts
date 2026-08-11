@@ -87,27 +87,27 @@ export function instantiateFunction(
 
 /** 인수 개수가 맞는지 보고, 맞으면 인스턴스화해 결과 모양을 확정한다. */
 function elaborateApply(
-  callee: string,
+  name: string,
   fn: FunctionDef,
   args: readonly TypedExpr[],
   env: Env,
 ): Result<TypedExpr> {
   if (args.length !== fn.params.length) {
     return shapeMismatch(
-      `${callee} expects ${fn.params.length} argument${fn.params.length === 1 ? '' : 's'} (got ${args.length})`,
+      `${name} expects ${fn.params.length} argument${fn.params.length === 1 ? '' : 's'} (got ${args.length})`,
     );
   }
   const instantiated = instantiateFunction(fn, args, env);
   if (!instantiated.ok) {
     // 본문 오류에 호출 맥락을 붙인다 — 안 붙이면 어느 함수 탓인지 안 보인다
     // (`f: sin expects a scalar argument (got 3x3)`, 중첩 호출이면 바깥부터 쌓인다).
-    return failWith(instantiated.errors.map((e) => ({ ...e, message: `${callee}: ${e.message}` })));
+    return failWith(instantiated.errors.map((e) => ({ ...e, message: `${name}: ${e.message}` })));
   }
-  return ok({ op: 'apply', shape: instantiated.value.shape, name: callee, args });
+  return ok({ op: 'apply', shape: instantiated.value.shape, name, args });
 }
 
 /**
- * `apply` Syntax 노드를 해소한다 — `callee` 가 정의된 함수인지 `env.functions` 로
+ * `apply` Syntax 노드를 해소한다 — `name` 이 정의된 함수인지 `env.functions` 로
  * 판단한다. 이 판단이 여기(elaborate) 있는 이유는 `cdot`/`juxt` 가 내적·스칼라곱·
  * 외적 중 뭔지 모양을 알아야 정해지는 것과 같다 — 함수인지 곱인지도 문맥(env) 없이는
  * 모른다(`types-SyntaxNode.ts` 의 `apply` 문서 참고).
@@ -126,25 +126,25 @@ function elaborateApplyNode(
   if (errors.length > 0) return failWith(errors);
   const args = argResults.map((a) => (a as { value: TypedExpr }).value);
 
-  const fn = env.functions?.[node.callee];
+  const fn = env.functions?.[node.name];
   if (fn === undefined) {
-    const callee = elaborate({ kind: 'sym', name: node.callee }, env);
-    if (!callee.ok) return callee;
+    const head = elaborate({ kind: 'sym', name: node.name }, env);
+    if (!head.ok) return head;
     return args.reduce<Result<TypedExpr>>(
       (acc, arg) => (acc.ok ? buildMul(acc.value, arg) : acc),
-      ok(callee.value),
+      ok(head.value),
     );
   }
-  return elaborateApply(node.callee, fn, args, env);
+  return elaborateApply(node.name, fn, args, env);
 }
 
 /**
  * `apply` 바로 위에 후위(`^n`,`^T`)가 얹힌 경우(Syntax IR로는 `pow(apply(...), exp)`)를
- * `callee` 가 함수인지에 따라 갈라 처리한다 — `case 'pow':` 에서 여기로 위임한다.
+ * `name` 이 함수인지에 따라 갈라 처리한다 — `case 'pow':` 에서 여기로 위임한다.
  *
  * **왜 `case 'pow':` 에서 미리 갈라야 하는가**: `translateToTree` 는 대문자·소문자 두
  * 경로 모두 후위를 "apply 바깥" 꼴로 정규화해 둔다(`types-SyntaxNode.ts` 의 `apply`
- * 문서 참고) — 함수인지 아직 모르니 일단 그렇게 담아둔 것뿐이다. `callee` 가 함수면
+ * 문서 참고) — 함수인지 아직 모르니 일단 그렇게 담아둔 것뿐이다. `name` 이 함수면
  * 그 정규화가 맞다(`f(x)^2` = `(f(x))^2`). 하지만 함수가 **아니면** 기존 행렬 규칙이
  * 후위를 **마지막 인수 안으로** 요구한다(`A(X)^T` = `A·(X^T)`, 설계 §3) — `case 'pow':`
  * 가 먼저 `node.base` 를 평범하게 elaborate해버리면 결과는 이미 `matMul([A,X^T 아닌
@@ -163,8 +163,8 @@ function elaboratePowOverApply(
   if (errors.length > 0) return failWith(errors);
   const args = argResults.map((a) => (a as { value: TypedExpr }).value);
 
-  const callee = elaborate({ kind: 'sym', name: applyNode.callee }, env);
-  if (!callee.ok) return callee;
+  const head = elaborate({ kind: 'sym', name: applyNode.name }, env);
+  if (!head.ok) return head;
 
   const last = args[args.length - 1];
   const wrappedLast = elaboratePow(last, exponent, env);
@@ -172,7 +172,7 @@ function elaboratePowOverApply(
   const allArgs = [...args.slice(0, -1), wrappedLast.value];
   return allArgs.reduce<Result<TypedExpr>>(
     (acc, arg) => (acc.ok ? buildMul(acc.value, arg) : acc),
-    ok(callee.value),
+    ok(head.value),
   );
 }
 
@@ -208,7 +208,7 @@ function elaboratePow(base: TypedExpr, exponent: SyntaxNode, env: Env): Result<T
   //
   // **여기서는 "정수인가"를 보지 않는다.** `A^{1+2}` 처럼 지수가 식일 수 있어야 하고,
   // 그 값은 정리·치환을 거쳐야 확정되기 때문이다. 판정은 값이 확정된 뒤에(`normalize`
-  // 의 `constantInteger`) 한다.
+  // 의 `asKnownInteger`) 한다.
   //
   // ⚠ 그 대가로 `A^{0.5}`·`A^{x}` 같은 **뜻이 정해지지 않은 식이 여기를 통과한다.**
   // 조용히 틀리지는 않는다 — `numeric`/`matrixFold` 가 상수 정수가 아니면 각각
@@ -264,7 +264,7 @@ export function withBoundScalars(env: Env, names: readonly string[]): Env {
 }
 
 function elaborateDiff(
-  node: Extract<SyntaxNode, { kind: 'diff' }>,
+  node: Extract<SyntaxNode, { kind: 'deriv' }>,
   env: Env,
 ): Result<TypedExpr> {
   const nameErrors = freshBoundNameErrors(node.vars, env);
@@ -409,7 +409,7 @@ export function elaborate(node: SyntaxNode, env: Env): Result<TypedExpr> {
       if (
         node.base.kind === 'apply' &&
         node.tightPostfix === true &&
-        env.functions?.[node.base.callee] === undefined
+        env.functions?.[node.base.name] === undefined
       ) {
         return elaboratePowOverApply(node.base, node.exponent, env);
       }
@@ -449,7 +449,7 @@ export function elaborate(node: SyntaxNode, env: Env): Result<TypedExpr> {
     case 'apply':
       return elaborateApplyNode(node, env);
 
-    case 'diff':
+    case 'deriv':
       return elaborateDiff(node, env);
 
     case 'sum':
@@ -458,7 +458,7 @@ export function elaborate(node: SyntaxNode, env: Env): Result<TypedExpr> {
     case 'prod':
       return elaborateBounded(node, env, buildProd);
 
-    case 'int':
+    case 'integral':
       return elaborateBounded(node, env, buildIntegral);
   }
 }

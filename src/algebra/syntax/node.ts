@@ -31,7 +31,7 @@ export type SyntaxNode =
    * `pow(apply(...), exp)` 가 되어버려(구분 정보가 그냥 두면 사라진다) 이 필드로
    * 남겨둔다.
    *
-   * `elaborate` 가 이걸로 갈라 쓴다: `true`(꽉 묶임)면 `callee` 가 함수가 아닐 때
+   * `elaborate` 가 이걸로 갈라 쓴다: `true`(꽉 묶임)면 `name` 가 함수가 아닐 때
    * 후위를 **마지막 인수 안으로** 밀어 넣는다(`A(X)^T`=`A·(X^T)`, 설계 §3).
    * `false`/미정(느슨함)이면 `base` 를 통째로 elaborate한 **뒤에** 후위를 씌운다
    * (`(A(X))^T` 는 `A(X)` 가 뭐로 풀리든 **그 전체**의 전치다 — 사용자가 괄호로
@@ -56,13 +56,13 @@ export type SyntaxNode =
    * 들여보낸다. `elaborate`가 곱으로 되돌릴 때(함수가 아닌 것으로 판명될 때) 이 후위를
    * 다시 안으로 밀어 넣어 기존 `A(X)^T` = `A·(X^T)` 규칙(설계 §3)을 복원한다.
    */
-  | { readonly kind: 'apply'; readonly callee: string; readonly args: readonly SyntaxNode[] }
+  | { readonly kind: 'apply'; readonly name: string; readonly args: readonly SyntaxNode[] }
   /**
    * `\dfrac{\mathrm{d}}{\mathrm{d}x}(...)` 계열. `vars` 는 미분 변수(다변수면 길이 >1),
    * `order` 는 몇 번 미분했는지 — `\dfrac{\mathrm{d}^3}{\mathrm{d}x^3}` 는 `vars:['x'],order:3`.
    * CE가 같은 변수의 중첩 `D` 를 접어서 주므로(실측) 여기서 한 번에 접어 담는다.
    */
-  | { readonly kind: 'diff'; readonly body: SyntaxNode; readonly vars: readonly string[]; readonly order: number }
+  | { readonly kind: 'deriv'; readonly body: SyntaxNode; readonly vars: readonly string[]; readonly order: number }
   | {
       readonly kind: 'sum';
       readonly body: SyntaxNode;
@@ -78,7 +78,7 @@ export type SyntaxNode =
       readonly upper: SyntaxNode | null;
     }
   | {
-      readonly kind: 'int';
+      readonly kind: 'integral';
       readonly body: SyntaxNode;
       readonly variable: string;
       readonly lower: SyntaxNode | null;

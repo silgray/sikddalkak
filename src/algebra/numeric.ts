@@ -1,6 +1,6 @@
 import type { TypedExpr } from './expression/node';
 import { toRealNumber } from './literal/literal';
-import { constantInteger } from './expression/key';
+import { asKnownInteger } from './expression/key';
 import { fail, ok, type Result } from './result/result';
 import { isScalar } from './shape/shape';
 
@@ -19,7 +19,7 @@ export type Matrix = readonly (readonly number[])[];
 const scalarValue = (m: Matrix): number | null =>
   m.length === 1 && m[0].length === 1 ? m[0][0] : null;
 
-export type Assignment = Readonly<Record<string, Matrix>>;
+export type NumericBindings = Readonly<Record<string, Matrix>>;
 
 const SCALAR_FNS: Record<string, (x: number) => number> = {
   sin: Math.sin, cos: Math.cos, tan: Math.tan,
@@ -45,7 +45,7 @@ const transpose = (m: Matrix): Matrix => m[0].map((_, j) => m.map((row) => row[j
 /** 열/행 방향에 상관없이 벡터의 성분을 뽑는다. */
 const components = (m: Matrix): number[] => m.flatMap((row) => [...row]);
 
-export function evalNumeric(e: TypedExpr, assignment: Assignment): Result<Matrix> {
+export function evalNumeric(e: TypedExpr, assignment: NumericBindings): Result<Matrix> {
   switch (e.op) {
     case 'num': {
       // 복소수는 `Matrix`(number[][])에 담을 자리가 없다. 정직하게 거절하면 퍼즈가
@@ -132,7 +132,7 @@ export function evalNumeric(e: TypedExpr, assignment: Assignment): Result<Matrix
     case 'mul': {
       const s = evalNumeric(e.scalar, assignment);
       if (!s.ok) return s;
-      const m = evalNumeric(e.matrix, assignment);
+      const m = evalNumeric(e.nonScalar, assignment);
       if (!m.ok) return m;
       const k = scalarValue(s.value);
       if (k === null) return fail('shape-mismatch', 'mul.scalar must be a scalar');
@@ -170,7 +170,7 @@ export function evalNumeric(e: TypedExpr, assignment: Assignment): Result<Matrix
     case 'matPow': {
       // 지수가 상수 정수가 아니면 대조하지 않는다 (`A^n`). 정직하게 실패해야 퍼즈가
       // 그 표본을 버린다 — 값을 찍으면 대조 자체를 못 믿는다.
-      const power = constantInteger(e.exponent);
+      const power = asKnownInteger(e.exponent);
       if (power === null) {
         return fail('unsupported', 'Numeric check needs a constant integer exponent');
       }
@@ -237,8 +237,8 @@ export function evalNumeric(e: TypedExpr, assignment: Assignment): Result<Matrix
 
     case 'sum':
     case 'prod': {
-      const lo = e.lower !== null ? constantInteger(e.lower) : null;
-      const hi = e.upper !== null ? constantInteger(e.upper) : null;
+      const lo = e.lower !== null ? asKnownInteger(e.lower) : null;
+      const hi = e.upper !== null ? asKnownInteger(e.upper) : null;
       if (lo === null || hi === null) {
         return fail('unsupported', `Numeric check needs constant integer bounds for ${e.op}`);
       }

@@ -1,5 +1,5 @@
 import { buildNum } from '../expression/builders';
-import { constantInteger, exprKey, sortScalars } from '../expression/key';
+import { asKnownInteger, exprKey, sortScalars } from '../expression/key';
 import { fail, ok, type Result } from '../result/result';
 import { SCALAR, isScalar, shape, type Shape } from '../shape/shape';
 import type { TypedExpr } from '../expression/node';
@@ -36,25 +36,25 @@ import type { Monomial } from '../polynomial/polynomial';
 export function collect(e: TypedExpr): Monomial {
   switch (e.op) {
     case 'num':
-      return { numeric: e.value, scalars: [], factors: [] };
+      return { coefficient: e.value, scalars: [], nonScalars: [] };
 
     case 'neg': {
       const c = collect(e.operand);
-      return { numeric: negLit(c.numeric), scalars: c.scalars, factors: c.factors };
+      return { coefficient: negLit(c.coefficient), scalars: c.scalars, nonScalars: c.nonScalars };
     }
 
     case 'scalarMul': {
-      let numeric = ONE_LIT;
+      let coefficient = ONE_LIT;
       const scalars: TypedExpr[] = [];
       for (const f of e.factors) {
         const c = collect(f);
         // 못 곱하면 접지 않고 인수로 되돌린다 — 값을 뭉개지 않는다.
-        const product = mulLit(numeric, c.numeric);
-        if (product !== null) numeric = product;
-        else scalars.push(buildNum(c.numeric));
+        const product = mulLit(coefficient, c.coefficient);
+        if (product !== null) coefficient = product;
+        else scalars.push(buildNum(c.coefficient));
         scalars.push(...c.scalars);
       }
-      return { numeric, scalars, factors: [] };
+      return { coefficient, scalars, nonScalars: [] };
     }
 
     case 'matMul': {
@@ -62,37 +62,37 @@ export function collect(e: TypedExpr): Monomial {
       // op는 matMul이지만 모양은 스칼라다(설계: 모든 것이 (rows,cols), (1,1)이 스칼라).
       // 이럴 땐 안을 열지 않고 **통째로 스칼라 원자 하나**로 취급해야 한다 — 안을 열면
       // 그 안의 인수들이 바깥 matMul의 인수 열에 잘못 이어붙어 차원이 깨진다.
-      if (isScalar(e.shape)) return { numeric: ONE_LIT, scalars: [e], factors: [] };
+      if (isScalar(e.shape)) return { coefficient: ONE_LIT, scalars: [e], nonScalars: [] };
 
-      let numeric = ONE_LIT;
+      let coefficient = ONE_LIT;
       const scalars: TypedExpr[] = [];
-      const factors: TypedExpr[] = [];
+      const nonScalars: TypedExpr[] = [];
       for (const f of e.factors) {
         const c = collect(f);
-        const product = mulLit(numeric, c.numeric);
-        if (product !== null) numeric = product;
-        else scalars.push(buildNum(c.numeric));
+        const product = mulLit(coefficient, c.coefficient);
+        if (product !== null) coefficient = product;
+        else scalars.push(buildNum(c.coefficient));
         scalars.push(...c.scalars);
-        factors.push(...c.factors);
+        nonScalars.push(...c.nonScalars);
       }
-      return { numeric, scalars, factors };
+      return { coefficient, scalars, nonScalars };
     }
 
     case 'mul': {
       const s = collect(e.scalar);
-      const m = collect(e.matrix);
-      const product = mulLit(s.numeric, m.numeric);
+      const m = collect(e.nonScalar);
+      const product = mulLit(s.coefficient, m.coefficient);
       return product !== null
-        ? { numeric: product, scalars: [...s.scalars, ...m.scalars], factors: m.factors }
+        ? { coefficient: product, scalars: [...s.scalars, ...m.scalars], nonScalars: m.nonScalars }
         : {
-            numeric: ONE_LIT,
+            coefficient: ONE_LIT,
             scalars: [
-              buildNum(s.numeric),
-              buildNum(m.numeric),
+              buildNum(s.coefficient),
+              buildNum(m.coefficient),
               ...s.scalars,
               ...m.scalars,
             ],
-            factors: m.factors,
+            nonScalars: m.nonScalars,
           };
     }
 
@@ -101,13 +101,13 @@ export function collect(e: TypedExpr): Monomial {
       // `pI` 가 `p` 로 안 줄고 `mul(I,p)` 로 남는다(퍼즈로 확인). 아직 비스칼라 크기로
       // 확정된 항등원(문맥에서 진짜 행렬로 쓰일 예정인 경우)은 그대로 원자로 둔다.
       return isScalar(e.shape)
-        ? { numeric: ONE_LIT, scalars: [], factors: [] }
-        : { numeric: ONE_LIT, scalars: [], factors: [e] };
+        ? { coefficient: ONE_LIT, scalars: [], nonScalars: [] }
+        : { coefficient: ONE_LIT, scalars: [], nonScalars: [e] };
 
     default:
       return isScalar(e.shape)
-        ? { numeric: ONE_LIT, scalars: [e], factors: [] }
-        : { numeric: ONE_LIT, scalars: [], factors: [e] };
+        ? { coefficient: ONE_LIT, scalars: [e], nonScalars: [] }
+        : { coefficient: ONE_LIT, scalars: [], nonScalars: [e] };
   }
 }
 
@@ -156,7 +156,7 @@ function foldScalarPowers(scalars: readonly TypedExpr[]): TypedExpr[] {
     const parts =
       f.op === 'scalarPow'
         ? (() => {
-            const n = constantInteger(f.exponent);
+            const n = asKnownInteger(f.exponent);
             return n === null ? null : { base: f.base, exponent: n };
           })()
         : { base: f, exponent: 1 };
@@ -197,7 +197,7 @@ function powerParts(
 ): { readonly base: TypedExpr; readonly exponent: number } | null {
   if (f.op !== 'matPow') return { base: f, exponent: 1 };
   // 값이 확정되지 않은 지수(`A^n`)는 더할 수 없다 — 그 구간은 접지 않는다.
-  const n = constantInteger(f.exponent);
+  const n = asKnownInteger(f.exponent);
   return n === null ? null : { base: f.base, exponent: n };
 }
 
@@ -271,17 +271,17 @@ function foldAdjacentPowers(factors: readonly TypedExpr[]): TypedExpr[] {
 /**
  * `collect` 의 결과를 다시 식으로 조립한다.
  *
- * 부호는 **숫자 계수 안에 넣지 않고 바깥에 `neg` 로 씌운다** — `numeric=-1` 을 그대로
+ * 부호는 **숫자 계수 안에 넣지 않고 바깥에 `neg` 로 씌운다** — `coefficient=-1` 을 그대로
  * 스칼라 인수 목록에 넣으면 다른 인수가 있을 때 `-1A` 처럼 불필요한 "1" 이 남는다.
  * (`polynomial/convert.ts` 의 `monomialToExpr`/`fromPolynomial` 과 같은 관례.)
  */
 export function buildProduct(
-  numeric: Literal,
+  coefficient: Literal,
   scalars: readonly TypedExpr[],
   matrixFactors: readonly TypedExpr[],
   foldPowers: boolean,
 ): TypedExpr {
-  const { negative, magnitude } = splitSign(numeric);
+  const { negative, magnitude } = splitSign(coefficient);
   const sortedScalars = sortScalars(foldPowers ? foldScalarPowers(scalars) : scalars);
   const collapsedMatrix = foldPowers ? foldAdjacentPowers(matrixFactors) : stripIdentities(matrixFactors);
 
@@ -308,7 +308,7 @@ export function buildProduct(
       ? (scalarNode as TypedExpr) // needsNumericLiteral 보장으로 scalarNode는 여기서 항상 non-null
       : scalarNode === null
         ? matrixNode
-        : { op: 'mul', shape: matrixNode.shape, scalar: scalarNode, matrix: matrixNode };
+        : { op: 'mul', shape: matrixNode.shape, scalar: scalarNode, nonScalar: matrixNode };
 
   return negative ? { op: 'neg', shape: core.shape, operand: core } : core;
 }
@@ -348,7 +348,7 @@ export function normalizeNeg(
   const inner = recur(e.operand);
   if (!inner.ok) return inner;
   const c = collect(inner.value);
-  return ok(buildProduct(negLit(c.numeric), c.scalars, c.factors, foldPowers));
+  return ok(buildProduct(negLit(c.coefficient), c.scalars, c.nonScalars, foldPowers));
 }
 
 /** `scalarMul` / `matMul` / `mul` — 인수를 전부 분해해 하나의 곱으로 다시 조립한다. */
@@ -361,7 +361,7 @@ export function normalizeProduct(
   if (e.op === 'mul') {
     const s = recur(e.scalar);
     if (!s.ok) return s;
-    const m = recur(e.matrix);
+    const m = recur(e.nonScalar);
     if (!m.ok) return m;
     children = [s.value, m.value];
   } else {
@@ -374,17 +374,17 @@ export function normalizeProduct(
     children = normed;
   }
 
-  let numeric = ONE_LIT;
+  let coefficient = ONE_LIT;
   const scalars: TypedExpr[] = [];
   const matrixFactors: TypedExpr[] = [];
   for (const child of children) {
     const c = collect(child);
     // 못 곱하면 접지 않고 인수로 되돌린다 — 값을 뭉개지 않는다.
-    const product = mulLit(numeric, c.numeric);
-    if (product !== null) numeric = product;
-    else scalars.push(buildNum(c.numeric));
+    const product = mulLit(coefficient, c.coefficient);
+    if (product !== null) coefficient = product;
+    else scalars.push(buildNum(c.coefficient));
     scalars.push(...c.scalars);
-    matrixFactors.push(...c.factors);
+    matrixFactors.push(...c.nonScalars);
   }
-  return ok(buildProduct(numeric, scalars, matrixFactors, foldPowers));
+  return ok(buildProduct(coefficient, scalars, matrixFactors, foldPowers));
 }

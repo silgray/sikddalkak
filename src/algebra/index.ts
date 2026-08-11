@@ -25,7 +25,7 @@ export type { Env, TypedExpr, FunctionDef } from './expression/node';
 export type { SyntaxNode } from './syntax/node';
 export { render } from './render';
 export { expand, factor, simplify, substitute, isPureScalar } from './transform/transform';
-export { evalNumeric, matricesClose, type Assignment, type Matrix } from './numeric';
+export { evalNumeric, matricesClose, type NumericBindings, type Matrix } from './numeric';
 export { sexpSyntax, sexpTyped, sexpTypedWithShapes } from './debug';
 export { OP_PROPERTIES, type BinaryOp, type OpProperties } from './opers';
 export { normalize } from './normalize/normalize';
@@ -86,7 +86,7 @@ export function transform(latex: string, op: TransformOp, env: Env): Result<stri
 // ---------------------------------------------------------------------------
 
 /** 심볼 이름 → 그 심볼을 정의하는 LaTeX. */
-export type Definitions = Readonly<Record<string, string>>;
+export type LatexDefinitions = Readonly<Record<string, string>>;
 
 export type BuiltEnv = {
   readonly env: Env;
@@ -117,7 +117,7 @@ export type BuiltEnv = {
  * (`w = f(v)`)를 풀 수 있게만 하면 된다.
  */
 export function buildEnv(
-  definitions: Definitions,
+  definitions: LatexDefinitions,
   functions: Readonly<Record<string, FunctionDef>> = {},
 ): BuiltEnv {
   const shapes: Record<string, Shape> = {};

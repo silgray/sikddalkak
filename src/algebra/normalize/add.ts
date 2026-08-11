@@ -95,8 +95,8 @@ function combineTerms(
     } else {
       monomials.push(
         isScalar(term.shape)
-          ? { numeric: ONE_LIT, scalars: [term], factors: [] }
-          : { numeric: ONE_LIT, scalars: [], factors: [term] },
+          ? { coefficient: ONE_LIT, scalars: [term], nonScalars: [] }
+          : { coefficient: ONE_LIT, scalars: [], nonScalars: [term] },
       );
     }
   }

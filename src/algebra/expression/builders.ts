@@ -50,7 +50,7 @@ export const shapeMismatch = (message: string, where?: string): Result<TypedExpr
 function hasUnresolvedIdentity(e: TypedExpr): boolean {
   if (e.op === 'matIdentity') return !isKnownShape(e.shape);
   if (e.op === 'neg') return hasUnresolvedIdentity(e.operand);
-  if (e.op === 'mul') return !isKnownShape(e.matrix.shape) && hasUnresolvedIdentity(e.matrix);
+  if (e.op === 'mul') return !isKnownShape(e.nonScalar.shape) && hasUnresolvedIdentity(e.nonScalar);
   return false;
 }
 
@@ -69,9 +69,9 @@ function resolveIdentities(e: TypedExpr, target: Shape): TypedExpr {
   if (e.op === 'neg') {
     return { ...e, operand: resolveIdentities(e.operand, target) };
   }
-  if (e.op === 'mul' && !isKnownShape(e.matrix.shape)) {
-    const matrix = resolveIdentities(e.matrix, target);
-    return { ...e, matrix, shape: matrix.shape };
+  if (e.op === 'mul' && !isKnownShape(e.nonScalar.shape)) {
+    const nonScalar = resolveIdentities(e.nonScalar, target);
+    return { ...e, nonScalar, shape: nonScalar.shape };
   }
   return e;
 }
@@ -185,11 +185,11 @@ export function buildMul(left: TypedExpr, right: TypedExpr): Result<TypedExpr> {
     return ok({ op: 'scalarMul', shape: SCALAR, factors: [left, right] });
   }
   if (aScalar !== bScalar) {
-    // 정확히 한쪽만 스칼라 — `mul(scalar, matrix)`. 스칼라는 자유롭게 움직이므로
-    // 어느 쪽에 썼는지(`kA` 든 `Ak` 든)는 `scalar`/`matrix` 필드 배정에 영향을 주지
+    // 정확히 한쪽만 스칼라 — `mul(scalar, nonScalar)`. 스칼라는 자유롭게 움직이므로
+    // 어느 쪽에 썼는지(`kA` 든 `Ak` 든)는 `scalar`/`nonScalar` 필드 배정에 영향을 주지
     // 않는다 — 값이 아니라 **모양**으로 역할을 정한다.
-    const [scalar, matrix] = aScalar ? [left, right] : [right, left];
-    return ok({ op: 'mul', shape: matrix.shape, scalar, matrix });
+    const [scalar, nonScalar] = aScalar ? [left, right] : [right, left];
+    return ok({ op: 'mul', shape: nonScalar.shape, scalar, nonScalar });
   }
   // 둘 다 비스칼라 — 행렬곱. (좌결합 재결합은 하지 않는다: 결과가 `matMul(A,B)` 처럼
   // 중첩돼도 normalize가 나중에 평탄화한다.)

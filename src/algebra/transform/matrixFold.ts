@@ -5,7 +5,7 @@ import { buildAdd, buildMul } from '../expression/builders';
 import { parseCeJson } from '../syntax/parse';
 import { render } from '../render';
 import { toCeJson } from '../literal/ceJson';
-import { constantInteger } from '../expression/key';
+import { asKnownInteger } from '../expression/key';
 import { guardCe } from '../ce/budget';
 import { ok, type Result } from '../result/result';
 import { SCALAR } from '../shape/shape';
@@ -319,10 +319,10 @@ export function foldMatrices(e: TypedExpr): Result<TypedExpr> {
     case 'mul': {
       const scalar = foldMatrices(e.scalar);
       if (!scalar.ok) return scalar;
-      const matrix = foldMatrices(e.matrix);
+      const matrix = foldMatrices(e.nonScalar);
       if (!matrix.ok) return matrix;
       if (isMatrixLiteral(matrix.value)) return scaleMatrixLiteral(scalar.value, matrix.value);
-      return ok({ op: 'mul', shape: matrix.value.shape, scalar: scalar.value, matrix: matrix.value });
+      return ok({ op: 'mul', shape: matrix.value.shape, scalar: scalar.value, nonScalar: matrix.value });
     }
 
     case 'dot':
@@ -350,7 +350,7 @@ export function foldMatrices(e: TypedExpr): Result<TypedExpr> {
         return ok({ op: 'matPow', shape: e.shape, base: base.value, exponent: e.exponent });
       }
       // 지수가 상수 정수가 아니면(`A^n`) 접을 수 없다 — 그대로 둔다.
-      const power = constantInteger(e.exponent);
+      const power = asKnownInteger(e.exponent);
       if (power === null) {
         return ok({ op: 'matPow', shape: e.shape, base: base.value, exponent: e.exponent });
       }

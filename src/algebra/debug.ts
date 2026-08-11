@@ -37,12 +37,12 @@ export function sexpSyntax(node: SyntaxNode): string {
     case 'call':
       return `(${node.name} ${node.args.map(sexpSyntax).join(' ')})`;
     case 'apply':
-      return `(apply ${node.callee} ${node.args.map(sexpSyntax).join(' ')})`;
-    case 'diff':
-      return `(diff ${sexpSyntax(node.body)} [${node.vars.join(',')}] ${node.order})`;
+      return `(apply ${node.name} ${node.args.map(sexpSyntax).join(' ')})`;
+    case 'deriv':
+      return `(deriv ${sexpSyntax(node.body)} [${node.vars.join(',')}] ${node.order})`;
     case 'sum':
     case 'prod':
-    case 'int': {
+    case 'integral': {
       const lo = node.lower === null ? '_' : sexpSyntax(node.lower);
       const hi = node.upper === null ? '_' : sexpSyntax(node.upper);
       return `(${node.kind} ${sexpSyntax(node.body)} ${node.variable} ${lo} ${hi})`;
@@ -69,7 +69,7 @@ export function sexpTyped(e: TypedExpr): string {
     case 'matMul':
       return `(matMul ${e.factors.map(sexpTyped).join(' ')})`;
     case 'mul':
-      return `(mul ${sexpTyped(e.scalar)} ${sexpTyped(e.matrix)})`;
+      return `(mul ${sexpTyped(e.scalar)} ${sexpTyped(e.nonScalar)})`;
     case 'dot':
       return `(dot ${sexpTyped(e.left)} ${sexpTyped(e.right)})`;
     case 'cross':
@@ -119,7 +119,7 @@ export function sexpTypedWithShapes(e: TypedExpr): string {
       case 'matMul':
         return `(matMul ${e.factors.map(sexpTypedWithShapes).join(' ')})`;
       case 'mul':
-        return `(mul ${sexpTypedWithShapes(e.scalar)} ${sexpTypedWithShapes(e.matrix)})`;
+        return `(mul ${sexpTypedWithShapes(e.scalar)} ${sexpTypedWithShapes(e.nonScalar)})`;
       case 'dot':
         return `(dot ${sexpTypedWithShapes(e.left)} ${sexpTypedWithShapes(e.right)})`;
       case 'cross':

@@ -1,5 +1,5 @@
 import type { Env, TypedExpr } from '../expression/node';
-import { constantInteger, exprKey } from '../expression/key';
+import { asKnownInteger, exprKey } from '../expression/key';
 import { normalize } from '../normalize/normalize';
 import { foldMatrices } from './matrixFold';
 import { foldCalculus } from './calculus';
@@ -59,7 +59,7 @@ export function evaluate(e: TypedExpr, env: Env): Result<TypedExpr> {
 function findNonIntegerMatPow(e: TypedExpr): string | null {
   if (e.op === 'matPow') {
     const lit = e.exponent.op === 'num' ? e.exponent.value : null;
-    if (lit !== null && constantInteger(e.exponent) === null) return render(e.exponent);
+    if (lit !== null && asKnownInteger(e.exponent) === null) return render(e.exponent);
   }
   for (const child of childrenOf(e)) {
     const found = findNonIntegerMatPow(child);
@@ -84,7 +84,7 @@ function childrenOf(e: TypedExpr): readonly TypedExpr[] {
     case 'matMul':
       return e.factors;
     case 'mul':
-      return [e.scalar, e.matrix];
+      return [e.scalar, e.nonScalar];
     case 'dot':
     case 'cross':
       return [e.left, e.right];
@@ -161,7 +161,7 @@ function materializeIdentities(e: TypedExpr): TypedExpr {
       return {
         ...e,
         scalar: materializeIdentities(e.scalar),
-        matrix: materializeIdentities(e.matrix),
+        nonScalar: materializeIdentities(e.nonScalar),
       };
     case 'dot':
     case 'cross':
@@ -251,7 +251,7 @@ export function freeSymbols(e: TypedExpr): readonly string[] {
         return;
       case 'mul':
         walk(node.scalar);
-        walk(node.matrix);
+        walk(node.nonScalar);
         return;
       case 'dot':
       case 'cross':

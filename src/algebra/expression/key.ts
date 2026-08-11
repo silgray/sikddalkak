@@ -34,7 +34,7 @@ export function exprKey(e: TypedExpr): string {
     case 'matMul':
       return `M(${e.factors.map(exprKey).join(',')})`;
     case 'mul':
-      return `mul(${exprKey(e.scalar)},${exprKey(e.matrix)})`;
+      return `mul(${exprKey(e.scalar)},${exprKey(e.nonScalar)})`;
     case 'dot':
       return `dot(${exprKey(e.left)},${exprKey(e.right)})`;
     case 'cross':
@@ -77,7 +77,7 @@ export function exprKey(e: TypedExpr): string {
  * `neg(num)` 도 받는다 — `buildProduct` 가 부호를 바깥 `neg` 로 내보내므로 정규화 뒤의
  * 음수 지수는 `num(-1)` 이 아니라 `neg(num 1)` 일 수 있다.
  */
-export function constantInteger(e: TypedExpr): number | null {
+export function asKnownInteger(e: TypedExpr): number | null {
   const lit = literalOf(e);
   return lit === null ? null : asInteger(lit);
 }
