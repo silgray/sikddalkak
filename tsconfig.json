@@ -17,5 +17,8 @@
     "noEmit": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "vite.config.ts", "vite.algebra-test.config.ts"]
+  "include": ["src", "vite.config.ts", "vite.algebra-test.config.ts"],
+  // 눈으로 보는 랩(`npm run algebra-test`) — 실험 중인 코드라 타입체크에서 뺀다.
+  // 랩은 vite/esbuild로 도므로 제외해도 그대로 뜬다. 밖에서 이 폴더를 import 하는 곳은 없다.
+  "exclude": ["src/algebra/test"]
 }
