@@ -5,13 +5,21 @@ import {
   buildMul,
   buildNum,
   buildTranspose,
+  matMulShapeOf,
 } from '../expression/builders';
 import { OP_PROPERTIES } from '../opers';
-import { asKnownInteger, sortScalars } from '../expression/key';
+import { asKnownInteger, exprKey, sortScalars } from '../expression/key';
 import { fail, ok, type Result } from '../result/result';
 import { SCALAR, isKnownShape, isScalar, type Shape } from '../shape/shape';
 import type { TypedExpr } from '../expression/node';
-import { isOne, isZero, splitSign, ONE as ONE_LIT, ZERO as ZERO_LIT } from '../literal/literal';
+import {
+  intLit,
+  isOne,
+  isZero,
+  splitSign,
+  ONE as ONE_LIT,
+  ZERO as ZERO_LIT,
+} from '../literal/literal';
 import { mulLit } from '../literal/arith';
 import {
   MAX_POWER_EXPANSION,
@@ -212,25 +220,253 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
 }
 
 // ---------------------------------------------------------------------------
-// 되돌리기 — Polynomial -> TypedExpr
+// 되돌리기 ① — 인수 열 접기 (`fromMonomial(_, true)` 전용)
 // ---------------------------------------------------------------------------
 
 /**
- * 단항식 하나를 식으로. 부호는 밖에서 `neg` 로 붙이므로 여기서는 절댓값만 쓴다.
+ * 인수 열에서 항등원을 걷어낸다. 이웃한 같은 인수를 `matPow` 로 접지는 않는다 —
+ * `AA` 는 `AA` 로 남는다. `foldPowers=false` 경로가 쓴다.
  *
- * **이웃한 같은 인수를 `matPow` 로 접지 않는다** — `m.nonScalars` 를 그대로 곱해나간다.
- * `AA` 는 `AA` 로 남는다.
+ * 전부 항등원이었다면 모양을 보존하려고 하나만 남긴다.
  */
-function monomialToExpr(m: Monomial): Result<TypedExpr> {
-  const { magnitude } = splitSign(m.coefficient);
-  const parts: TypedExpr[] = [];
-  const body = [...m.scalars, ...m.nonScalars];
-  if (!isOne(magnitude) || body.length === 0) parts.push(buildNum(magnitude));
-  parts.push(...body);
-  return parts
-    .slice(1)
-    .reduce<Result<TypedExpr>>((acc, p) => (acc.ok ? buildMul(acc.value, p) : acc), ok(parts[0]));
+function stripIdentities(factors: readonly TypedExpr[]): TypedExpr[] {
+  // 애초에 빈 목록(스칼라만 있는 곱이라 행렬 인수가 없는 경우)을 "전부 항등원이라
+  // 하나 남긴다" 분기와 헷갈리면 안 된다 — factors[0]이 undefined가 되어 터진다.
+  if (factors.length === 0) return [];
+  const stripped = factors.filter((f) => f.op !== 'matIdentity');
+  return stripped.length === 0 ? [factors[0]] : stripped;
 }
+
+/**
+ * 스칼라 인수를 같은 밑끼리 모아 거듭제곱으로 접는다 — `xxxyyx` → `x⁴y²`.
+ *
+ * **행렬과 달리 떨어져 있어도 모은다.** 스칼라는 교환 가능하므로 위치를 지킬 이유가
+ * 없고, 어차피 뒤에서 `sortScalars` 가 순서를 다시 잡는다. (행렬 쪽 `combineAdjacentPowers`
+ * 가 이웃만 보는 건 비가환이라 자리를 못 옮기기 때문이다 — 두 규칙이 다른 이유가 그거다.)
+ *
+ * 상수 정수 지수만 합산한다. `x^a x^b` 처럼 지수가 심볼이면 합을 우리가 판정할 수 없으니
+ * 건드리지 않고 그대로 흘려보낸다.
+ *
+ * 지수 합이 0이면 **인수 목록에서 빠진다** (`xx^{-1}` → 곱의 항등원 1). 그러면 인수가
+ * 하나도 안 남을 수 있는데, 그건 `fromMonomial` 의 `needsNumericLiteral` 이 `1` 로 채운다.
+ */
+function foldScalarPowers(scalars: readonly TypedExpr[]): TypedExpr[] {
+  /** 밑 키 → 지수 합. 처음 나온 순서를 유지한다(정렬은 호출자 몫이지만 결정적이어야 한다). */
+  const order: string[] = [];
+  const bases = new Map<string, { base: TypedExpr; exponent: number }>();
+  const untouched: TypedExpr[] = [];
+
+  for (const f of scalars) {
+    const parts =
+      f.op === 'scalarPow'
+        ? (() => {
+            const n = asKnownInteger(f.exponent);
+            return n === null ? null : { base: f.base, exponent: n };
+          })()
+        : { base: f, exponent: 1 };
+    // 지수를 못 읽는 인수는 접기에 참여시키지 않는다 (같은 밑이어도 합칠 수 없다).
+    if (parts === null) {
+      untouched.push(f);
+      continue;
+    }
+    const key = exprKey(parts.base);
+    const seen = bases.get(key);
+    if (seen === undefined) {
+      order.push(key);
+      bases.set(key, parts);
+    } else {
+      bases.set(key, { base: seen.base, exponent: seen.exponent + parts.exponent });
+    }
+  }
+
+  const out: TypedExpr[] = [];
+  for (const key of order) {
+    const { base, exponent } = bases.get(key) as { base: TypedExpr; exponent: number };
+    if (exponent === 0) continue; // x·x^{-1} = 1 — 인수에서 빠진다
+    if (exponent === 1) out.push(base);
+    else out.push({ op: 'scalarPow', shape: SCALAR, base, exponent: buildNum(intLit(exponent)) });
+  }
+  out.push(...untouched);
+  return out;
+}
+
+/**
+ * 인수 하나를 (밑, 지수)로 뜯는다. 벌거벗은 인수는 지수 1인 셈이다.
+ *
+ * `matPow` 는 **어떤 정수 지수든** 뜯는다 — 음수(역행렬)도 포함이라야
+ * `A \cdot A^{-1}` 처럼 이웃한 지수를 더해서 소거(항등원)까지 갈 수 있다.
+ */
+function powerParts(
+  f: TypedExpr,
+): { readonly base: TypedExpr; readonly exponent: number } | null {
+  if (f.op !== 'matPow') return { base: f, exponent: 1 };
+  // 값이 확정되지 않은 지수(`A^n`)는 더할 수 없다 — 그 구간은 접지 않는다.
+  const n = asKnownInteger(f.exponent);
+  return n === null ? null : { base: f.base, exponent: n };
+}
+
+/**
+ * 한 번의 "이웃한 같은 밑 지수 합치기" 패스. 항등원 제거는 호출자가 미리 한다.
+ * 지수 합이 0이면 `matIdentity`, 1이면 밑 자체, 그 외에는 `matPow`.
+ */
+function combineAdjacentPowers(factors: readonly TypedExpr[]): TypedExpr[] {
+  const out: TypedExpr[] = [];
+  let i = 0;
+  while (i < factors.length) {
+    const first = powerParts(factors[i]);
+    // 지수가 확정되지 않은 인수(`A^n`)는 더할 수 없다 — 그 자리에서 끊고 그대로 둔다.
+    if (first === null) {
+      out.push(factors[i]);
+      i += 1;
+      continue;
+    }
+    const key = exprKey(first.base);
+    let exponent = first.exponent;
+    let j = i + 1;
+    while (j < factors.length) {
+      const next = powerParts(factors[j]);
+      if (next === null || exprKey(next.base) !== key) break;
+      exponent += next.exponent;
+      j += 1;
+    }
+    if (exponent === 0) {
+      out.push({ op: 'matIdentity', shape: first.base.shape });
+    } else if (exponent === 1) {
+      out.push(first.base);
+    } else {
+      out.push({
+        op: 'matPow',
+        shape: first.base.shape,
+        base: first.base,
+        exponent: buildNum(intLit(exponent)),
+      });
+    }
+    i = j;
+  }
+  return out;
+}
+
+/**
+ * 항등원 제거와 이웃 거듭제곱 합치기를 **더 걸러낼 게 없을 때까지** 번갈아 돈다.
+ *
+ * 먼저 걸러야 하는 이유: `A I A` 처럼 사이에 낀 항등원을 빼야 `A` 둘이 이웃해져 `A²` 로
+ * 접힌다. 합치는 과정에서 지수 합이 0이 되어 **새 항등원이 생길 수도** 있으므로
+ * (`AA^{-1} → I`), 반복한다 (`AA^{-1}B` → 걸러낼 것 없음 → 합치기로 `[I,B]` → 다시 걸러 `[B]`).
+ * 전부 항등원이었다면 모양을 보존하려고 하나만 남긴다.
+ */
+function foldAdjacentPowers(factors: readonly TypedExpr[]): TypedExpr[] {
+  // 애초에 빈 목록(스칼라만 있는 곱이라 행렬 인수가 없는 경우)을 "전부 항등원이라
+  // 하나 남긴다" 분기와 헷갈리면 안 된다 — current[0]이 undefined가 되어 터진다.
+  if (factors.length === 0) return [];
+  let current = factors;
+  for (;;) {
+    const stripped = current.filter((f) => f.op !== 'matIdentity');
+    if (stripped.length === 0) return [current[0]];
+    const combined = combineAdjacentPowers(stripped);
+    if (!combined.some((f) => f.op === 'matIdentity')) return combined;
+    current = combined;
+  }
+}
+
+/**
+ * 인수 열 **안에서** 앞 구간이 스칼라로 접히면 거기서 끊어 스칼라 쪽으로 옮긴다.
+ *
+ * `r u r` 을 보자 (`r`=(1,3), `u`=(3,1)). 전체 모양은 (1,3)이라 비스칼라지만 **앞의 두
+ * 개가 (1,1)로 접힌다.** 그대로 `matMul(r,u,r)` 로 조립하면 렌더가 `rur` 인데, 그걸 다시
+ * 읽으면 elaborate가 왼쪽부터 묶어 `(ru)r` = `mul(스칼라, r)` 이 되어 **같은 값이 다른
+ * 트리·다른 LaTeX**(`2\left(ru\right)kr`)이 된다 — 렌더 멱등이 깨진다(퍼즈가 잡음).
+ *
+ * `toMonomial` 이 주는 인수 열에는 이런 구간이 안 생긴다(스칼라로 접히는 `matMul` 은
+ * 통째로 스칼라 원자 하나로 잡는다). 하지만 다항식 쪽 `polyMul` 은 인수 열을 그냥
+ * 이어붙이므로 생길 수 있다. 예전 `monomialToExpr` 은 `buildMul` 좌결합 접기라 쌍마다
+ * 모양을 다시 봐서 이걸 우연히 피해갔다 — 평탄 조립으로 합치면서 명시적으로 해줘야 한다.
+ *
+ * 끊은 구간은 스칼라 인수가 되므로 **정렬 전에** 불러야 한다.
+ */
+function splitScalarRuns(factors: readonly TypedExpr[]): {
+  readonly collapsed: readonly TypedExpr[];
+  readonly rest: readonly TypedExpr[];
+} {
+  const collapsed: TypedExpr[] = [];
+  const rest: TypedExpr[] = [];
+  let run: TypedExpr[] = [];
+  for (const f of factors) {
+    run.push(f);
+    // 인수 하나짜리는 건드리지 않는다 — 비스칼라 자리에 스칼라가 홀로 있다면 그건 여기서
+    // 고칠 문제가 아니라 인수 열을 만든 쪽의 문제다.
+    if (run.length > 1 && isScalar(matMulShapeOf(run))) {
+      collapsed.push({ op: 'matMul', shape: matMulShapeOf(run), factors: run });
+      run = [];
+    }
+  }
+  rest.push(...run);
+  return { collapsed, rest };
+}
+
+// ---------------------------------------------------------------------------
+// 되돌리기 ② — Monomial -> TypedExpr
+// ---------------------------------------------------------------------------
+
+/**
+ * 단항식 하나를 식으로. `toMonomial`(`normalize/product.ts`)의 짝이다.
+ *
+ * **조립기는 이 하나뿐이다.** 예전엔 여기(`monomialToExpr`)와 정규화 쪽(`fromMonomial`)에
+ * 두 벌이 있었는데, 하나는 좌결합 `buildMul` 접기, 하나는 n-항 직접 조립이라 **같은 값이
+ * 경로에 따라 다른 트리로** 나왔다. 다항식 쪽이 제 타입(`Monomial`)을 가진 집이라 여기로
+ * 합쳤다.
+ *
+ * 부호는 **숫자 계수 안에 넣지 않고 바깥에 `neg` 로 씌운다** — `coefficient=-1` 을 그대로
+ * 스칼라 인수 목록에 넣으면 다른 인수가 있을 때 `-1A` 처럼 불필요한 "1" 이 남는다.
+ * (`render.ts` 의 `renderProduct` 도 같은 관례를 읽는다.)
+ *
+ * `foldPowers` 가 갈라놓는 것은 **거듭제곱 접기뿐**이다:
+ *  - `true` (정규화 경로) — `AA` → `A²`, `xxy` → `x²y`, `AA^{-1}` → `I` 까지 간다
+ *  - `false` (다항식 경로) — 항등원만 걷어내고 `AA` 는 `AA` 로 둔다. 인수분해가 공통
+ *    인수를 뽑으려면 `x^2` 이 `[x, x]` 로 흩어진 채여야 해서다 (`toPolynomial` 의
+ *    `scalarPow` 케이스 참고).
+ *
+ * 실패할 수 없다 — 인수 열의 모양은 호출 전에 이미 검증돼 있고(`matMulShapeOf` 문서),
+ * 노드는 직접 만든다.
+ */
+export function fromMonomial(m: Monomial, foldPowers: boolean): TypedExpr {
+  const { negative, magnitude } = splitSign(m.coefficient);
+  const folded = foldPowers ? foldAdjacentPowers(m.nonScalars) : stripIdentities(m.nonScalars);
+  const { collapsed, rest: nonScalars } = splitScalarRuns(folded);
+
+  const allScalars = collapsed.length === 0 ? m.scalars : [...m.scalars, ...collapsed];
+  const scalars = sortScalars(foldPowers ? foldScalarPowers(allScalars) : allScalars);
+
+  const matrixNode: TypedExpr | null =
+    nonScalars.length === 0
+      ? null
+      : nonScalars.length === 1
+        ? nonScalars[0]
+        : { op: 'matMul', shape: matMulShapeOf(nonScalars), factors: nonScalars };
+
+  // 숫자 리터럴은 크기가 1이 아니거나, 다른 항이 전혀 없어 "1" 자체를 나타내야 할 때만 넣는다.
+  const needsNumericLiteral = !isOne(magnitude) || (scalars.length === 0 && matrixNode === null);
+  const scalarParts = needsNumericLiteral ? [buildNum(magnitude), ...scalars] : scalars;
+
+  const scalarNode: TypedExpr | null =
+    scalarParts.length === 0
+      ? null
+      : scalarParts.length === 1
+        ? scalarParts[0]
+        : { op: 'scalarMul', shape: SCALAR, factors: scalarParts };
+
+  const core: TypedExpr =
+    matrixNode === null
+      ? (scalarNode as TypedExpr) // needsNumericLiteral 보장으로 scalarNode는 여기서 항상 non-null
+      : scalarNode === null
+        ? matrixNode
+        : { op: 'mul', shape: matrixNode.shape, scalar: scalarNode, nonScalar: matrixNode };
+
+  return negative ? { op: 'neg', shape: core.shape, operand: core } : core;
+}
+
+// ---------------------------------------------------------------------------
+// 되돌리기 ③ — Polynomial -> TypedExpr
+// ---------------------------------------------------------------------------
 
 /**
  * 항이 전부 상쇄됐을 때의 값.
@@ -256,16 +492,6 @@ function zeroOf(target: Shape): TypedExpr {
 export function fromPolynomial(p: Polynomial, target: Shape = SCALAR): Result<TypedExpr> {
   const live = p.filter((m) => !isZero(m.coefficient));
   if (live.length === 0) return ok(zeroOf(target));
-
-  const terms: TypedExpr[] = [];
-  for (const m of live) {
-    const built = monomialToExpr(m);
-    if (!built.ok) return built;
-    terms.push(
-      splitSign(m.coefficient).negative
-        ? { op: 'neg', shape: built.value.shape, operand: built.value }
-        : built.value,
-    );
-  }
-  return buildAdd(terms);
+  // 다항식 경로는 접지 않는다 — 인수분해가 `x^2` 을 `[x, x]` 로 흩어진 채 봐야 한다.
+  return buildAdd(live.map((m) => fromMonomial(m, false)));
 }

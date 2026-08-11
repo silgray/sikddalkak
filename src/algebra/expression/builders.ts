@@ -121,6 +121,17 @@ function buildMatMul(left: TypedExpr, right: TypedExpr, symbol: string): Result<
 }
 
 /**
+ * 이미 검증된 non-scalar 인수 열을 이어 붙였을 때의 모양.
+ *
+ * 결합법칙이 있어 인접 쌍만 맞으면 되고, elaborate가 이미 그 사슬 전체를 검증해뒀다 —
+ * 그래서 `Result` 가 아니라 모양을 바로 준다. 정규화(`normalize/product.ts`)와 다항식
+ * 조립(`polynomial/convert.ts`)이 **둘 다** 쓰기 때문에 어느 한쪽에 두면 순환이 된다.
+ * 잎인 이 파일이 그 공통 자리다.
+ */
+export const matMulShapeOf = (factors: readonly TypedExpr[]): Shape =>
+  shape(factors[0].shape.rows, factors[factors.length - 1].shape.cols);
+
+/**
  * `\cdot` — 스칼라가 끼면 스칼라곱, 같은 방향 같은 길이 벡터끼리면 **내적**,
  * 그 밖에는 행렬곱.
  */

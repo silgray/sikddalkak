@@ -14,7 +14,8 @@ import { SCALAR, isKnownShape } from '../shape/shape';
 import type { TypedExpr } from '../expression/node';
 import { asInteger, intLit, ONE as ONE_LIT } from '../literal/literal';
 import { mulLit, powLit } from '../literal/arith';
-import { asSingleMatrix, fromMonomial, toMonomial, normalizeNeg, normalizeProduct } from './product';
+import { asSingleMatrix, toMonomial, normalizeNeg, normalizeProduct } from './product';
+import { fromMonomial } from '../polynomial/convert';
 import { normalizeAdd } from './add';
 import { normalizeFrac } from './frac';
 
@@ -125,9 +126,11 @@ export function normalize(
           : [buildNum(cl.coefficient), buildNum(cr.coefficient), buildNum(merged.coefficient)];
       return ok(
         fromMonomial(
-          all ?? ONE_LIT,
-          [...cl.scalars, ...cr.scalars, ...merged.scalars, ...carried],
-          merged.nonScalars,
+          {
+            coefficient: all ?? ONE_LIT,
+            scalars: [...cl.scalars, ...cr.scalars, ...merged.scalars, ...carried],
+            nonScalars: merged.nonScalars,
+          },
           foldPowers,
         ),
       );
@@ -141,7 +144,7 @@ export function normalize(
       if (!operand.ok) return operand;
       const t = buildTranspose(operand.value);
       if (!t.ok) return t;
-      return ok(fromMonomial(c.coefficient, c.scalars, [t.value], foldPowers));
+      return ok(fromMonomial({ ...c, nonScalars: [t.value] }, foldPowers));
     }
 
     // --- 거듭제곱 ---

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { formatTyped } from './debug';
 import { render } from './render';
 import { TEST_ENV, typedOf } from './testEnv';
+import { parse } from './index';
 import { parseSyntax } from './parse/parse';
 import type { Env, FunctionDef } from './expression/node';
 import { shape } from './shape/shape';
@@ -106,6 +107,40 @@ describe('apply 도입으로 생긴 재파싱 위험 (실측 회귀, 퍼즈가 �
     expect(
       rendered(String.raw`\left(A\left(B\right)\right)^T`),
     ).toBe(String.raw`\left(AB\right)^T`);
+  });
+});
+
+/**
+ * 정규형의 왕복. `expectRoundTrip` 과 갈리는 지점: 저건 elaborate 직후 트리를 보고,
+ * 이건 `parse()`(elaborate+normalize)가 내놓는 **정규형**이 자기 자신으로 다시 읽히는지를
+ * 본다. 정규화가 곱을 평탄하게 펴놓기 때문에 여기서만 드러나는 게 있다.
+ */
+function expectNormalFormFixpoint(latex: string, expected: string): void {
+  const once = parse(latex, TEST_ENV);
+  if (!once.ok) throw new Error(`parse failed: ${once.errors[0].message}`);
+  const out = render(once.value);
+  expect(out).toBe(expected);
+  const twice = parse(out, TEST_ENV);
+  if (!twice.ok) throw new Error(`re-parse failed: ${twice.errors[0].message}`);
+  expect(formatTyped(twice.value), `normal form drifted via ${out}`).toBe(
+    formatTyped(once.value),
+  );
+}
+
+describe('정규형 왕복 — 인수 열 안에서 스칼라로 접히는 구간 (퍼즈가 잡음)', () => {
+  // `r`=(1,3), `u`=(3,1) 이라 `ru` 는 (1,1) — 전체는 (1,3)이라 비스칼라인데 **앞 구간만**
+  // 스칼라로 접힌다. 이런 열을 `matMul(r,u,r)` 로 평탄하게 조립하면 렌더가 `rur` 이고,
+  // 그걸 다시 읽으면 elaborate가 왼쪽부터 묶어 `(ru)r` 이 되어 트리가 갈라진다.
+  // `fromMonomial` 이 조립 전에 그 구간을 끊어 스칼라 쪽으로 옮긴다.
+  it('앞 구간이 (1,1)로 접히면 거기서 끊어 스칼라 인수로 뺀다', () => {
+    expectNormalFormFixpoint(String.raw`r\left(ur\right)`, 'rur');
+  });
+
+  it('끊은 구간은 다른 스칼라들과 함께 정렬된다', () => {
+    expectNormalFormFixpoint(
+      String.raw`r\left(\left(2u\right)\left(rk\right)\right)`,
+      String.raw`2\left(ru\right)kr`,
+    );
   });
 });
 

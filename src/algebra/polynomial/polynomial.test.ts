@@ -4,6 +4,8 @@ import type { TypedExpr } from '../expression/node';
 import { combineLikeTerms } from './combine';
 import { fromPolynomial, toPolynomial } from './convert';
 import { monomialKey } from './polynomial';
+import { normalize } from '../normalize/normalize';
+import { parse } from '../index';
 import { render } from '../render';
 import { formatShape } from '../shape/shape';
 import { TEST_ENV, sameValue, typedOf } from '../testEnv';
@@ -94,8 +96,11 @@ describe('비가환 — 여기가 이 설계의 핵심', () => {
     expect(render(collected('AB+BA'))).toBe('AB+BA');
   });
 
+  // 트리는 `mul(2, matMul(A,B))` 다. 델리미터가 붙는 건 `parse("2AB")` 도 마찬가지 —
+  // 조립기를 `fromMonomial` 하나로 합치면서 다항식 경로가 정규화 경로와 같은 트리를
+  // 내게 됐다(예전엔 `buildMul` 좌결합이라 `matMul(mul(2,A), B)` 였고 그래서 `2AB`).
   it('AB + AB 는 합쳐진다', () => {
-    expect(render(collected('AB+AB'))).toBe('2AB');
+    expect(render(collected('AB+AB'))).toBe(String.raw`2\left(AB\right)`);
   });
 
   it('스칼라 인수는 교환 가능하므로 순서가 달라도 동류항이다', () => {
@@ -165,12 +170,21 @@ describe('속성 대조 — 재작성이 값을 바꾸지 않는다', () => {
   }
 });
 
+/**
+ * 양쪽을 정규화해서 비교하는 이유: `expanded` 는 `toPolynomial`→`fromPolynomial` 만
+ * 거친 **중간** 트리다. 곱의 중첩 정도가 경로마다 다를 수 있는데(`factorsToExpr` 는
+ * 아직 `buildMul` 좌결합이다), 그 차이는 `normalize` 가 흡수한다. 실제 `expand()` 도
+ * 끝에 `normalize` 를 한 번 걸므로 이쪽이 진짜 계약이다.
+ */
 describe('왕복 — 전개 결과를 다시 읽어도 같다', () => {
   it('렌더한 전개 결과가 같은 트리로 다시 읽힌다', () => {
     for (const latex of ['ABA', String.raw`v^T\left(A+B\right)v`, String.raw`u\times\left(v+w\right)`]) {
       const once = expanded(latex);
-      const twice = typedOf(render(once), TEST_ENV);
-      expect(formatTyped(twice), `via ${render(once)}`).toBe(formatTyped(once));
+      const settled = normalize(once);
+      if (!settled.ok) throw new Error(`normalize failed: ${settled.errors[0].message}`);
+      const twice = parse(render(once), TEST_ENV);
+      if (!twice.ok) throw new Error(`parse failed: ${twice.errors[0].message}`);
+      expect(formatTyped(twice.value), `via ${render(once)}`).toBe(formatTyped(settled.value));
     }
   });
 });

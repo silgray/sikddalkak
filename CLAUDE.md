@@ -125,10 +125,10 @@
   분배는 **하지 않는다** — `(A+B)C+(A+B)C` 는 `2(A+B)C` 로 남는다.
   - **`normalize.ts`** — 디스패처. 케이스 16개지만 성격이 여섯이라 덩치 큰 셋을 뺐고,
     짧은 셋(모양 연산·거듭제곱·잎/불투명)만 여기 남았다.
-  - **`product.ts`** — 곱 계열. `toMonomial` 이 곱을 (계수, 스칼라들, 비스칼라들)로 **분해**하고
-    `fromMonomial` 이 다시 **조립**한다. 그 사이에서 접기·정렬·항등원 제거가 일어난다.
-    이 짝은 `polynomial/convert.ts` 의 `toPolynomial`↔`fromPolynomial` 과 같은 코덱 가족이다
-    (거기 `monomialToExpr` 가 `fromMonomial` 과 거의 같은 일을 한다 — 통합은 아직).
+  - **`product.ts`** — 곱 계열. `toMonomial` 이 곱을 (계수, 스칼라들, 비스칼라들)로 **분해**한다.
+    조립하는 `fromMonomial` 은 `polynomial/convert.ts` 에 있다 — `Monomial` 이 다항식의
+    타입이고 다항식 경로(`fromPolynomial`)도 **같은 조립기**를 쓰기 때문이다. 이 짝은
+    `toPolynomial`↔`fromPolynomial` 과 같은 코덱 가족이다.
   - **`add.ts`** — 동류항 합치기와 항 정렬. / **`frac.ts`** — 유리수 접기와 역수 하강.
 
   ⚠ **핸들러는 `normalize` 를 import 하지 않는다.** 자식 재귀가 필요하면 `recur` 를 인자로
@@ -137,8 +137,14 @@
 - **`opers.ts`** — 대수 성질 **표**(교환/결합/분배). 코드 분기가 아니라 데이터.
 - **`polynomial/`** — 다항식 정규형. 단항식 = (수치 계수, 스칼라 인수 **집합**,
   비스칼라 인수 **열**). 비스칼라 열의 순서를 지키는 게 비가환을 지키는 지점.
-  `polynomial.ts`(타입·`polyMul`) / `convert.ts`(`toPolynomial`↔`fromPolynomial` 왕복) /
+  `polynomial.ts`(타입·`polyMul`) / `convert.ts`(`toPolynomial`↔`fromPolynomial` 왕복,
+  그리고 **단항식 조립기 `fromMonomial`** — 정규화도 이걸 쓴다) /
   `combine.ts`(동류항·숫자 합치기).
+  `fromMonomial` 의 `foldPowers` 가 두 경로를 가른다: 정규화는 `true`(`AA`→`A²`),
+  다항식은 `false`(인수분해가 `x^2` 을 `[x, x]` 로 흩어진 채 봐야 한다).
+  ⚠ **평탄 조립은 인수 열 안의 스칼라 접힘을 못 본다** — `r u r`(`r`=(1,3), `u`=(3,1))은
+  앞 두 개가 (1,1)로 접히는데 `matMul(r,u,r)` 로 이으면 렌더 `rur` 이 `(ru)r` 로 다시
+  읽혀 트리가 갈라진다. `splitScalarRuns` 가 조립 전에 그 구간을 끊는다.
   **`normalize/product.ts` 도 같은 `Monomial` 타입을 쓴다** — 곱 하나를 셋으로 가르는 일이
   단항식과 정확히 같은 모양이라, 예전엔 `Collected` 라는 쌍둥이 타입이 따로 있었다.
   다만 `toMonomial` 이 주는 `scalars` 는 **정렬 전**이다(`monomialKey` 를 뽑기 전에 정렬해야

@@ -5,7 +5,8 @@ import { SCALAR, isScalar } from '../shape/shape';
 import type { TypedExpr } from '../expression/node';
 import { asInteger, ONE as ONE_LIT } from '../literal/literal';
 import { divideByInt, reciprocalLit } from '../literal/arith';
-import { fromMonomial, toMonomial } from './product';
+import { toMonomial } from './product';
+import { fromMonomial } from '../polynomial/convert';
 
 /**
  * 분수 정규화.
@@ -43,8 +44,7 @@ function hoistFracNumerator(
   if (recip === null) return null;
   const product = buildMul(recip, numerator);
   if (!product.ok) return null;
-  const c = toMonomial(product.value);
-  return fromMonomial(c.coefficient, c.scalars, c.nonScalars, foldPowers);
+  return fromMonomial(toMonomial(product.value), foldPowers);
 }
 
 /** `frac` — 유리수 접기, 그리고 비스칼라 분자의 역수 하강. */
