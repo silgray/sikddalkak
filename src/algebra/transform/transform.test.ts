@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Env, TypedExpr } from '../expression/node';
 import { render } from '../render';
-import { expand, factor, isPureScalar, simplify, substitute } from './transform';
+import { isPureScalar } from './delegate';
+import { expand } from './expand';
+import { factor } from './factor';
+import { simplify } from './simplify';
+import { substitute } from './substitute';
 import { evalNumeric, matricesClose } from '../numeric';
 import { formatShape, shape } from '../shape/shape';
 import { TEST_ENV, TEST_VALUES, sameValue, typedOf } from '../testEnv';

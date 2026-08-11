@@ -1,23 +1,13 @@
-import {
-  expand as ceExpand,
-  factor as ceFactor,
-  simplify as ceSimplify,
-} from '@cortex-js/compute-engine';
-import { getDefaultCeEngine } from '../ce/engine';
-import { elaborate } from '../parse/elaborate';
+import { isPureScalar, refineScalars, viaCe } from './delegate';
 import { buildCross, buildDot, buildMulAll } from '../expression/builders';
-import { mapChildren } from '../expression/traversal';
-import { exprKey, sortScalars } from '../expression/key';
-import { combineLikeTerms, combineNumericScalars } from '../polynomial/combine';
+import { exprKey } from '../expression/key';
+import { combineLikeTerms } from '../polynomial/combine';
 import { fromPolynomial, toPolynomial } from '../polynomial/convert';
 import type { Monomial, Polynomial } from '../polynomial/polynomial';
 import { normalize } from '../normalize/normalize';
-import { asInteger, intLit, isZero, ONE as ONE_LIT, type Literal } from '../literal/literal';
+import { asInteger, intLit, isZero, type Literal } from '../literal/literal';
 import { divideByInt } from '../literal/arith';
-import { guardCe } from '../ce/budget';
 import { ok, type Result } from '../result/result';
-import { render } from '../render';
-import { parseCeJson } from '../parse/parse';
 import { SCALAR, isKnownShape, isScalar, type Shape } from '../shape/shape';
 import type { TypedExpr, Env } from '../expression/node';
 import {
@@ -28,227 +18,13 @@ import {
 } from './matPoly';
 
 /**
- * 구문 재작성 — expand / simplify / factor / substitute.
+ * 인수분해.
  *
- * 모든 규칙은 `polynomial/polynomial.ts` 의 정규형과 `opers.ts` 의 성질 표 위에서만 움직인다. 여기에
- * "행렬이면 이렇게" 같은 특수 분기를 넣기 시작하면 설계가 다시 무너진다.
- *
- * **순수 스칼라 부분식은 CE에 위임한다**(설계 §7). 삼각항등식·유리식 정리처럼 우리가
- * 다시 만들 이유가 없는 것들이 거기 있다. 모양이 얽힌 식은 절대 CE에 넘기지 않는다 —
- * 거기가 교환법칙 오적용의 출처였다.
+ * 공통인수 추출은 전부 **조립 전의 `Polynomial` 위에서** 돈다 — 수치 계수, 스칼라
+ * 인수(다중집합 교집합), 그리고 비스칼라 인수 열의 **앞/뒤 공통 구간**(비가환이라
+ * 순서를 지켜야 해서 접두·접미로만 뽑는다). 순수 스칼라로 떨어지는 자리에서만 CE에
+ * 위임한다.
  */
-
-// ---------------------------------------------------------------------------
-// CE 위임 경계
-// ---------------------------------------------------------------------------
-
-/**
- * 통째로 CE에 넘겨도 되는가 = **모양이 스칼라이고, 안에 모양을 다루는 연산이 하나도 없다.**
- *
- * 결과가 스칼라라는 것만으로는 부족하다. `v·w` 는 스칼라지만 안에 벡터가 있어서 CE에
- * 넘기면 벡터를 스칼라 곱으로 오해한다.
- */
-export function isPureScalar(e: TypedExpr): boolean {
-  if (!isScalar(e.shape)) return false;
-  switch (e.op) {
-    case 'num':
-    case 'sym':
-      return true;
-    case 'matrix':
-    case 'dot':
-    case 'cross':
-    case 'transpose':
-    case 'matMul':
-    case 'matPow':
-      return false;
-    // `mul` 은 `matrix` 필드가 비스칼라 모양이라 `e.shape` 도 늘 비스칼라다 — 위의
-    // `isScalar(e.shape)` 관문에서 이미 걸러진다. 여기 있는 건 switch 완전성 때문이다.
-    case 'mul':
-      return false;
-    case 'add':
-      return e.terms.every(isPureScalar);
-    case 'neg':
-      return isPureScalar(e.operand);
-    case 'scalarMul':
-      return e.factors.every(isPureScalar);
-    case 'scalarPow':
-      return isPureScalar(e.base) && isPureScalar(e.exponent);
-    case 'call':
-      return e.args.every(isPureScalar);
-    case 'frac':
-      return isPureScalar(e.numerator) && isPureScalar(e.denominator);
-    // 미정 항등원은 `isScalar(e.shape)` 관문에서 대부분 걸러지지만(정사각 미정 크기는
-    // 스칼라가 아니다), CE는 애초에 `I` 를 모른다 — 넘기면 그냥 미지 심볼로 읽어 무슨
-    // 정리를 할지 알 수 없다. 절대 위임하지 않는다.
-    case 'matIdentity':
-      return false;
-    // 넷 다 절대 CE에 통째로 위임하지 않는다 — CE는 이 연산들의 우리 도메인 규약
-    // (바운드 변수, 임의 모양 원소별 계산, `\prod` 의 비가환 순서)을 전혀 모른다.
-    case 'deriv':
-    case 'sum':
-    case 'prod':
-    case 'integral':
-      return false;
-    // CE는 사용자 정의 함수를 전혀 모른다 — `f\left(x\right)` 를 통째로 넘기면 `f` 를
-    // 미지 심볼로 읽어 곱으로 오해한다(`A(v)` 가 곱으로 읽히는 것과 같은 CE 실측 함정).
-    // 전개는 `evaluate` 의 `foldFunctions` 몫이라 여기선 절대 위임하지 않는다.
-    case 'apply':
-      return false;
-  }
-}
-
-type CeOp = 'expand' | 'simplify' | 'factor';
-
-/**
- * 순수 스칼라 식을 CE에 넘겼다 받는다.
- *
- * **결과는 `.latex` 가 아니라 MathJSON으로 받는다.** CE 0.90의 LaTeX 직렬화에 버그가
- * 있어서 `Power(Divide(X,a), 2)` 를 `\frac{1}{a}(X)^2` 로 내놓는다 — 지수의 적용 범위가
- * 바뀌어 **값이 달라진다**(실측, 퍼즈가 잡음). MathJSON은 멀쩡하다.
- *
- * 왕복이 실패하면 **원래 식을 그대로 돌려준다**. CE가 우리가 못 읽는 머리를 내놓는 일이
- * 있는데, 그것 때문에 변환 전체가 실패하는 것보다 "안 바뀜"이 낫다.
- */
-function viaCe(e: TypedExpr, op: CeOp, env: Env): TypedExpr {
-  try {
-    // 0.90에서 expand/factor는 Expression의 메서드가 아니라 자유 함수다(.d.ts 확인).
-    // 문자열 입력은 기본이 느슨한 AsciiMath 문법이라 `strict` 로 LaTeX 문법을 강제한다.
-    const source = render(e);
-    // 자유 함수는 우리 인스턴스가 아니라 CE의 **기본 엔진**에서 돈다 — 상한도 거기에
-    // 걸어야 한다 (`ce/engine.ts` 의 `getDefaultCeEngine`).
-    const result = guardCe(getDefaultCeEngine(), op, () =>
-      op === 'expand'
-        ? ceExpand(source, { strict: true })
-        : op === 'factor'
-          ? ceFactor(source, { strict: true })
-          : ceSimplify(source, { strict: true }),
-    );
-    const syntax = parseCeJson(result.json);
-    if (!syntax.ok) return e;
-    const typed = elaborate(syntax.value, env);
-    if (!typed.ok || !isScalar(typed.value.shape)) return e;
-    return typed.value;
-  } catch {
-    return e;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// expand
-// ---------------------------------------------------------------------------
-
-/**
- * 다항식 안의 **스칼라 계수만** CE로 넘긴다. 비스칼라 인수 열은 건드리지 않는다.
- * CE가 돌려준 숫자는 곧바로 수치 계수로 흡수한다 (`3^2` → `9` → 계수에 곱해짐).
- *
- * `fold` 는 순수 스칼라 인수들을 **하나로 묶어** 넘길지 정한다.
- *  - `true` (expand/simplify): `A·A` 가 `A²` 로 접힌다. 하나씩 넘기면 안 접힌다.
- *  - `false` (factor): 묶어버리면 `abA + acB` 에서 공통 인수 `a` 가 블록 안에 갇혀
- *    추출되지 않는다. 인수분해할 때는 흩어진 채로 두는 게 맞다.
- */
-function refineScalars(p: Polynomial, op: CeOp, env: Env, fold: boolean): Polynomial {
-  return combineNumericScalars(
-    p.map((m) => {
-      if (m.scalars.length === 0) return m;
-      const refined = m.scalars.map((s) => (isPureScalar(s) ? viaCe(s, op, env) : s));
-      if (!fold) return { ...m, scalars: sortScalars(refined) };
-
-      // 내적처럼 모양이 얽힌 스칼라는 CE에 넘길 수 없으니 따로 둔다.
-      const pure = refined.filter(isPureScalar);
-      const rest = refined.filter((s) => !isPureScalar(s));
-      if (pure.length < 2) return { ...m, scalars: sortScalars(refined) };
-      const merged = buildMulAll(pure);
-      if (!merged.ok) return { ...m, scalars: sortScalars(refined) };
-      return { ...m, scalars: sortScalars([viaCe(merged.value, op, env), ...rest]) };
-    }),
-  );
-}
-
-/**
- * 곱을 합 위로 완전히 분배하고 동류항을 합친다.
- *
- * `v^T(A+B)v` → `v^TAv + v^TBv`, `(A+B)²` → `A² + AB + BA + B²` (순서 유지).
- *
- * `fromPolynomial` 은 `buildMul` 로 좌결합 접기만 하고 평탄화·정렬은 안 한다 — 그 결과가
- * `parse()`(elaborate+normalize)가 같은 값에 대해 내놓는 트리와 **모양이 다를 수 있다**
- * (값은 같은데 구조가 달라 렌더→재파싱 왕복이 깨진다, 퍼즈로 확인). 그래서 끝에
- * `normalize` 를 한 번 더 걸어 어느 경로로 왔든 같은 값이 같은 트리로 수렴하게 한다.
- */
-export function expand(e: TypedExpr, env: Env): Result<TypedExpr> {
-  const result = expandRaw(e, env);
-  if (!result.ok) return result;
-  return normalize(result.value);
-}
-
-function expandRaw(e: TypedExpr, env: Env): Result<TypedExpr> {
-  if (isPureScalar(e)) return ok(viaCe(e, 'expand', env));
-  const p = toPolynomial(e);
-  if (!p.ok) return p;
-  return fromPolynomial(combineLikeTerms(refineScalars(p.value, 'expand', env, true)), e.shape);
-}
-
-// ---------------------------------------------------------------------------
-// simplify
-// ---------------------------------------------------------------------------
-
-/**
- * 정리.
- *
- * expand와 달리 **괄호를 함부로 풀지 않는다.** 자식부터 정리한 뒤, 덧셈 노드에서만
- * 동류항을 합친다. 어떤 항을 합치려고 분배가 필요하면 그 항은 통째로 놔둔다 —
- * 사용자가 `\left(A+B\right)C` 라고 쓴 걸 정리랍시고 펼쳐놓지 않기 위해서다.
- *
- * 재귀는 `simplifyRaw` 안에서만 돌고, **normalize는 맨 바깥에서 한 번만** 건다 —
- * 재귀할 때마다 정규화하면 트리 깊이만큼 중복 작업이 쌓인다 (정규화 자체는 몇 번을
- * 걸어도 값은 안 바뀌지만, 굳이 반복할 이유가 없다).
- *
- * **`foldPowers=true`** — simplify는 이웃한 같은 인수를 `matPow` 로 접는다
- * (`AAAA` → `A⁴`) 그리고 역행렬을 소거한다(`AA^{-1}` → `I`). "정리해 달라"는 요청에서
- * 자연스러운 기대이기 때문. parse/expand/factor/substitute는 안 그런다 —
- * 사용자가 쓴 곱의 모양을 임의로 바꾸지 않는다는 결정은 그대로다 (`normalize.ts` 참고).
- */
-export function simplify(e: TypedExpr, env: Env): Result<TypedExpr> {
-  const result = simplifyRaw(e, env);
-  if (!result.ok) return result;
-  return normalize(result.value, true);
-}
-
-function simplifyRaw(e: TypedExpr, env: Env): Result<TypedExpr> {
-  if (isPureScalar(e)) return ok(viaCe(e, 'simplify', env));
-
-  if (e.op === 'add') {
-    const terms: TypedExpr[] = [];
-    for (const term of e.terms) {
-      const simplified = simplifyRaw(term, env);
-      if (!simplified.ok) return simplified;
-      terms.push(simplified.value);
-    }
-    const monomials: Monomial[] = [];
-    for (const term of terms) {
-      const p = toPolynomial(term);
-      // 분배가 일어나는 항(= 단항식이 여러 개)은 펼치지 않고 통째로 하나의 인수로 둔다.
-      if (p.ok && p.value.length === 1) {
-        monomials.push(p.value[0]);
-      } else {
-        monomials.push(
-          isScalar(term.shape)
-            ? { coefficient: ONE_LIT, scalars: [term], nonScalars: [] }
-            : { coefficient: ONE_LIT, scalars: [], nonScalars: [term] },
-        );
-      }
-    }
-    return fromPolynomial(
-      combineLikeTerms(refineScalars(monomials, 'simplify', env, true)),
-      e.shape,
-    );
-  }
-
-  return mapChildren(e, (child) => simplifyRaw(child, env));
-}
-
-// ---------------------------------------------------------------------------
-// factor
-// ---------------------------------------------------------------------------
 
 const gcd = (a: number, b: number): number => (b === 0 ? Math.abs(a) : gcd(b, a % b));
 
@@ -555,29 +331,3 @@ function factorStructural(e: TypedExpr, env: Env): Result<TypedExpr> | null {
 /** 인수 열의 앞 `suffix` 만큼을 뺀 나머지(뒤에서 뗀 core). */
 const coreFactors = (nonScalars: readonly TypedExpr[], suffix: number): readonly TypedExpr[] =>
   nonScalars.slice(0, nonScalars.length - suffix);
-
-// ---------------------------------------------------------------------------
-// substitute
-// ---------------------------------------------------------------------------
-
-/**
- * 정의된 심볼을 그 정의로 바꾼다. **한 단계만** — 치환한 결과 안의 심볼은 다시 치환하지
- * 않는다. 반복은 호출자가 결정한다 (그래야 사용자가 한 단계씩 눈으로 볼 수 있다).
- */
-export function substitute(e: TypedExpr, env: Env): Result<TypedExpr> {
-  const bindings = env.bindings;
-  if (bindings === undefined) return ok(e);
-
-  const step = (node: TypedExpr): Result<TypedExpr> => {
-    if (node.op === 'sym') {
-      const bound = bindings[node.name];
-      return bound === undefined ? ok(node) : ok(bound);
-    }
-    return mapChildren(node, step);
-  };
-  const result = step(e);
-  if (!result.ok) return result;
-  // 치환된 심볼의 정의가 이미 중첩된 곱일 수 있다 (`D=AB` 를 `Dv` 에 꽂으면 그 자체가
-  // matMul 안의 matMul이 된다) — 다른 변환들과 같은 이유로 여기도 정규화한다.
-  return normalize(result.value);
-}

@@ -153,6 +153,12 @@
   다만 `toMonomial` 이 주는 `scalars` 는 **정렬 전**이다(`monomialKey` 를 뽑기 전에 정렬해야
   한다 — `Monomial` 문서의 경고).
 - **`transform/`** — expand/simplify/factor/substitute. **순수 스칼라 부분식만** CE에 위임.
+  연산마다 파일 하나다 — `expand.ts` / `simplify.ts` / `factor.ts`(공통인수 추출이라
+  혼자 300줄이다) / `substitute.ts`.
+  - **`delegate.ts`** — 셋이 함께 쓰는 **CE 위임 경계**. 통째로 넘겨도 되는지 보는
+    `isPureScalar`, 왕복하는 `viaCe`, 다항식에서 계수만 골라 넘기는 `refineScalars`.
+    `viaCe` 의 `fold` 인자가 expand/simplify(`true`)와 factor(`false`)를 가른다 —
+    묶어서 넘기면 인수분해가 뽑아야 할 공통 인수가 블록 안에 갇힌다.
 - **`render.ts`** — Typed IR → LaTeX. 계약은 **렌더 멱등성**(낸 걸 다시 읽어 또 내면 같다).
   **이 파일엔 CE가 없다** — 잎 심볼 이름 사전만 `ce/symbolName.ts` 에 위임한다.
 - **`numeric.ts`** — 수치 평가기. 재작성 전후 값 대조 **전용**(역행렬은 일부러 뺐다).

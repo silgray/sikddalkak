@@ -184,7 +184,7 @@ function matrixLiteralToJson(m: MatrixLiteral): MathJsonExpression | null {
  * 행렬이 입구에서 막혀 있었다.
  *
  * 특이행렬이거나 우리가 못 읽는 결과가 오면 `null` — 호출자가 원래 `matPow` 를
- * 그대로 돌려준다 (`transform.ts`의 `viaCe`와 같은 방어 규약: 실패하면 안 바뀜).
+ * 그대로 돌려준다 (`delegate.ts`의 `viaCe`와 같은 방어 규약: 실패하면 안 바뀜).
  */
 function invertLiteral(base: MatrixLiteral, exponent: number): TypedExpr | null {
   if (base.rows.length > MAX_SYMBOLIC_INVERSE_SIZE) return null;

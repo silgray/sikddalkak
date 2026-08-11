@@ -1,5 +1,5 @@
 import { instantiateFunction } from '../parse/elaborate';
-import { substitute } from './transform';
+import { substitute } from './substitute';
 import { mapChildren } from '../expression/traversal';
 import { evaluate } from './evaluate';
 import { failWith, ok, type Result } from '../result/result';

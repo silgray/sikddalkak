@@ -3,7 +3,7 @@ import { elaborate, withBoundScalars } from '../parse/elaborate';
 import { buildAdd, buildMul } from '../expression/builders';
 import { parseCeJson } from '../parse/parse';
 import { render } from '../render';
-import { isPureScalar } from './transform';
+import { isPureScalar } from './delegate';
 import { mapChildren } from '../expression/traversal';
 import { evaluate } from './evaluate';
 import { asKnownInteger } from '../expression/key';
@@ -222,7 +222,7 @@ function foldIntegral(e: Extract<TypedExpr, { op: 'integral' }>, env: Env): Resu
 // ---------------------------------------------------------------------------
 
 /**
- * 인덱스 하나를 값으로 치환한다. 공용 `substitute`(`transform.ts`) 를 안 쓰는 이유는
+ * 인덱스 하나를 값으로 치환한다. 공용 `substitute`(`substitute.ts`) 를 안 쓰는 이유는
  * **섀도잉** 때문이다 — `\sum_k(\sum_k(k))` 처럼 안쪽 바인더가 같은 이름을 다시 쓰면
  * 바깥 치환이 안쪽까지 새어 들어가면 안 된다. 여기서는 안쪽 바인더가 같은 이름을 다시
  * 선언한 서브트리를 만나면 그 자리에서 멈춘다(상하한은 바깥 스코프이므로 계속 치환한다).

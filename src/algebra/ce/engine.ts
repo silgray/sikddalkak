@@ -10,7 +10,7 @@ import type { TimeLimitedEngine } from './budget';
  * `@cortex-js/compute-engine` 자체를 import 하는 곳은 둘 더 있는데, 둘 다 의도된 예외다:
  * - **타입만** 가져다 쓰는 곳 (`MathJsonExpression` — `literal/ceJson.ts` 등). 런타임
  *   의존이 아니다.
- * - `transform/transform.ts` 가 자유 함수 `expand`/`factor`/`simplify` 를 직접 부른다.
+ * - `transform/delegate.ts` 가 자유 함수 `expand`/`factor`/`simplify` 를 직접 부른다.
  *   0.90에서 이것들은 Expression의 메서드가 아니라 자유 함수라 인스턴스를 안 거친다.
  *   대신 **어느 엔진에서 도는지**(= 어디에 상한을 걸어야 하는지)는 아래 `getDefaultCeEngine`
  *   이 안다.
@@ -40,7 +40,7 @@ export function createEngine(): ComputeEngine {
  * 라이브러리의 **기본 엔진**. 0.90에서 `expand`/`factor`/`simplify` 는 Expression의
  * 메서드가 아니라 자유 함수이고(`.d.ts` 확인), 그 함수들은 우리가 만든 인스턴스가 아니라
  * 이 기본 엔진에서 돈다 — 그래서 시간 상한도 **여기에** 걸어야 한다
- * (`transform/transform.ts` 의 `viaCe` 가 유일한 사용처).
+ * (`transform/delegate.ts` 의 `viaCe` 가 유일한 사용처).
  *
  * `TimeLimitedEngine` 으로 좁혀서 돌려준다: 0.90의 `IComputeEngine` 타입에는
  * `withTimeLimit` 이 선언돼 있지 않은데 실체에는 있다(실측). 그 캐스팅을 호출부에
