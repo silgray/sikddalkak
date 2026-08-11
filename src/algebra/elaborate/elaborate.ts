@@ -8,7 +8,7 @@ import {
 } from '../shape/shape';
 import { fail, failWith, ok, type AlgebraError, type Result } from '../result/result';
 import type { SyntaxNode } from '../syntax/node';
-import type { TypedExpr, Env, FunctionDef } from '../expr/node';
+import type { TypedExpr, Env, FunctionDef } from '../expression/node';
 import {
   buildAdd,
   buildCross,
@@ -20,7 +20,7 @@ import {
   buildProd,
   buildSum,
   shapeMismatch,
-} from '../expr/builders';
+} from '../expression/builders';
 
 /**
  * Elaborate — Syntax IR 을 훑으며 노드마다 **어느 연산인지**를 정하고 빌더에 넘긴다.

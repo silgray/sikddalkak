@@ -1,15 +1,15 @@
 import { createEngine } from '../ce/engine';
 import type { MathJsonExpression } from '@cortex-js/compute-engine';
 import { elaborate } from '../elaborate/elaborate';
-import { buildAdd, buildMul } from '../expr/builders';
+import { buildAdd, buildMul } from '../expression/builders';
 import { parseCeJson } from '../syntax/parse';
 import { render } from '../render';
 import { toCeJson } from '../literal/ceJson';
-import { constantInteger } from '../expr/key';
+import { constantInteger } from '../expression/key';
 import { guardCe } from '../ce/budget';
 import { ok, type Result } from '../result/result';
 import { SCALAR } from '../shape/shape';
-import type { TypedExpr, Env } from '../expr/node';
+import type { TypedExpr, Env } from '../expression/node';
 
 /**
  * 구체 행렬 산술 — 리터럴 행렬끼리의 덧셈·곱셈·거듭제곱·전치·내적·외적을 값으로 접는다.

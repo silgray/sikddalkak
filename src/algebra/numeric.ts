@@ -1,6 +1,6 @@
-import type { TypedExpr } from './expr/node';
+import type { TypedExpr } from './expression/node';
 import { toRealNumber } from './literal/literal';
-import { constantInteger } from './expr/key';
+import { constantInteger } from './expression/key';
 import { fail, ok, type Result } from './result/result';
 import { isScalar } from './shape/shape';
 

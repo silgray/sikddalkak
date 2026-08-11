@@ -5,13 +5,13 @@ import {
 } from '@cortex-js/compute-engine';
 import { defaultEngine } from '../ce/engine';
 import { elaborate } from '../elaborate/elaborate';
-import { buildCross, buildDot, buildMulAll } from '../expr/builders';
-import { mapChildren } from '../expr/traversal';
-import { exprKey, sortScalars } from '../expr/key';
+import { buildCross, buildDot, buildMulAll } from '../expression/builders';
+import { mapChildren } from '../expression/traversal';
+import { exprKey, sortScalars } from '../expression/key';
 import { combineLikeTerms, foldNumericScalars } from '../polynomial/combine';
 import { fromPolynomial, toPolynomial } from '../polynomial/convert';
 import type { Monomial, Polynomial } from '../polynomial/polynomial';
-import { normalize } from '../rewrite/normalize';
+import { normalize } from '../normalize/normalize';
 import { asInteger, intLit, isZero, ONE as ONE_LIT, type Literal } from '../literal/literal';
 import { divideByInt } from '../literal/arith';
 import { guardCe } from '../ce/budget';
@@ -19,7 +19,7 @@ import { ok, type Result } from '../result/result';
 import { render } from '../render';
 import { parseCeJson } from '../syntax/parse';
 import { SCALAR, isKnownShape, isScalar, type Shape } from '../shape/shape';
-import type { TypedExpr, Env } from '../expr/node';
+import type { TypedExpr, Env } from '../expression/node';
 import {
   detectSingleMatrixPolynomial,
   liftFromScalarPolynomial,

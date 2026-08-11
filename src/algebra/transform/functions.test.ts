@@ -3,7 +3,7 @@ import { evaluate } from './evaluate';
 import { render } from '../render';
 import { parseSyntax } from '../syntax/parse';
 import { parse } from '../index';
-import type { Env, FunctionDef } from '../expr/node';
+import type { Env, FunctionDef } from '../expression/node';
 import { typedOf } from '../testEnv';
 import { shape } from '../shape/shape';
 

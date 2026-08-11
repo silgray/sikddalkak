@@ -1,7 +1,7 @@
 import { elaborate } from './elaborate/elaborate';
-import { type Env, type FunctionDef, type TypedExpr } from './expr/node';
-import { normalize } from './rewrite/normalize';
-import { exprKey } from './expr/key';
+import { type Env, type FunctionDef, type TypedExpr } from './expression/node';
+import { normalize } from './normalize/normalize';
+import { exprKey } from './expression/key';
 import { fail, failWith, ok, type AlgebraError, type Result } from './result/result';
 import { render } from './render';
 import { expand, factor, simplify, substitute } from './transform/transform';
@@ -21,14 +21,14 @@ import type { SyntaxNode } from './syntax/node';
 export type { Dim, Shape, ShapeKind } from './shape/shape';
 export { SCALAR, classify, formatShape, isScalar, isVector, shape } from './shape/shape';
 export type { AlgebraError, ErrorCode, Result } from './result/result';
-export type { Env, TypedExpr, FunctionDef } from './expr/node';
+export type { Env, TypedExpr, FunctionDef } from './expression/node';
 export type { SyntaxNode } from './syntax/node';
 export { render } from './render';
 export { expand, factor, simplify, substitute, isPureScalar } from './transform/transform';
 export { evalNumeric, matricesClose, type Assignment, type Matrix } from './numeric';
 export { sexpSyntax, sexpTyped, sexpTypedWithShapes } from './debug';
 export { OP_PROPERTIES, type BinaryOp, type OpProperties } from './opers';
-export { normalize } from './rewrite/normalize';
+export { normalize } from './normalize/normalize';
 export { evaluate, freeSymbols, substituteDeep } from './transform/evaluate';
 
 export type TransformOp = 'expand' | 'simplify' | 'factor' | 'substitute';

@@ -1,6 +1,6 @@
-import type { Env, TypedExpr } from '../expr/node';
-import { constantInteger, exprKey } from '../expr/key';
-import { normalize } from '../rewrite/normalize';
+import type { Env, TypedExpr } from '../expression/node';
+import { constantInteger, exprKey } from '../expression/key';
+import { normalize } from '../normalize/normalize';
 import { foldMatrices } from './matrixFold';
 import { foldCalculus } from './calculus';
 import { foldFunctions } from './functions';

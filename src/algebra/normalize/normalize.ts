@@ -7,11 +7,11 @@ import {
   buildProd,
   buildSum,
   buildTranspose,
-} from '../expr/builders';
-import { constantInteger, literalOf } from '../expr/key';
+} from '../expression/builders';
+import { constantInteger, literalOf } from '../expression/key';
 import { ok, type Result } from '../result/result';
 import { SCALAR, isKnownShape } from '../shape/shape';
-import type { TypedExpr } from '../expr/node';
+import type { TypedExpr } from '../expression/node';
 import { asInteger, intLit, ONE as ONE_LIT } from '../literal/literal';
 import { mulLit, powLit } from '../literal/arith';
 import { asSingleMatrix, buildProduct, collect, normalizeNeg, normalizeProduct } from './product';

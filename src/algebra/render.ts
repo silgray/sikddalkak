@@ -1,4 +1,4 @@
-import type { TypedExpr } from './expr/node';
+import type { TypedExpr } from './expression/node';
 import { isOne, isZero, splitSign, type Literal } from './literal/literal';
 import { symbolLatex } from './ce/symbolName';
 

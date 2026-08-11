@@ -1,5 +1,5 @@
 import { addLit, mulLit } from '../literal/arith';
-import type { TypedExpr } from '../expr/node';
+import type { TypedExpr } from '../expression/node';
 import { monomialKey, type Monomial, type Polynomial } from './polynomial';
 
 /**

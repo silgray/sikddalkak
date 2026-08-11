@@ -1,17 +1,17 @@
 import { createEngine } from '../ce/engine';
 import { elaborate, withBoundScalars } from '../elaborate/elaborate';
-import { buildAdd, buildMul } from '../expr/builders';
+import { buildAdd, buildMul } from '../expression/builders';
 import { parseCeJson } from '../syntax/parse';
 import { render } from '../render';
 import { isPureScalar } from './transform';
-import { mapChildren } from '../expr/traversal';
+import { mapChildren } from '../expression/traversal';
 import { evaluate } from './evaluate';
-import { constantInteger } from '../expr/key';
+import { constantInteger } from '../expression/key';
 import { guardCe } from '../ce/budget';
 import { ok, type Result } from '../result/result';
 import { SCALAR, isKnownShape, isScalar, type Shape } from '../shape/shape';
 import { intLit } from '../literal/literal';
-import type { Env, TypedExpr } from '../expr/node';
+import type { Env, TypedExpr } from '../expression/node';
 
 /**
  * `evaluate` 의 마지막 전 단계 — 미분/적분/`\sum`/`\prod` 를 실제로 계산한다.

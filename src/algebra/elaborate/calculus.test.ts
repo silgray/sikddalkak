@@ -4,7 +4,7 @@ import { elaborate } from './elaborate';
 import { formatShape } from '../shape/shape';
 import { parseSyntax } from '../syntax/parse';
 import { TEST_ENV, typedOf } from '../testEnv';
-import type { Env } from '../expr/node';
+import type { Env } from '../expression/node';
 
 /**
  * 미분/적분/`\sum`/`\prod` 파싱 표.

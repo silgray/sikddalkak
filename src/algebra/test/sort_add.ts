@@ -321,12 +321,104 @@ function decomposeFactors(e: TypedExpr): readonly AtomPower[] {
 
 const degreeCache = new WeakMap<TypedExpr, number>();
 
-function totalDegree(e: TypedExpr): number {
-  const hit = degreeCache.get(e);
+function isPow(e: TypedExpr): e is Extract<TypedExpr, { op: 'scalarPow' | 'matPow' }> {
+  return e.op === 'scalarPow' || e.op === 'matPow';
+}
+
+/** 투명 노드(pow/neg)를 뚫은 대표 타입 순위. */
+function headRank(e: TypedExpr): number {
+  if (isPow(e)) return Math.max(headRank(e.base), headRank(e.exponent));
+  if (e.op === 'neg') return headRank(e.operand);
+  return RANK[e.op];
+}
+
+function headName(e: TypedExpr): string {
+  if (e.op === 'sym') return e.name;
+  if (e.op === 'call' || e.op === 'apply') return e.name;
+  return e.op;
+}
+
+/** 원자끼리의 전순서. 음수면 a가 먼저. */
+function compareAtoms(a: TypedExpr, b: TypedExpr): number {
+  if (a === b) return 0;
+
+  const ga = gradeOf(a);
+  const gb = gradeOf(b);
+  if (ga.rank !== gb.rank) return gb.rank - ga.rank;
+  if (ga.count !== gb.count) return gb.count - ga.count;
+
+  // 지수가 밑보다 의미적으로 우세 — a^{\sum} 이 (\sum)^a 보다 먼저
+  const ap = isPow(a);
+  const bp = isPow(b);
+  if (ap && bp) {
+    const ea = gradeOf(a.exponent);
+    const eb = gradeOf(b.exponent);
+    if (ea.rank !== eb.rank) return eb.rank - ea.rank;
+    const byBase = compareAtoms(a.base, b.base);
+    if (byBase !== 0) return byBase;
+    return compareAtoms(a.exponent, b.exponent);
+  }
+  if (ap) return compareAtoms(a.base, b) || -1;
+  if (bp) return compareAtoms(a, b.base) || 1;
+
+  const ra = headRank(a);
+  const rb = headRank(b);
+  if (ra !== rb) return rb - ra;
+
+  const na = headName(a);
+  const nb = headName(b);
+  if (na !== nb) return na.localeCompare(nb);
+
+  const ca = children(a);
+  const cb = children(b);
+  const n = Math.min(ca.length, cb.length);
+  for (let i = 0; i < n; i++) {
+    const c = compareAtoms(ca[i], cb[i]);
+    if (c !== 0) return c;
+  }
+  return cb.length - ca.length;
+}
+
+const factorCache = new WeakMap<TypedExpr, readonly AtomPower[]>();
+
+/** 축 순서로 정렬 + 같은 원자 지수 합산. */
+function normalizedFactors(e: TypedExpr): readonly AtomPower[] {
+  const hit = factorCache.get(e);
   if (hit !== undefined) return hit;
-  const d = decomposeFactors(e).reduce((s, ap) => s + ap.exponent, 0);
-  degreeCache.set(e, d);
-  return d;
+
+  const sorted = decomposeFactors(e).toSorted((p, q) => compareAtoms(p.atom, q.atom));
+  const out: AtomPower[] = [];
+  for (const ap of sorted) {
+    const last = out.at(-1);
+    if (last !== undefined && compareAtoms(last.atom, ap.atom) === 0) {
+      out[out.length - 1] = { atom: last.atom, exponent: last.exponent + ap.exponent };
+    } else {
+      out.push(ap);
+    }
+  }
+  factorCache.set(e, out);
+  return out;
+}
+
+/** grlex — 합친 축 위에서 지수 벡터 사전순. 없는 축은 지수 0. */
+function compareMonomials(a: TypedExpr, b: TypedExpr): number {
+  const fa = normalizedFactors(a);
+  const fb = normalizedFactors(b);
+
+  let i = 0;
+  let j = 0;
+  while (i < fa.length && j < fb.length) {
+    const c = compareAtoms(fa[i].atom, fb[j].atom);
+    if (c !== 0) return c;
+    if (fa[i].exponent !== fb[j].exponent) return fb[j].exponent - fa[i].exponent;
+    i++;
+    j++;
+  }
+  return (fb.length - j) - (fa.length - i);
+}
+
+function totalDegree(e: TypedExpr): number {
+  return normalizedFactors(e).reduce((s, ap) => s + ap.exponent, 0);
 }
 
 /**
@@ -345,7 +437,10 @@ export function compareTerms(a: TypedExpr, b: TypedExpr): number {
   const byDegree = totalDegree(b) - totalDegree(a);
   if (byDegree !== 0) return byDegree;
 
-  // TODO: 3~4층 — decomposeFactors 결과 재사용
+  const byMonomial = compareMonomials(a, b);
+  if (byMonomial !== 0) return byMonomial;
+
+  // TODO: 4층 — decomposeFactors 결과 재사용
   return exprKey(a).localeCompare(exprKey(b));
 }
 

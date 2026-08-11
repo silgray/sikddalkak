@@ -1,10 +1,10 @@
-import { buildAdd, buildFrac, buildMul } from '../expr/builders';
+import { buildAdd, buildFrac, buildMul } from '../expression/builders';
 import { fromPolynomial, toPolynomial } from '../polynomial/convert';
-import { constantInteger, exprKey } from '../expr/key';
+import { constantInteger, exprKey } from '../expression/key';
 import { intLit } from '../literal/literal';
 import { fail, ok, type Result } from '../result/result';
 import { SCALAR, isScalar, isSquare } from '../shape/shape';
-import type { TypedExpr } from '../expr/node';
+import type { TypedExpr } from '../expression/node';
 import { freeSymbols } from './evaluate';
 
 /**

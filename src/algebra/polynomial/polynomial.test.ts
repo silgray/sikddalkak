@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { sexpTyped } from '../debug';
-import type { TypedExpr } from '../expr/node';
+import type { TypedExpr } from '../expression/node';
 import { combineLikeTerms } from './combine';
 import { fromPolynomial, toPolynomial } from './convert';
 import { monomialKey } from './polynomial';

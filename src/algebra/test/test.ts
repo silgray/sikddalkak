@@ -1,6 +1,6 @@
 import { render, shape, type Env, parse, expand, simplify, factor, type TypedExpr } from '../index';
 import { elaborate } from '../elaborate/elaborate';
-import { normalize } from '../rewrite/normalize';
+import { normalize } from '../normalize/normalize';
 import { ComputeEngine } from '@cortex-js/compute-engine';
 import { translateToTree } from '../syntax/translate';
 

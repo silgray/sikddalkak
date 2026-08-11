@@ -1,9 +1,9 @@
 import { instantiateFunction } from '../elaborate/elaborate';
 import { substitute } from './transform';
-import { mapChildren } from '../expr/traversal';
+import { mapChildren } from '../expression/traversal';
 import { evaluate } from './evaluate';
 import { failWith, ok, type Result } from '../result/result';
-import type { Env, TypedExpr } from '../expr/node';
+import type { Env, TypedExpr } from '../expression/node';
 
 /**
  * `evaluate` 의 한 단계 — `apply`(사용자 정의 함수 호출)를 실제 값으로 편다.

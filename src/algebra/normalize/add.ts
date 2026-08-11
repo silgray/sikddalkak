@@ -1,8 +1,8 @@
-import { buildAdd, buildNum } from '../expr/builders';
-import { exprKey } from '../expr/key';
+import { buildAdd, buildNum } from '../expression/builders';
+import { exprKey } from '../expression/key';
 import { type Result } from '../result/result';
 import { isScalar, type Shape } from '../shape/shape';
-import type { TypedExpr } from '../expr/node';
+import type { TypedExpr } from '../expression/node';
 import { splitSign, ONE as ONE_LIT } from '../literal/literal';
 import { combineLikeTerms } from '../polynomial/combine';
 import { fromPolynomial, toPolynomial } from '../polynomial/convert';

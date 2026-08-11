@@ -1,7 +1,7 @@
-import { exprKey, sortScalars } from '../expr/key';
-import { buildNum } from '../expr/builders';
+import { exprKey, sortScalars } from '../expression/key';
+import { buildNum } from '../expression/builders';
 import { isScalar } from '../shape/shape';
-import type { TypedExpr } from '../expr/node';
+import type { TypedExpr } from '../expression/node';
 import { negLit, ONE as ONE_LIT, type Literal } from '../literal/literal';
 import { mulLit } from '../literal/arith';
 

@@ -1,8 +1,8 @@
-import { buildFrac, buildMul, buildNum } from '../expr/builders';
-import { literalOf } from '../expr/key';
+import { buildFrac, buildMul, buildNum } from '../expression/builders';
+import { literalOf } from '../expression/key';
 import { ok, type Result } from '../result/result';
 import { SCALAR, isScalar } from '../shape/shape';
-import type { TypedExpr } from '../expr/node';
+import type { TypedExpr } from '../expression/node';
 import { asInteger, ONE as ONE_LIT } from '../literal/literal';
 import { divideByInt, recipLit } from '../literal/arith';
 import { buildProduct, collect } from './product';

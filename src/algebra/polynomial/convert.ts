@@ -5,12 +5,12 @@ import {
   buildMul,
   buildNum,
   buildTranspose,
-} from '../expr/builders';
+} from '../expression/builders';
 import { OP_PROPERTIES } from '../opers';
-import { constantInteger, sortScalars } from '../expr/key';
+import { constantInteger, sortScalars } from '../expression/key';
 import { fail, ok, type Result } from '../result/result';
 import { SCALAR, isKnownShape, isScalar, type Shape } from '../shape/shape';
-import type { TypedExpr } from '../expr/node';
+import type { TypedExpr } from '../expression/node';
 import { isOne, isZero, splitSign, ONE as ONE_LIT, ZERO as ZERO_LIT } from '../literal/literal';
 import { mulLit } from '../literal/arith';
 import {

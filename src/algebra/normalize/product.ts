@@ -1,8 +1,8 @@
-import { buildNum } from '../expr/builders';
-import { constantInteger, exprKey, sortScalars } from '../expr/key';
+import { buildNum } from '../expression/builders';
+import { constantInteger, exprKey, sortScalars } from '../expression/key';
 import { fail, ok, type Result } from '../result/result';
 import { SCALAR, isScalar, shape, type Shape } from '../shape/shape';
-import type { TypedExpr } from '../expr/node';
+import type { TypedExpr } from '../expression/node';
 import { intLit, isOne, negLit, splitSign, ONE as ONE_LIT, type Literal } from '../literal/literal';
 import { mulLit } from '../literal/arith';
 import type { Monomial } from '../polynomial/polynomial';
