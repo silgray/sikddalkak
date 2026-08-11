@@ -194,9 +194,25 @@ export function buildMul(left: TypedExpr, right: TypedExpr): Result<TypedExpr> {
   return buildMatMul(left, right, 'product');
 }
 
+/**
+ * 인수 열을 병치로 **왼쪽부터** 접는다. 하나라도 모양이 안 맞으면 거기서 실패한다.
+ * `parts` 는 비어 있으면 안 된다.
+ */
+export const buildMulAll = (parts: readonly TypedExpr[]): Result<TypedExpr> =>
+  parts
+    .slice(1)
+    .reduce<Result<TypedExpr>>((acc, p) => (acc.ok ? buildMul(acc.value, p) : acc), ok(parts[0]));
+
 // ---------------------------------------------------------------------------
 // 그 밖의 노드
 // ---------------------------------------------------------------------------
+
+/** 부호 반전. 모양이 그대로라 실패할 수 없다 — 유일하게 `Result` 를 안 쓰는 빌더다. */
+export const buildNeg = (operand: TypedExpr): TypedExpr => ({
+  op: 'neg',
+  shape: operand.shape,
+  operand,
+});
 
 /** 전치. 모양을 뒤집는다. 스칼라에는 쓰지 않는다 (그건 일반 지수다). */
 export function buildTranspose(operand: TypedExpr): Result<TypedExpr> {

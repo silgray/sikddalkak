@@ -12,13 +12,12 @@ import {
 } from '../expr/builders';
 import {
   combineLikeTerms,
-  constantInteger,
-  exprKey,
   fromPolynomial,
   sortScalars,
   toPolynomial,
   type Monomial,
 } from './normal';
+import { constantInteger, exprKey } from '../expr/key';
 import { asInteger, intLit, isOne, splitSign, ONE as ONE_LIT, type Literal } from '../literal/literal';
 import { divideByInt, mulLit, negLit, powLit, recipLit } from '../literal/arith';
 import { fail, ok, type Result } from '../result/result';

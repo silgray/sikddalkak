@@ -5,7 +5,7 @@ import { buildAdd, buildMul } from '../expr/builders';
 import { parseCeJson } from '../parse/parseSymbol';
 import { render } from '../render';
 import { toCeJson } from '../literal/ceJson';
-import { constantInteger } from '../parse/normal';
+import { constantInteger } from '../expr/key';
 import { guardCe } from '../ce/budget';
 import { ok, type Result } from '../result/result';
 import { SCALAR } from '../shape/shape';

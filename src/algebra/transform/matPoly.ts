@@ -1,5 +1,6 @@
 import { buildAdd, buildFrac, buildMul } from '../expr/builders';
-import { constantInteger, fromPolynomial, toPolynomial, exprKey } from '../parse/normal';
+import { fromPolynomial, toPolynomial } from '../parse/normal';
+import { constantInteger, exprKey } from '../expr/key';
 import { intLit } from '../literal/literal';
 import { fail, ok, type Result } from '../result/result';
 import { SCALAR, isScalar, isSquare } from '../shape/shape';

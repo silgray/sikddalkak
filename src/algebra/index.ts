@@ -1,7 +1,7 @@
 import { elaborate } from './parse/elaborate';
 import { type Env, type FunctionDef, type TypedExpr } from './expr/node';
 import { normalize } from './parse/normalize';
-import { exprKey } from './parse/normal';
+import { exprKey } from './expr/key';
 import { fail, failWith, ok, type AlgebraError, type Result } from './result/result';
 import { render } from './render';
 import { expand, factor, simplify, substitute } from './transform/transform';

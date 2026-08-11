@@ -1,5 +1,6 @@
 import { instantiateFunction } from '../parse/elaborate';
-import { mapChildren, substitute } from './transform';
+import { substitute } from './transform';
+import { mapChildren } from '../expr/traversal';
 import { evaluate } from './evaluate';
 import { failWith, ok, type Result } from '../result/result';
 import type { Env, TypedExpr } from '../expr/node';
