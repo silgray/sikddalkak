@@ -1,11 +1,12 @@
 import { render, shape, type Env, parse, expand, simplify, factor, type TypedExpr } from '../index';
-import { elaborate } from '../parse/elaborate';
-import { normalize } from '../parse/normalize';
-import { ComputeEngine /* , type TaggedValueDefinition */ } from '@cortex-js/compute-engine';
-import { translateToTree } from '../parse/translateToTree';
+import { elaborate } from '../elaborate/elaborate';
+import { normalize } from '../rewrite/normalize';
+import { ComputeEngine } from '@cortex-js/compute-engine';
+import { translateToTree } from '../syntax/translate';
 
 import { evaluate, substituteDeep } from '../transform/evaluate';
 import { group, show } from './view';
+import { prettify } from './sort_add';
 
 import { sort_keys } from './sort_add';
 
@@ -18,15 +19,15 @@ import { sort_keys } from './sort_add';
 // substituteDeep에서 "3x1 by 3x1" shape-mismatch로 터진다(w가 dot 안에서 치환되며
 // dotTyped가 잘못된 스칼라 모양을 보고 juxt 경로로 새서 mul→matMul 재해석 때 충돌).
 const shapes = {
-  A: shape(3, 3),
-  B: shape(3, 3),
-  C: shape(3, 2),
-  x: shape(1, 1),
-  y: shape(1, 1),
-  z: shape(1, 1),
-  u: shape(3, 1),
-  v: shape(3, 1),
-  w: shape(3, 1),
+  // A: shape(3, 3),
+  // B: shape(3, 3),
+  // C: shape(3, 2),
+  // x: shape(1, 1),
+  // y: shape(1, 1),
+  // z: shape(1, 1),
+  // u: shape(3, 1),
+  // v: shape(3, 1),
+  // w: shape(3, 1),
 };
 
 const expr_v = parse("\\begin{pmatrix} 1\\\\ 2\\\\ 3 \\end{pmatrix}", {shapes});
@@ -40,20 +41,20 @@ if(!expr_v.ok || !expr_w.ok || !expr_A.ok || !expr_B.ok) throw new Error('setup 
 const env: Env = {
   shapes,
   bindings: {
-    A: expr_A.value,
-    B: expr_B.value,
-    v: expr_v.value,
-    w: expr_w.value,
+    // A: expr_A.value,
+    // B: expr_B.value,
+    // v: expr_v.value,
+    // w: expr_w.value,
   }
 };
 
-export interface TestValues {
+interface TestValues {
   normalized?: string,
   simplified?: string,
   evaluated?: string,
 }
 
-export const latex_strs: Record<string, TestValues | null> = {
+const latex_strs: Record<string, TestValues | null> = {
   // "\\frac{2}{10}aba+\\frac{3}{15}aab": null,
   // "\\left(x+2\\right)\\left(x+1\\right)^2\\left(x+1\\right)^2\\left(x+2\\right)^2": null,
   // "c+b+(b+a)^2": null,
@@ -115,14 +116,17 @@ export const latex_strs: Record<string, TestValues | null> = {
   // "\\frac{\\mathrm{d}x}{\\mathrm{d}\\left(x,y\\right)}": null,
   // "\\frac{d}{d\\left(x,y\\right)}x": null,
   // "\\frac{\\mathrm{d}}{\\mathrm{d}(x,y)}x": null,
-  "1-2x^2+x+x^3+x^6+x": null,
-  "1+y+xy+2x^2+x+x^3+x^6+e^{x^2}": null,
+  // "1-2x^2+x+x^3+x^6+x": null,
+  // "1+y+xy+2x^2+x+x^3+x^6+e^{x^2}": null,
+  // "-3 + x^5 + x^3y + xy^3z^3 + x^3z^3u + y^3z^5u + \\sin(x) + \\frac{1}{x} + \\sum_{k=1}^{4}k^2 + \\left(\\sum_{k=1}^{4}a^kx\\right)^{\\left(\\sum_{k=1}^{4}a^kx\\right)} + a^{\\sum_{k=1}^{4}a^kx} + \\left(\\sum_{k=1}^{4}a^kx\\right)^a + 2x^3y": null,
+  "x^3+y^3+3xy^2+3x^2y": null,
+  // "ba+ab^4": null,
 };
 
 const ce = new ComputeEngine();
 
 
-export function test(latexs: Record<string, TestValues | null>) {
+function test(latexs: Record<string, TestValues | null>) {
 
   console.log("\n\n=================================");
   for(const [latex, /* value */] of Object.entries(latexs)) {
@@ -139,7 +143,7 @@ export function test(latexs: Record<string, TestValues | null>) {
       const parsed_expr = ce.parse(preprocessed_latex, {
         form: ['Number'],
       });
-      show("parsed:", parsed_expr.latex, (parsed_expr.json));
+      // show("parsed:", parsed_expr.latex, (parsed_expr.json));
 
       // 1-c) translate: 파싱 결과를 SyntaxNode 트리로 변환
       const translated_tree = translateToTree(parsed_expr.json);
@@ -156,23 +160,23 @@ export function test(latexs: Record<string, TestValues | null>) {
         console.log("elaborated error:", elaborated_expr.errors);
         return;
       }
-      show("elaborated:", render(elaborated_expr.value), elaborated_expr.value);
+      // show("elaborated:", render(elaborated_expr.value), elaborated_expr.value);
 
       // 2. normalize
-      sort_keys.forEach((key) => {
+      sort_keys.forEach(({termKey, mulKey}) => {
 
-        const normalized_expr = normalize(elaborated_expr.value, true, key);
-        // console.log("normalized:", dump(normalized_expr));
+        const normalized_expr = normalize(elaborated_expr.value, true);
         if(!normalized_expr.ok) {
           console.log("normalized error:", normalized_expr.errors);
           return;
         }
-        show("normalized:", render(normalized_expr.value), normalized_expr.value);
+        const prettified_expr = prettify(normalized_expr.value, termKey, mulKey);
+        show("normalized:", render(prettified_expr), prettified_expr);
 
       });
 
       // ===========================================
-
+{
       // // 3. expression conversion
 
       // // 3-a) simplify
@@ -228,7 +232,7 @@ export function test(latexs: Record<string, TestValues | null>) {
       //   return;
       // }
       // show("evaluated:", render(evaluated_expr.value), evaluated_expr.value);
-
+}
       
     });
   }

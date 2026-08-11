@@ -15,7 +15,7 @@ import type { TypedExpr } from '../expr/node';
 import { asInteger, intLit, ONE as ONE_LIT } from '../literal/literal';
 import { mulLit, powLit } from '../literal/arith';
 import { asSingleMatrix, buildProduct, collect, normalizeNeg, normalizeProduct } from './product';
-import { normalizeAdd, type TermComparator } from './add';
+import { normalizeAdd } from './add';
 import { normalizeFrac } from './frac';
 
 /**
@@ -68,7 +68,6 @@ import { normalizeFrac } from './frac';
 export function normalize(
   e: TypedExpr,
   foldPowers = true,
-  key?: TermComparator,
 ): Result<TypedExpr> {
   const recur = (child: TypedExpr): Result<TypedExpr> => normalize(child, foldPowers);
 
@@ -85,7 +84,7 @@ export function normalize(
 
     // --- 덩치 큰 셋은 따로 ---
     case 'add':
-      return normalizeAdd(e, recur, key);
+      return normalizeAdd(e, recur);
 
     case 'neg':
       return normalizeNeg(e, foldPowers, recur);

@@ -22,8 +22,6 @@ type TermKey = {
   key: string;
 };
 
-export type TermComparator = (a: TermKey, b: TermKey) => number;
-
 /**
  * 항 하나에서 부호를 벗겨낸다. 정렬 키가 부호를 1순위로 보기 위해서다.
  *
@@ -48,7 +46,7 @@ function stripTermSign(t: TypedExpr): { negative: boolean; core: TypedExpr } {
  *     렌더가 첫 항의 `-` 를 그대로 내보내므로 사용자에게 보이는 문자열이 나빠진다
  *  3. 나머지는 `exprKey` 순 — 안정적이기만 하면 되므로 임의로 정한다
  */
-function sortTerms(terms: readonly TypedExpr[], key?: TermComparator): TypedExpr[] {
+function sortTerms(terms: readonly TypedExpr[]): TypedExpr[] {
   const keyed: TermKey[] = terms.map((t) => {
     const { negative, core } = stripTermSign(t);
     return {
@@ -58,16 +56,12 @@ function sortTerms(terms: readonly TypedExpr[], key?: TermComparator): TypedExpr
       key: exprKey(core),
     };
   });
-  if (key === undefined) {
-    keyed.sort(
-      (a, b) =>
-        a.constant - b.constant ||
-        a.sign - b.sign ||
-        (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
-    );
-  } else {
-    keyed.sort(key);
-  }
+  keyed.sort(
+    (a, b) =>
+      a.constant - b.constant ||
+      a.sign - b.sign ||
+      (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
+  );
   return keyed.map((k) => k.term);
 }
 
@@ -129,7 +123,6 @@ function combineTerms(
 export function normalizeAdd(
   e: Extract<TypedExpr, { op: 'add' }>,
   recur: (child: TypedExpr) => Result<TypedExpr>,
-  key?: TermComparator,
 ): Result<TypedExpr> {
   const terms: TypedExpr[] = [];
   for (const term of e.terms) {
@@ -137,5 +130,5 @@ export function normalizeAdd(
     if (!r.ok) return r;
     terms.push(r.value);
   }
-  return buildAdd(sortTerms(combineTerms(terms, e.shape, recur), key));
+  return buildAdd(sortTerms(combineTerms(terms, e.shape, recur)));
 }
