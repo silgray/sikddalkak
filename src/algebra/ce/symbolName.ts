@@ -15,7 +15,7 @@ const ce = createEngine();
 
 const cache = new Map<string, string>();
 
-export function symbolLatex(name: string): string {
+export function symbolToLatex(name: string): string {
   const cached = cache.get(name);
   if (cached !== undefined) return cached;
   let latex = name;

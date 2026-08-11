@@ -3,12 +3,12 @@ import {
   factor as ceFactor,
   simplify as ceSimplify,
 } from '@cortex-js/compute-engine';
-import { defaultEngine } from '../ce/engine';
+import { getDefaultCeEngine } from '../ce/engine';
 import { elaborate } from '../elaborate/elaborate';
 import { buildCross, buildDot, buildMulAll } from '../expression/builders';
 import { mapChildren } from '../expression/traversal';
 import { exprKey, sortScalars } from '../expression/key';
-import { combineLikeTerms, foldNumericScalars } from '../polynomial/combine';
+import { combineLikeTerms, combineNumericScalars } from '../polynomial/combine';
 import { fromPolynomial, toPolynomial } from '../polynomial/convert';
 import type { Monomial, Polynomial } from '../polynomial/polynomial';
 import { normalize } from '../normalize/normalize';
@@ -115,8 +115,8 @@ function viaCe(e: TypedExpr, op: CeOp, env: Env): TypedExpr {
     // 문자열 입력은 기본이 느슨한 AsciiMath 문법이라 `strict` 로 LaTeX 문법을 강제한다.
     const source = render(e);
     // 자유 함수는 우리 인스턴스가 아니라 CE의 **기본 엔진**에서 돈다 — 상한도 거기에
-    // 걸어야 한다 (`ce/engine.ts` 의 `defaultEngine`).
-    const result = guardCe(defaultEngine(), op, () =>
+    // 걸어야 한다 (`ce/engine.ts` 의 `getDefaultCeEngine`).
+    const result = guardCe(getDefaultCeEngine(), op, () =>
       op === 'expand'
         ? ceExpand(source, { strict: true })
         : op === 'factor'
@@ -147,7 +147,7 @@ function viaCe(e: TypedExpr, op: CeOp, env: Env): TypedExpr {
  *    추출되지 않는다. 인수분해할 때는 흩어진 채로 두는 게 맞다.
  */
 function refineScalars(p: Polynomial, op: CeOp, env: Env, fold: boolean): Polynomial {
-  return foldNumericScalars(
+  return combineNumericScalars(
     p.map((m) => {
       if (m.scalars.length === 0) return m;
       const refined = m.scalars.map((s) => (isPureScalar(s) ? viaCe(s, op, env) : s));

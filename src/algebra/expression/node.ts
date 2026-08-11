@@ -91,7 +91,7 @@ export type TypedExpr =
   /**
    * `\sum_{k=lo}^{hi}(...)`. 본문은 임의 모양 — 결과 모양은 본문과 같다(원소별 합).
    * `lower`/`upper` 가 둘 다 상수 정수면 `evaluate` 가 전개한다. 인덱스 `variable` 은
-   * 바운드 변수라 `freeSymbols`/`substitute` 의 취급이 `sym` 과 다르다(§바운드 변수).
+   * 바운드 변수라 `collectFreeSymbols`/`substitute` 의 취급이 `sym` 과 다르다(§바운드 변수).
    */
   | {
       readonly op: 'sum';

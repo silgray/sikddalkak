@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sexpTyped } from '../debug';
+import { formatTyped } from '../debug';
 import type { TypedExpr } from '../expression/node';
 import { combineLikeTerms } from './combine';
 import { fromPolynomial, toPolynomial } from './convert';
@@ -170,7 +170,7 @@ describe('왕복 — 전개 결과를 다시 읽어도 같다', () => {
     for (const latex of ['ABA', String.raw`v^T\left(A+B\right)v`, String.raw`u\times\left(v+w\right)`]) {
       const once = expanded(latex);
       const twice = typedOf(render(once), TEST_ENV);
-      expect(sexpTyped(twice), `via ${render(once)}`).toBe(sexpTyped(once));
+      expect(formatTyped(twice), `via ${render(once)}`).toBe(formatTyped(once));
     }
   });
 });

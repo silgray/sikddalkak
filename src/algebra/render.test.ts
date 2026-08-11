@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sexpTyped } from './debug';
+import { formatTyped } from './debug';
 import { render } from './render';
 import { TEST_ENV, typedOf } from './testEnv';
 import { parseSyntax } from './syntax/parse';
@@ -19,7 +19,7 @@ function expectRoundTrip(latex: string): void {
   const once = typedOf(latex, TEST_ENV);
   const out = render(once);
   const twice = typedOf(out, TEST_ENV);
-  expect(sexpTyped(twice), `round-trip broke via ${out}`).toBe(sexpTyped(once));
+  expect(formatTyped(twice), `round-trip broke via ${out}`).toBe(formatTyped(once));
 }
 
 describe('왕복 — 다시 읽으면 같은 연산 트리', () => {
@@ -146,7 +146,7 @@ describe('괄호는 필요한 곳에만', () => {
 
   it('내적 뒤의 곱은 mul이라 내적 쪽에 괄호가 붙는다', () => {
     // `u·v` 가 스칼라이므로 그 다음 곱은 내적이 아니라 mul(scalar, matrix)이다.
-    expect(sexpTyped(typedOf(String.raw`u\cdot v\cdot w`))).toBe('(mul (dot u v) w)');
+    expect(formatTyped(typedOf(String.raw`u\cdot v\cdot w`))).toBe('(mul (dot u v) w)');
     expect(rendered(String.raw`u\cdot v\cdot w`)).toBe(String.raw`\left(u\cdot v\right)w`);
   });
 
@@ -160,7 +160,7 @@ describe('괄호는 필요한 곳에만', () => {
     // LaTeX은 `\exponentialE` 처럼 글자로만 된 명령이다. 뒤에 곧장 `x` 가 붙으면
     // `\exponentialEx` 가 되어 존재하지 않는 명령이 되고 파싱이 깨진다(실측:
     // `\alphax` → unexpected-command). 공백 하나로 떼어내면 다시 읽어도 그대로다.
-    expect(sexpTyped(typedOf('ex'))).toBe('(scalarMul ExponentialE x)');
+    expect(formatTyped(typedOf('ex'))).toBe('(scalarMul ExponentialE x)');
     expect(rendered('ex')).toBe(String.raw`\exponentialE x`);
     expectRoundTrip('ex');
   });
@@ -202,7 +202,7 @@ describe('apply — 사용자 정의 함수 호출', () => {
     const once = typedOf(latex, env);
     const out = render(once);
     const twice = typedOf(out, env);
-    expect(sexpTyped(twice), `round-trip broke via ${out}`).toBe(sexpTyped(once));
+    expect(formatTyped(twice), `round-trip broke via ${out}`).toBe(formatTyped(once));
   }
 
   it('f(y) 는 f\\left(y\\right) 로 렌더된다 — call 처럼 뭉개지 않는다', () => {
@@ -218,6 +218,6 @@ describe('apply — 사용자 정의 함수 호출', () => {
     const rerendered = render(typedOf('f(y)', FN_ENV));
     const rereadElsewhere = typedOf(rerendered, TEST_ENV);
     // TEST_ENV엔 y도 없어 둘 다 미정 스칼라로 가정된다 → scalarMul.
-    expect(sexpTyped(rereadElsewhere)).toBe('(scalarMul f y)');
+    expect(formatTyped(rereadElsewhere)).toBe('(scalarMul f y)');
   });
 });

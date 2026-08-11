@@ -1,6 +1,6 @@
 import {
   SCALAR,
-  classify,
+  classifyShape,
   formatShape,
   isScalar,
   isSquare,
@@ -19,7 +19,7 @@ import {
   buildMul,
   buildProd,
   buildSum,
-  shapeMismatch,
+  failShapeMismatch,
 } from '../expression/builders';
 
 /**
@@ -93,7 +93,7 @@ function elaborateApply(
   env: Env,
 ): Result<TypedExpr> {
   if (args.length !== fn.params.length) {
-    return shapeMismatch(
+    return failShapeMismatch(
       `${name} expects ${fn.params.length} argument${fn.params.length === 1 ? '' : 's'} (got ${args.length})`,
     );
   }
@@ -199,7 +199,7 @@ function elaboratePow(base: TypedExpr, exponent: SyntaxNode, env: Env): Result<T
   const exp = elaborate(exponent, env);
   if (!exp.ok) return exp;
   if (!isScalar(exp.value.shape)) {
-    return shapeMismatch('An exponent must be a scalar');
+    return failShapeMismatch('An exponent must be a scalar');
   }
   if (isScalar(base.shape)) {
     return ok({ op: 'scalarPow', shape: SCALAR, base, exponent: exp.value });
@@ -219,7 +219,7 @@ function elaboratePow(base: TypedExpr, exponent: SyntaxNode, env: Env): Result<T
   // 항등행렬은 미정 모양이어도 **정사각이 전제**이므로 `isSquare` 관문만 비켜준다
   // (그러지 않으면 `isSquare(unknown)` 이 false 라 `I^3` 이 "not square" 로 막힌다).
   if (base.op !== 'matIdentity' && !isSquare(base.shape)) {
-    return shapeMismatch(`Cannot raise a ${formatShape(base.shape)} to a power: not square`);
+    return failShapeMismatch(`Cannot raise a ${formatShape(base.shape)} to a power: not square`);
   }
   return ok({ op: 'matPow', shape: base.shape, base, exponent: exp.value });
 }
@@ -351,7 +351,7 @@ function elaborateMatrixLit(
   }
   const colCount = typedRows[0].length;
   if (typedRows.some((r) => r.length !== colCount)) {
-    return shapeMismatch('All matrix rows must have the same number of entries');
+    return failShapeMismatch('All matrix rows must have the same number of entries');
   }
   // 1x1 행렬은 스칼라와 같다 — 모양 도메인이 그렇게 정의돼 있다.
   return ok({ op: 'matrix', shape: shape(typedRows.length, colCount), rows: typedRows });
@@ -439,8 +439,8 @@ export function elaborate(node: SyntaxNode, env: Env): Result<TypedExpr> {
       if (nonScalar !== undefined) {
         // `\sin(행렬)` 처럼 내장 스칼라 함수에 비스칼라 인자가 들어온 경우 — 뜻이
         // 정해지지 않았으므로 오류다.
-        return shapeMismatch(
-          `${node.name} expects a scalar argument (got ${classify(nonScalar.shape)})`,
+        return failShapeMismatch(
+          `${node.name} expects a scalar argument (got ${classifyShape(nonScalar.shape)})`,
         );
       }
       return ok({ op: 'call', shape: SCALAR, name: node.name, args: values });

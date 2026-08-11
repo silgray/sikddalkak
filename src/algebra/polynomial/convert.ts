@@ -16,7 +16,7 @@ import { mulLit } from '../literal/arith';
 import {
   MAX_POWER_EXPANSION,
   ONE,
-  atom,
+  leafToMonomial,
   negate,
   polyMul,
   type Monomial,
@@ -97,7 +97,7 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
       // matIdentity도 여기서는 그냥 원자다 — 소거는 정규화의 몫이다. `frac` 도
       // 나눗셈을 다항식으로 펼치지 않고 통째로 둔다 — 분배 여부는 CE 위임 몫이다.
       // 미분/적분/합/곱도 통째로 원자다 — 곱을 그 안까지 분배할 이유가 없다.
-      return ok([atom(e)]);
+      return ok([leafToMonomial(e)]);
 
     case 'scalarPow': {
       // `matPow` 와 달리 **밑은 다항식으로 펼치지 않는다** — `(x+1)^2` 를 분배하면
@@ -107,7 +107,7 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
       // (다중집합 교집합)가 자동으로 최소 지수를 뽑는다. 지수가 상수 정수 범위
       // 밖이면(심볼·음수·과대) 지금처럼 통째 원자.
       const n = asKnownInteger(e.exponent);
-      if (n === null || n < 1 || n > MAX_POWER_EXPANSION) return ok([atom(e)]);
+      if (n === null || n < 1 || n > MAX_POWER_EXPANSION) return ok([leafToMonomial(e)]);
       return ok([{ coefficient: ONE_LIT, scalars: Array(n).fill(e.base) as TypedExpr[], nonScalars: [] }]);
     }
 
@@ -201,7 +201,7 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
       // `(A+B)²` 를 풀어써야 expand가 뜻대로 동작한다. 음수·과대 지수, 그리고 **값이
       // 확정되지 않은 지수**(`A^n`)는 접은 채로 둔다.
       const n = asKnownInteger(e.exponent);
-      if (n === null || n < 1 || n > MAX_POWER_EXPANSION) return ok([atom(e)]);
+      if (n === null || n < 1 || n > MAX_POWER_EXPANSION) return ok([leafToMonomial(e)]);
       const base = toPolynomial(e.base);
       if (!base.ok) return base;
       let acc: Polynomial = [ONE];

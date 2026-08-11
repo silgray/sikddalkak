@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluate, freeSymbols, substituteDeep } from './evaluate';
+import { evaluate, collectFreeSymbols, substituteDeep } from './evaluate';
 import { render } from '../render';
 import type { Env } from '../expression/node';
 import { shape } from '../shape/shape';
@@ -192,13 +192,13 @@ describe('오류 — 차원 불일치는 evaluate 전에 이미 잡힌다', () =
   });
 });
 
-describe('freeSymbols', () => {
+describe('collectFreeSymbols', () => {
   it('식에 쓰인 심볼 이름을 정렬해 모은다', () => {
-    expect(freeSymbols(typedOf('ABA'))).toEqual(['A', 'B']);
+    expect(collectFreeSymbols(typedOf('ABA'))).toEqual(['A', 'B']);
   });
 
   it('숫자·항등원만 있으면 빈 배열이다', () => {
-    expect(freeSymbols(typedOf('3+4'))).toEqual([]);
+    expect(collectFreeSymbols(typedOf('3+4'))).toEqual([]);
   });
 });
 

@@ -20,7 +20,7 @@
 /**
  * `ComputeEngine.withTimeLimit` 의 구조적 타입.
  *
- * 0.90의 `IComputeEngine` 인터페이스에는 이 메서드가 선언돼 있지 않다(`getDefaultEngine()`
+ * 0.90의 `IComputeEngine` 인터페이스에는 이 메서드가 선언돼 있지 않다(`getDefaultCeEngine()`
  * 이 그 타입을 돌려준다). 실체에는 있으므로(실측) 구조적으로 받는다.
  */
 export type TimeLimitedEngine = {

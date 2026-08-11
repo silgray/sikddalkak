@@ -10,12 +10,12 @@ import type { Monomial } from '../polynomial/polynomial';
 /**
  * 곱 계열 정규화 — `neg` / `scalarMul` / `matMul` / `mul`.
  *
- * 두 함수가 짝을 이룬다: `collect` 가 곱을 (계수, 스칼라들, 비스칼라들) 셋으로 **분해**하고,
- * `buildProduct` 가 그걸 다시 **조립**한다. 그 사이에서 접기·정렬·항등원 제거가 일어난다.
+ * 두 함수가 짝을 이룬다: `toMonomial` 가 곱을 (계수, 스칼라들, 비스칼라들) 셋으로 **분해**하고,
+ * `fromMonomial` 가 그걸 다시 **조립**한다. 그 사이에서 접기·정렬·항등원 제거가 일어난다.
  *
  * 쓰는 표현은 다항식의 `Monomial` 과 같다 — 곱 하나를 셋으로 가르는 일이 단항식과 정확히
- * 같은 모양이라서다. 다만 **`collect` 가 돌려주는 `scalars` 는 정렬 전이다**
- * (`buildProduct` 가 마지막에 한 번 정렬한다). `monomialKey` 를 뽑으려면 그 전에 정렬해야
+ * 같은 모양이라서다. 다만 **`toMonomial` 가 돌려주는 `scalars` 는 정렬 전이다**
+ * (`fromMonomial` 가 마지막에 한 번 정렬한다). `monomialKey` 를 뽑으려면 그 전에 정렬해야
  * 한다 — `Monomial` 문서의 경고 참고.
  *
  * 이 파일은 `normalize.ts` 를 import 하지 않는다. 자식 재귀는 `recur` 로 받는다.
@@ -33,13 +33,13 @@ import type { Monomial } from '../polynomial/polynomial';
  * 부호가 최상단까지 올라온다. 그 외의 노드(sym, add, transpose, matPow, call 등)는 모양만
  * 보고 스칼라/비스칼라 원자 하나로 취급한다 — `add` 에서 멈추는 것도 이 default 분기다.
  */
-export function collect(e: TypedExpr): Monomial {
+export function toMonomial(e: TypedExpr): Monomial {
   switch (e.op) {
     case 'num':
       return { coefficient: e.value, scalars: [], nonScalars: [] };
 
     case 'neg': {
-      const c = collect(e.operand);
+      const c = toMonomial(e.operand);
       return { coefficient: negLit(c.coefficient), scalars: c.scalars, nonScalars: c.nonScalars };
     }
 
@@ -47,7 +47,7 @@ export function collect(e: TypedExpr): Monomial {
       let coefficient = ONE_LIT;
       const scalars: TypedExpr[] = [];
       for (const f of e.factors) {
-        const c = collect(f);
+        const c = toMonomial(f);
         // 못 곱하면 접지 않고 인수로 되돌린다 — 값을 뭉개지 않는다.
         const product = mulLit(coefficient, c.coefficient);
         if (product !== null) coefficient = product;
@@ -68,7 +68,7 @@ export function collect(e: TypedExpr): Monomial {
       const scalars: TypedExpr[] = [];
       const nonScalars: TypedExpr[] = [];
       for (const f of e.factors) {
-        const c = collect(f);
+        const c = toMonomial(f);
         const product = mulLit(coefficient, c.coefficient);
         if (product !== null) coefficient = product;
         else scalars.push(buildNum(c.coefficient));
@@ -79,8 +79,8 @@ export function collect(e: TypedExpr): Monomial {
     }
 
     case 'mul': {
-      const s = collect(e.scalar);
-      const m = collect(e.nonScalar);
+      const s = toMonomial(e.scalar);
+      const m = toMonomial(e.nonScalar);
       const product = mulLit(s.coefficient, m.coefficient);
       return product !== null
         ? { coefficient: product, scalars: [...s.scalars, ...m.scalars], nonScalars: m.nonScalars }
@@ -144,7 +144,7 @@ function stripIdentities(factors: readonly TypedExpr[]): TypedExpr[] {
  * 건드리지 않고 그대로 흘려보낸다.
  *
  * 지수 합이 0이면 **인수 목록에서 빠진다** (`xx^{-1}` → 곱의 항등원 1). 그러면 인수가
- * 하나도 안 남을 수 있는데, 그건 `buildProduct` 의 `needsNumericLiteral` 이 `1` 로 채운다.
+ * 하나도 안 남을 수 있는데, 그건 `fromMonomial` 의 `needsNumericLiteral` 이 `1` 로 채운다.
  */
 function foldScalarPowers(scalars: readonly TypedExpr[]): TypedExpr[] {
   /** 밑 키 → 지수 합. 처음 나온 순서를 유지한다(정렬은 호출자 몫이지만 결정적이어야 한다). */
@@ -269,13 +269,13 @@ function foldAdjacentPowers(factors: readonly TypedExpr[]): TypedExpr[] {
 // ---------------------------------------------------------------------------
 
 /**
- * `collect` 의 결과를 다시 식으로 조립한다.
+ * `toMonomial` 의 결과를 다시 식으로 조립한다.
  *
  * 부호는 **숫자 계수 안에 넣지 않고 바깥에 `neg` 로 씌운다** — `coefficient=-1` 을 그대로
  * 스칼라 인수 목록에 넣으면 다른 인수가 있을 때 `-1A` 처럼 불필요한 "1" 이 남는다.
  * (`polynomial/convert.ts` 의 `monomialToExpr`/`fromPolynomial` 과 같은 관례.)
  */
-export function buildProduct(
+export function fromMonomial(
   coefficient: Literal,
   scalars: readonly TypedExpr[],
   matrixFactors: readonly TypedExpr[],
@@ -347,8 +347,8 @@ export function normalizeNeg(
 ): Result<TypedExpr> {
   const inner = recur(e.operand);
   if (!inner.ok) return inner;
-  const c = collect(inner.value);
-  return ok(buildProduct(negLit(c.coefficient), c.scalars, c.nonScalars, foldPowers));
+  const c = toMonomial(inner.value);
+  return ok(fromMonomial(negLit(c.coefficient), c.scalars, c.nonScalars, foldPowers));
 }
 
 /** `scalarMul` / `matMul` / `mul` — 인수를 전부 분해해 하나의 곱으로 다시 조립한다. */
@@ -378,7 +378,7 @@ export function normalizeProduct(
   const scalars: TypedExpr[] = [];
   const matrixFactors: TypedExpr[] = [];
   for (const child of children) {
-    const c = collect(child);
+    const c = toMonomial(child);
     // 못 곱하면 접지 않고 인수로 되돌린다 — 값을 뭉개지 않는다.
     const product = mulLit(coefficient, c.coefficient);
     if (product !== null) coefficient = product;
@@ -386,5 +386,5 @@ export function normalizeProduct(
     scalars.push(...c.scalars);
     matrixFactors.push(...c.nonScalars);
   }
-  return ok(buildProduct(coefficient, scalars, matrixFactors, foldPowers));
+  return ok(fromMonomial(coefficient, scalars, matrixFactors, foldPowers));
 }

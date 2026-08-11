@@ -5,7 +5,7 @@ import { intLit } from '../literal/literal';
 import { fail, ok, type Result } from '../result/result';
 import { SCALAR, isScalar, isSquare } from '../shape/shape';
 import type { TypedExpr } from '../expression/node';
-import { freeSymbols } from './evaluate';
+import { collectFreeSymbols } from './evaluate';
 
 /**
  * 단일 행렬 심볼 다항식 — `factor` 3단계(§ 계획).
@@ -31,7 +31,7 @@ const PLACEHOLDER_CANDIDATES = 'xyzuvwpqrstmn'.split('');
  * 처럼 다른 뜻이 있는 글자는 피한다. 못 찾으면 `null` — 호출자는 이 경로를 포기한다.
  */
 export function pickPlaceholderName(e: TypedExpr): string | null {
-  const used = new Set(freeSymbols(e));
+  const used = new Set(collectFreeSymbols(e));
   for (const letter of PLACEHOLDER_CANDIDATES) {
     if (!used.has(letter) && !RESERVED_PLACEHOLDER_LETTERS.has(letter)) return letter;
   }

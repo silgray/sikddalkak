@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render } from './render';
 import { simplify } from './index';
-import { sexpTyped } from './debug';
+import { formatTyped } from './debug';
 import { normalizedOf, TEST_ENV } from './testEnv';
 import { parseSyntax } from './syntax/parse';
 import { evalNumeric } from './numeric';
@@ -25,16 +25,16 @@ const parsed = (latex: string): string => render(normalizedOf(latex));
 describe('파싱 — i 가 심볼로 새지 않는다', () => {
   it('허수 단위는 숫자 리터럴이지 변수가 아니다', () => {
     // 심볼로 새면 "i 라는 미지수" 가 되어 조용한 오답이 된다.
-    expect(sexpTyped(normalizedOf('i'))).toBe('c(0,1)');
+    expect(formatTyped(normalizedOf('i'))).toBe('c(0,1)');
     // 계수는 곱에서 접히고(`4·i` → `c(0,4)`), 동류항 합치기가 실수부까지 묶는다.
-    expect(sexpTyped(normalizedOf('3+4i'))).toBe('c(3,4)');
-    expect(sexpTyped(normalizedOf('4i'))).toBe('c(0,4)');
+    expect(formatTyped(normalizedOf('3+4i'))).toBe('c(3,4)');
+    expect(formatTyped(normalizedOf('4i'))).toBe('c(0,4)');
   });
 
   it('실수부·허수부가 유리수여도 받는다', () => {
     // CE가 `Complex(0, Rational(1,2))` 를 준다(실측) — 재귀로 안 받으면 여기서 깨진다.
     const r = simplify(normalizedOf(String.raw`\frac{i}{2}`), TEST_ENV);
-    expect(r.ok && sexpTyped(r.value)).toBe('c(0,1/2)');
+    expect(r.ok && formatTyped(r.value)).toBe('c(0,1/2)');
   });
 
   it('허수부가 0이면 실수로 무너진다', () => {

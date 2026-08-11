@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sexpTyped } from '../debug';
+import { formatTyped } from '../debug';
 import { elaborate } from './elaborate';
 import { formatShape } from '../shape/shape';
 import { parseSyntax } from '../syntax/parse';
@@ -13,7 +13,7 @@ import type { Env, FunctionDef } from '../expression/node';
  */
 
 /** 해석된 연산 트리. */
-const opsOf = (latex: string, env: Env = TEST_ENV): string => sexpTyped(typedOf(latex, env));
+const opsOf = (latex: string, env: Env = TEST_ENV): string => formatTyped(typedOf(latex, env));
 
 /** 결과 모양. */
 const shapeOf = (latex: string, env: Env = TEST_ENV): string => formatShape(typedOf(latex, env).shape);

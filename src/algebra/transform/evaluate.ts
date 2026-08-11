@@ -226,7 +226,7 @@ export function substituteDeep(e: TypedExpr, env: Env): Result<TypedExpr> {
 }
 
 /** `sym` 노드 이름을 전부 모은다. 그래프 층의 의존 간선이 될 값이다. */
-export function freeSymbols(e: TypedExpr): readonly string[] {
+export function collectFreeSymbols(e: TypedExpr): readonly string[] {
   const names = new Set<string>();
   const walk = (node: TypedExpr): void => {
     switch (node.op) {
@@ -284,7 +284,7 @@ export function freeSymbols(e: TypedExpr): readonly string[] {
         walk(node.numerator);
         walk(node.denominator);
         return;
-      // 바운드 이름도 **포함시킨다** — 직관과 반대지만 필연이다. `freeSymbols` 는
+      // 바운드 이름도 **포함시킨다** — 직관과 반대지만 필연이다. `collectFreeSymbols` 는
       // `cellGraph.ts` 의 캐시 지문(`node.deps`)이 되는데, 빼면 사용자가 나중에 `x=3`
       // 셀을 추가해도 이 미분 셀의 지문이 안 바뀌어 캐시가 옛 결과를 그대로 돌려주고
       // "이미 정의됨" 오류가 안 뜬다 — 간선을 남겨야 무효화되고 오류가 뜬다.

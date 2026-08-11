@@ -12,7 +12,7 @@ import type { TimeLimitedEngine } from './budget';
  *   의존이 아니다.
  * - `transform/transform.ts` 가 자유 함수 `expand`/`factor`/`simplify` 를 직접 부른다.
  *   0.90에서 이것들은 Expression의 메서드가 아니라 자유 함수라 인스턴스를 안 거친다.
- *   대신 **어느 엔진에서 도는지**(= 어디에 상한을 걸어야 하는지)는 아래 `defaultEngine`
+ *   대신 **어느 엔진에서 도는지**(= 어디에 상한을 걸어야 하는지)는 아래 `getDefaultCeEngine`
  *   이 안다.
  *
  * 이 파일이 담는 건 **CE와 말 섞는 공통 규약**뿐이다. 실제로 CE에 뭘 시키는 코드
@@ -46,6 +46,6 @@ export function createEngine(): ComputeEngine {
  * `withTimeLimit` 이 선언돼 있지 않은데 실체에는 있다(실측). 그 캐스팅을 호출부에
  * 흩지 않고 여기 한 번만 둔다.
  */
-export function defaultEngine(): TimeLimitedEngine {
+export function getDefaultCeEngine(): TimeLimitedEngine {
   return getDefaultEngine() as unknown as TimeLimitedEngine;
 }

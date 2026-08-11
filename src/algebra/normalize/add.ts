@@ -25,7 +25,7 @@ type TermKey = {
 /**
  * 항 하나에서 부호를 벗겨낸다. 정렬 키가 부호를 1순위로 보기 위해서다.
  *
- * `renderProduct`/`buildProduct` 와 같은 "부호는 바깥" 관례를 읽는 쪽이다.
+ * `renderProduct`/`fromMonomial` 와 같은 "부호는 바깥" 관례를 읽는 쪽이다.
  */
 function stripTermSign(t: TypedExpr): { negative: boolean; core: TypedExpr } {
   if (t.op === 'neg') return { negative: true, core: t.operand };

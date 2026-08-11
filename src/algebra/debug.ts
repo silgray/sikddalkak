@@ -12,46 +12,46 @@ import { literalKey } from './literal/literal';
  */
 
 /** Syntax IR → s-식. 어느 곱 기호였고 어떻게 묶였는지가 보인다. */
-export function sexpSyntax(node: SyntaxNode): string {
+export function formatSyntax(node: SyntaxNode): string {
   switch (node.kind) {
     case 'num':
       return literalKey(node.value);
     case 'sym':
       return node.name;
     case 'matrix':
-      return `[${node.rows.map((r) => r.map(sexpSyntax).join(',')).join(';')}]`;
+      return `[${node.rows.map((r) => r.map(formatSyntax).join(',')).join(';')}]`;
     case 'juxt':
-      return `(juxt ${sexpSyntax(node.left)} ${sexpSyntax(node.right)})`;
+      return `(juxt ${formatSyntax(node.left)} ${formatSyntax(node.right)})`;
     case 'cdot':
-      return `(dot ${sexpSyntax(node.left)} ${sexpSyntax(node.right)})`;
+      return `(dot ${formatSyntax(node.left)} ${formatSyntax(node.right)})`;
     case 'times':
-      return `(cross ${sexpSyntax(node.left)} ${sexpSyntax(node.right)})`;
+      return `(cross ${formatSyntax(node.left)} ${formatSyntax(node.right)})`;
     case 'add':
-      return `(+ ${node.terms.map(sexpSyntax).join(' ')})`;
+      return `(+ ${node.terms.map(formatSyntax).join(' ')})`;
     case 'neg':
-      return `(- ${sexpSyntax(node.operand)})`;
+      return `(- ${formatSyntax(node.operand)})`;
     case 'pow':
-      return `(^ ${sexpSyntax(node.base)} ${sexpSyntax(node.exponent)})`;
+      return `(^ ${formatSyntax(node.base)} ${formatSyntax(node.exponent)})`;
     case 'frac':
-      return `(/ ${sexpSyntax(node.numerator)} ${sexpSyntax(node.denominator)})`;
+      return `(/ ${formatSyntax(node.numerator)} ${formatSyntax(node.denominator)})`;
     case 'call':
-      return `(${node.name} ${node.args.map(sexpSyntax).join(' ')})`;
+      return `(${node.name} ${node.args.map(formatSyntax).join(' ')})`;
     case 'apply':
-      return `(apply ${node.name} ${node.args.map(sexpSyntax).join(' ')})`;
+      return `(apply ${node.name} ${node.args.map(formatSyntax).join(' ')})`;
     case 'deriv':
-      return `(deriv ${sexpSyntax(node.body)} [${node.vars.join(',')}] ${node.order})`;
+      return `(deriv ${formatSyntax(node.body)} [${node.vars.join(',')}] ${node.order})`;
     case 'sum':
     case 'prod':
     case 'integral': {
-      const lo = node.lower === null ? '_' : sexpSyntax(node.lower);
-      const hi = node.upper === null ? '_' : sexpSyntax(node.upper);
-      return `(${node.kind} ${sexpSyntax(node.body)} ${node.variable} ${lo} ${hi})`;
+      const lo = node.lower === null ? '_' : formatSyntax(node.lower);
+      const hi = node.upper === null ? '_' : formatSyntax(node.upper);
+      return `(${node.kind} ${formatSyntax(node.body)} ${node.variable} ${lo} ${hi})`;
     }
   }
 }
 
 /** Typed IR → s-식. **해석된 연산 이름**이 그대로 드러난다. */
-export function sexpTyped(e: TypedExpr): string {
+export function formatTyped(e: TypedExpr): string {
   switch (e.op) {
     case 'num':
       return literalKey(e.value);
@@ -59,49 +59,49 @@ export function sexpTyped(e: TypedExpr): string {
     case 'sym':
       return e.name;
     case 'matrix':
-      return `[${e.rows.map((r) => r.map(sexpTyped).join(',')).join(';')}]`;
+      return `[${e.rows.map((r) => r.map(formatTyped).join(',')).join(';')}]`;
     case 'add':
-      return `(add ${e.terms.map(sexpTyped).join(' ')})`;
+      return `(add ${e.terms.map(formatTyped).join(' ')})`;
     case 'neg':
-      return `(neg ${sexpTyped(e.operand)})`;
+      return `(neg ${formatTyped(e.operand)})`;
     case 'scalarMul':
-      return `(scalarMul ${e.factors.map(sexpTyped).join(' ')})`;
+      return `(scalarMul ${e.factors.map(formatTyped).join(' ')})`;
     case 'matMul':
-      return `(matMul ${e.factors.map(sexpTyped).join(' ')})`;
+      return `(matMul ${e.factors.map(formatTyped).join(' ')})`;
     case 'mul':
-      return `(mul ${sexpTyped(e.scalar)} ${sexpTyped(e.nonScalar)})`;
+      return `(mul ${formatTyped(e.scalar)} ${formatTyped(e.nonScalar)})`;
     case 'dot':
-      return `(dot ${sexpTyped(e.left)} ${sexpTyped(e.right)})`;
+      return `(dot ${formatTyped(e.left)} ${formatTyped(e.right)})`;
     case 'cross':
-      return `(cross ${sexpTyped(e.left)} ${sexpTyped(e.right)})`;
+      return `(cross ${formatTyped(e.left)} ${formatTyped(e.right)})`;
     case 'transpose':
-      return `(transpose ${sexpTyped(e.operand)})`;
+      return `(transpose ${formatTyped(e.operand)})`;
     case 'matPow':
-      return `(matPow ${sexpTyped(e.base)} ${sexpTyped(e.exponent)})`;
+      return `(matPow ${formatTyped(e.base)} ${formatTyped(e.exponent)})`;
     case 'scalarPow':
-      return `(scalarPow ${sexpTyped(e.base)} ${sexpTyped(e.exponent)})`;
+      return `(scalarPow ${formatTyped(e.base)} ${formatTyped(e.exponent)})`;
     case 'call':
-      return `(${e.name} ${e.args.map(sexpTyped).join(' ')})`;
+      return `(${e.name} ${e.args.map(formatTyped).join(' ')})`;
     case 'apply':
-      return `(apply ${e.name} ${e.args.map(sexpTyped).join(' ')})`;
+      return `(apply ${e.name} ${e.args.map(formatTyped).join(' ')})`;
     case 'frac':
-      return `(frac ${sexpTyped(e.numerator)} ${sexpTyped(e.denominator)})`;
+      return `(frac ${formatTyped(e.numerator)} ${formatTyped(e.denominator)})`;
     case 'matIdentity':
       return 'I';
     case 'deriv':
-      return `(deriv ${sexpTyped(e.body)} [${e.vars.join(',')}] ${e.order})`;
+      return `(deriv ${formatTyped(e.body)} [${e.vars.join(',')}] ${e.order})`;
     case 'sum':
     case 'prod':
     case 'integral': {
-      const lo = e.lower === null ? '_' : sexpTyped(e.lower);
-      const hi = e.upper === null ? '_' : sexpTyped(e.upper);
-      return `(${e.op} ${sexpTyped(e.body)} ${e.variable} ${lo} ${hi})`;
+      const lo = e.lower === null ? '_' : formatTyped(e.lower);
+      const hi = e.upper === null ? '_' : formatTyped(e.upper);
+      return `(${e.op} ${formatTyped(e.body)} ${e.variable} ${lo} ${hi})`;
     }
   }
 }
 
 /** Typed IR → 모양이 함께 붙은 s-식. 랩 진단 패널용. */
-export function sexpTypedWithShapes(e: TypedExpr): string {
+export function formatTypedWithShapes(e: TypedExpr): string {
   const inner = (() => {
     switch (e.op) {
       case 'num':
@@ -109,43 +109,43 @@ export function sexpTypedWithShapes(e: TypedExpr): string {
       case 'sym':
         return e.name;
       case 'matrix':
-        return `[${e.rows.map((r) => r.map(sexpTypedWithShapes).join(',')).join(';')}]`;
+        return `[${e.rows.map((r) => r.map(formatTypedWithShapes).join(',')).join(';')}]`;
       case 'add':
-        return `(add ${e.terms.map(sexpTypedWithShapes).join(' ')})`;
+        return `(add ${e.terms.map(formatTypedWithShapes).join(' ')})`;
       case 'neg':
-        return `(neg ${sexpTypedWithShapes(e.operand)})`;
+        return `(neg ${formatTypedWithShapes(e.operand)})`;
       case 'scalarMul':
-        return `(scalarMul ${e.factors.map(sexpTypedWithShapes).join(' ')})`;
+        return `(scalarMul ${e.factors.map(formatTypedWithShapes).join(' ')})`;
       case 'matMul':
-        return `(matMul ${e.factors.map(sexpTypedWithShapes).join(' ')})`;
+        return `(matMul ${e.factors.map(formatTypedWithShapes).join(' ')})`;
       case 'mul':
-        return `(mul ${sexpTypedWithShapes(e.scalar)} ${sexpTypedWithShapes(e.nonScalar)})`;
+        return `(mul ${formatTypedWithShapes(e.scalar)} ${formatTypedWithShapes(e.nonScalar)})`;
       case 'dot':
-        return `(dot ${sexpTypedWithShapes(e.left)} ${sexpTypedWithShapes(e.right)})`;
+        return `(dot ${formatTypedWithShapes(e.left)} ${formatTypedWithShapes(e.right)})`;
       case 'cross':
-        return `(cross ${sexpTypedWithShapes(e.left)} ${sexpTypedWithShapes(e.right)})`;
+        return `(cross ${formatTypedWithShapes(e.left)} ${formatTypedWithShapes(e.right)})`;
       case 'transpose':
-        return `(transpose ${sexpTypedWithShapes(e.operand)})`;
+        return `(transpose ${formatTypedWithShapes(e.operand)})`;
       case 'matPow':
-        return `(matPow ${sexpTypedWithShapes(e.base)} ${sexpTypedWithShapes(e.exponent)})`;
+        return `(matPow ${formatTypedWithShapes(e.base)} ${formatTypedWithShapes(e.exponent)})`;
       case 'scalarPow':
-        return `(scalarPow ${sexpTypedWithShapes(e.base)} ${sexpTypedWithShapes(e.exponent)})`;
+        return `(scalarPow ${formatTypedWithShapes(e.base)} ${formatTypedWithShapes(e.exponent)})`;
       case 'call':
-        return `(${e.name} ${e.args.map(sexpTypedWithShapes).join(' ')})`;
+        return `(${e.name} ${e.args.map(formatTypedWithShapes).join(' ')})`;
       case 'apply':
-        return `(apply ${e.name} ${e.args.map(sexpTypedWithShapes).join(' ')})`;
+        return `(apply ${e.name} ${e.args.map(formatTypedWithShapes).join(' ')})`;
       case 'frac':
-        return `(frac ${sexpTypedWithShapes(e.numerator)} ${sexpTypedWithShapes(e.denominator)})`;
+        return `(frac ${formatTypedWithShapes(e.numerator)} ${formatTypedWithShapes(e.denominator)})`;
       case 'matIdentity':
         return 'I';
       case 'deriv':
-        return `(deriv ${sexpTypedWithShapes(e.body)} [${e.vars.join(',')}] ${e.order})`;
+        return `(deriv ${formatTypedWithShapes(e.body)} [${e.vars.join(',')}] ${e.order})`;
       case 'sum':
       case 'prod':
       case 'integral': {
-        const lo = e.lower === null ? '_' : sexpTypedWithShapes(e.lower);
-        const hi = e.upper === null ? '_' : sexpTypedWithShapes(e.upper);
-        return `(${e.op} ${sexpTypedWithShapes(e.body)} ${e.variable} ${lo} ${hi})`;
+        const lo = e.lower === null ? '_' : formatTypedWithShapes(e.lower);
+        const hi = e.upper === null ? '_' : formatTypedWithShapes(e.upper);
+        return `(${e.op} ${formatTypedWithShapes(e.body)} ${e.variable} ${lo} ${hi})`;
       }
     }
   })();

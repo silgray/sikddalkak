@@ -276,4 +276,4 @@ export function matricesClose(a: Matrix, b: Matrix, tolerance = 1e-9): boolean {
 export const asScalar = (m: Matrix): number | null => scalarValue(m);
 
 /** 이 식이 스칼라 모양인가 — 대조 전 확인용. */
-export const expectsScalar = (e: TypedExpr): boolean => isScalar(e.shape);
+export const isScalarExpr = (e: TypedExpr): boolean => isScalar(e.shape);

@@ -51,7 +51,7 @@ export const isRowVector = (s: Shape): boolean =>
 export const isVector = (s: Shape): boolean => isColumnVector(s) || isRowVector(s);
 
 /** 벡터의 길이. 벡터가 아니면 null. */
-export const vectorLength = (s: Shape): number | null => {
+export const vectorLengthOf = (s: Shape): number | null => {
   if (isColumnVector(s)) return s.rows as number;
   if (isRowVector(s)) return s.cols as number;
   return null;
@@ -74,7 +74,7 @@ export const formatShape = (s: Shape): string =>
  */
 export type ShapeKind = 'scalar' | 'column' | 'row' | 'matrix' | 'unknown';
 
-export const classify = (s: Shape): ShapeKind => {
+export const classifyShape = (s: Shape): ShapeKind => {
   if (isScalar(s)) return 'scalar';
   if (isColumnVector(s)) return 'column';
   if (isRowVector(s)) return 'row';

@@ -8,13 +8,13 @@ import {
   buildSum,
   buildTranspose,
 } from '../expression/builders';
-import { asKnownInteger, literalOf } from '../expression/key';
+import { asKnownInteger, asLiteral } from '../expression/key';
 import { ok, type Result } from '../result/result';
 import { SCALAR, isKnownShape } from '../shape/shape';
 import type { TypedExpr } from '../expression/node';
 import { asInteger, intLit, ONE as ONE_LIT } from '../literal/literal';
 import { mulLit, powLit } from '../literal/arith';
-import { asSingleMatrix, buildProduct, collect, normalizeNeg, normalizeProduct } from './product';
+import { asSingleMatrix, fromMonomial, toMonomial, normalizeNeg, normalizeProduct } from './product';
 import { normalizeAdd } from './add';
 import { normalizeFrac } from './frac';
 
@@ -104,8 +104,8 @@ export function normalize(
       if (!leftR.ok) return leftR;
       const rightR = recur(e.right);
       if (!rightR.ok) return rightR;
-      const cl = collect(leftR.value);
-      const cr = collect(rightR.value);
+      const cl = toMonomial(leftR.value);
+      const cr = toMonomial(rightR.value);
 
       const leftCore = asSingleMatrix(cl.nonScalars);
       if (!leftCore.ok) return leftCore;
@@ -114,7 +114,7 @@ export function normalize(
       const combine = e.op === 'dot' ? buildDot : buildCross;
       const core = combine(leftCore.value, rightCore.value);
       if (!core.ok) return core;
-      const merged = collect(core.value);
+      const merged = toMonomial(core.value);
 
       // 세 계수를 한 번에 곱한다. 하나라도 실패하면 접지 않고 인수로 남긴다.
       const pair = mulLit(cl.coefficient, cr.coefficient);
@@ -124,7 +124,7 @@ export function normalize(
           ? []
           : [buildNum(cl.coefficient), buildNum(cr.coefficient), buildNum(merged.coefficient)];
       return ok(
-        buildProduct(
+        fromMonomial(
           all ?? ONE_LIT,
           [...cl.scalars, ...cr.scalars, ...merged.scalars, ...carried],
           merged.nonScalars,
@@ -136,12 +136,12 @@ export function normalize(
     case 'transpose': {
       const inner = recur(e.operand);
       if (!inner.ok) return inner;
-      const c = collect(inner.value);
+      const c = toMonomial(inner.value);
       const operand = asSingleMatrix(c.nonScalars);
       if (!operand.ok) return operand;
       const t = buildTranspose(operand.value);
       if (!t.ok) return t;
-      return ok(buildProduct(c.coefficient, c.scalars, [t.value], foldPowers));
+      return ok(fromMonomial(c.coefficient, c.scalars, [t.value], foldPowers));
     }
 
     // --- 거듭제곱 ---
@@ -155,7 +155,7 @@ export function normalize(
       const exponent = recur(e.exponent);
       if (!exponent.ok) return exponent;
       // 정수로 확정되면 **단일 리터럴로 되돌려 담는다.** 일반 정규화를 거친 `-1` 은
-      // `buildProduct` 의 부호 호이스팅 때문에 `neg(num 1)` 이 되는데, 그러면 s-식이
+      // `fromMonomial` 의 부호 호이스팅 때문에 `neg(num 1)` 이 되는데, 그러면 s-식이
       // `(matPow A (neg 1))` 이 되어 기존 기대값(`(matPow A -1)`)과 어긋난다.
       const n = asKnownInteger(exponent.value);
       const folded = n === null ? exponent.value : buildNum(intLit(n));
@@ -170,20 +170,20 @@ export function normalize(
       if (!base.ok) return base;
       const exponent = recur(e.exponent);
       if (!exponent.ok) return exponent;
-      // 리터럴^정수리터럴 은 값으로 접는다. 곱에서 숫자를 접는 것(`collect`)과 같은
+      // 리터럴^정수리터럴 은 값으로 접는다. 곱에서 숫자를 접는 것(`toMonomial`)과 같은
       // "숫자 접기" 이고, **복소수는 여기서만 접힌다** — `ceSimplify` 는 `i^{2}` 를
       // 안 풀어준다(실측: `["Power",["Complex",0,1],2]` 그대로). `literal/arith.ts` 는
       // `ce.box(...).evaluate()` 를 쓰므로 `-1` 이 나온다.
       //
-      // `literalOf` 로 밑·지수 둘 다 **`neg(num)` 도** 받는다 — `num` 만 보면
+      // `asLiteral` 로 밑·지수 둘 다 **`neg(num)` 도** 받는다 — `num` 만 보면
       // `\left(-2\right)^3` (트리로는 `scalarPow(neg(2),3)`) 이 여기서 안 접힌 채로
       // 렌더 `-2^{3}` 을 냈다가, **재파싱할 때는** CE가 델리미터 없는 `-2` 를 음수
       // 리터럴 `num(-2)` 하나로 읽어(실측) 그제서야 접혀 `-8` 이 되는 왕복 불일치가
       // 있었다(`\sum`/`\prod` 처럼 본문을 CE에 안 넘기는 불투명 노드 안에서 fuzz가 잡음).
       // `neg(scalarPow(...))`(바깥 단항 마이너스)는 이 case가 아니라 `neg` case를 타므로
       // 안 섞인다 — `(-2)^3` 과 `-(2^3)` 은 계속 다른 트리다.
-      const baseLit = literalOf(base.value);
-      const expLit = literalOf(exponent.value);
+      const baseLit = asLiteral(base.value);
+      const expLit = asLiteral(exponent.value);
       if (baseLit !== null && expLit !== null) {
         const n = asInteger(expLit);
         const folded = n === null ? null : powLit(baseLit, n);
@@ -230,7 +230,7 @@ export function normalize(
     }
 
     // 본문(그리고 상하한)을 재귀 정규화만 하고 재조립한다. **바운드 경계를 넘는 스칼라
-    // 호이스팅은 없다** — `collect`/`buildProduct` 는 이 네 op를 몰라서(default 분기가
+    // 호이스팅은 없다** — `toMonomial`/`fromMonomial` 는 이 네 op를 몰라서(default 분기가
     // 불투명 원자로 취급) 애초에 안까지 파고들지 않는다. `\sum_k(kA)` 의 `k` 가 상수처럼
     // 밖으로 끌려나오지 않는 이유가 그거다.
     case 'deriv': {

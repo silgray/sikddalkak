@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sexpSyntax } from '../debug';
+import { formatSyntax } from '../debug';
 import { parseSyntax } from './parse';
 
 /**
@@ -13,13 +13,13 @@ const V = String.raw`\begin{pmatrix}1\\2\\3\end{pmatrix}`;
 function parsed(latex: string): string {
   const r = parseSyntax(latex);
   if (!r.ok) throw new Error(`parse failed: ${r.errors.map((e) => e.message).join(', ')}`);
-  return sexpSyntax(r.value);
+  return formatSyntax(r.value);
 }
 
 /** 실패를 기대하고 오류 코드를 돌려준다. */
 function errorCode(latex: string): string {
   const r = parseSyntax(latex);
-  if (r.ok) throw new Error(`expected failure, got: ${sexpSyntax(r.value)}`);
+  if (r.ok) throw new Error(`expected failure, got: ${formatSyntax(r.value)}`);
   return r.errors[0].code;
 }
 

@@ -19,17 +19,17 @@ import type { SyntaxNode } from './syntax/node';
  */
 
 export type { Dim, Shape, ShapeKind } from './shape/shape';
-export { SCALAR, classify, formatShape, isScalar, isVector, shape } from './shape/shape';
+export { SCALAR, classifyShape, formatShape, isScalar, isVector, shape } from './shape/shape';
 export type { AlgebraError, ErrorCode, Result } from './result/result';
 export type { Env, TypedExpr, FunctionDef } from './expression/node';
 export type { SyntaxNode } from './syntax/node';
 export { render } from './render';
 export { expand, factor, simplify, substitute, isPureScalar } from './transform/transform';
 export { evalNumeric, matricesClose, type NumericBindings, type Matrix } from './numeric';
-export { sexpSyntax, sexpTyped, sexpTypedWithShapes } from './debug';
+export { formatSyntax, formatTyped, formatTypedWithShapes } from './debug';
 export { OP_PROPERTIES, type BinaryOp, type OpProperties } from './opers';
 export { normalize } from './normalize/normalize';
-export { evaluate, freeSymbols, substituteDeep } from './transform/evaluate';
+export { evaluate, collectFreeSymbols, substituteDeep } from './transform/evaluate';
 
 export type TransformOp = 'expand' | 'simplify' | 'factor' | 'substitute';
 

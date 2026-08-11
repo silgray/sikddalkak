@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { evaluate } from './evaluate';
 import { render } from '../render';
-import { sexpTyped } from '../debug';
+import { formatTyped } from '../debug';
 import type { Env } from '../expression/node';
 import { typedOf } from '../testEnv';
 import { CE_BUDGET_MS } from '../ce/budget';
@@ -23,7 +23,7 @@ const evaluatedLatex = (latex: string, env: Env = EMPTY_ENV): string => {
 const evaluatedOp = (latex: string, env: Env = EMPTY_ENV): string => {
   const result = evaluate(typedOf(latex, env), env);
   if (!result.ok) throw new Error(`evaluate failed: ${result.errors[0].message}`);
-  return sexpTyped(result.value).slice(1).split(' ')[0].split('(')[0] || sexpTyped(result.value);
+  return formatTyped(result.value).slice(1).split(' ')[0].split('(')[0] || formatTyped(result.value);
 };
 
 describe('\\sum / \\prod — 상수 정수 상하한이면 전개한다', () => {

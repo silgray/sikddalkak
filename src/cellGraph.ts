@@ -1,6 +1,6 @@
 import {
   evaluate,
-  freeSymbols,
+  collectFreeSymbols,
   parse,
   parseSyntax,
   render,
@@ -97,7 +97,7 @@ const BLIND_ENV: Env = { shapes: {} };
 function dependencyNames(latex: string, exclude: readonly string[] = []): readonly string[] {
   const parsed = parse(latex, BLIND_ENV);
   if (!parsed.ok) return [];
-  const names = freeSymbols(parsed.value);
+  const names = collectFreeSymbols(parsed.value);
   return exclude.length === 0 ? names : names.filter((n) => !exclude.includes(n));
 }
 

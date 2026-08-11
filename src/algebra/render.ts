@@ -1,6 +1,6 @@
 import type { TypedExpr } from './expression/node';
 import { isOne, isZero, splitSign, type Literal } from './literal/literal';
-import { symbolLatex } from './ce/symbolName';
+import { symbolToLatex } from './ce/symbolName';
 
 /**
  * Typed IR → string(LaTeX).
@@ -240,7 +240,7 @@ export function render(e: TypedExpr): string {
       return renderLiteral(e.value);
 
     case 'sym':
-      return symbolLatex(e.name);
+      return symbolToLatex(e.name);
 
     case 'matIdentity':
       return 'I';
@@ -318,12 +318,12 @@ export function render(e: TypedExpr): string {
     }
 
     // 사용자 정의 함수 — 내장 표기 사전(`CALL_LATEX`) 없이 이름 그대로 낸다(`sym` 과
-    // 같은 방식, `symbolLatex`). **`env` 없이는 함수인지 다시 판별 못 한다** — 함수
+    // 같은 방식, `symbolToLatex`). **`env` 없이는 함수인지 다시 판별 못 한다** — 함수
     // 정의가 없는 환경에서 이 LaTeX을 다시 읽으면 곱(`elaborate` 의 juxt 되돌리기)으로
     // 온다. 그래서 렌더 멱등성은 "같은 `env` 안에서" 로 좁아진다(`call`은 `env` 와
     // 무관하게 항상 함수라 이 제약이 없다).
     case 'apply':
-      return `${symbolLatex(e.name)}${paren(e.args.map((a) => render(a)).join(','))}`;
+      return `${symbolToLatex(e.name)}${paren(e.args.map((a) => render(a)).join(','))}`;
 
     case 'frac':
       return `\\frac{${render(e.numerator)}}{${render(e.denominator)}}`;
@@ -335,16 +335,16 @@ export function render(e: TypedExpr): string {
       const op =
         e.vars.length === 1
           ? e.order === 1
-            ? `\\frac{\\mathrm{d}}{\\mathrm{d}${symbolLatex(v)}}`
-            : `\\frac{\\mathrm{d}^{${e.order}}}{\\mathrm{d}${symbolLatex(v)}^{${e.order}}}`
-          : `\\frac{\\mathrm{d}}{\\mathrm{d}(${e.vars.map(symbolLatex).join(',')})}`;
+            ? `\\frac{\\mathrm{d}}{\\mathrm{d}${symbolToLatex(v)}}`
+            : `\\frac{\\mathrm{d}^{${e.order}}}{\\mathrm{d}${symbolToLatex(v)}^{${e.order}}}`
+          : `\\frac{\\mathrm{d}}{\\mathrm{d}(${e.vars.map(symbolToLatex).join(',')})}`;
       return `${op}${paren(render(e.body))}`;
     }
 
     case 'sum':
     case 'prod': {
       const cmd = e.op === 'sum' ? '\\sum' : '\\prod';
-      const sub = e.lower !== null ? `${symbolLatex(e.variable)}=${render(e.lower)}` : symbolLatex(e.variable);
+      const sub = e.lower !== null ? `${symbolToLatex(e.variable)}=${render(e.lower)}` : symbolToLatex(e.variable);
       const sup = e.upper !== null ? `^{${render(e.upper)}}` : '';
       return `${cmd}_{${sub}}${sup}${paren(render(e.body))}`;
     }
@@ -352,7 +352,7 @@ export function render(e: TypedExpr): string {
     case 'integral': {
       const lo = e.lower !== null ? `_{${render(e.lower)}}` : '';
       const hi = e.upper !== null ? `^{${render(e.upper)}}` : '';
-      return `\\int${lo}${hi}${paren(render(e.body))}\\mathrm{d}${symbolLatex(e.variable)}`;
+      return `\\int${lo}${hi}${paren(render(e.body))}\\mathrm{d}${symbolToLatex(e.variable)}`;
     }
   }
 }

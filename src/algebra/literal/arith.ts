@@ -81,7 +81,7 @@ export function divideByInt(l: Literal, divisor: number): Literal {
 }
 
 /** 역수. `\frac{2A}{3}` → `\frac{2}{3}A` 하강이 분모의 역수를 만들 때 쓴다. */
-export function recipLit(l: Literal): Literal | null {
+export function reciprocalLit(l: Literal): Literal | null {
   const fast = fastRat(intLit(1), l, (an, ad, bn, bd) => [an * bd, ad * bn]);
   return fast ?? viaCe('Divide', intLit(1), l);
 }

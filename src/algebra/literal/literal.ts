@@ -135,8 +135,8 @@ export function asInteger(l: Literal): number | null {
 /**
  * 부호를 밖으로 뺄 것인가.
  *
- * `buildProduct`/`monomialToExpr`/`renderProduct` 가 공유하는 **"부호는 바깥 `neg` 로"**
- * 관례의 단일 진실이다 (`normalize.ts` 의 `buildProduct` 주석 참고).
+ * `fromMonomial`/`monomialToExpr`/`renderProduct` 가 공유하는 **"부호는 바깥 `neg` 로"**
+ * 관례의 단일 진실이다 (`normalize.ts` 의 `fromMonomial` 주석 참고).
  *
  * 순허수 음수(`-4i`)까지는 빼내지만, 실수부·허수부가 둘 다 있는 복소수(`-3+4i`)는
  * 쪼개지 않는다 — 빼내봐야 `-(3-4i)` 라 오히려 지저분해진다.

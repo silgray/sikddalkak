@@ -74,22 +74,22 @@ export function exprKey(e: TypedExpr): string {
  * `matPow.exponent` 가 `TypedExpr` 이 되면서 "정수인가" 판정이 여러 곳(normalize의 접기,
  * toPolynomial의 전개, matrixFold의 역행렬, numeric)에 필요해졌다. 한 곳에 둔다.
  *
- * `neg(num)` 도 받는다 — `buildProduct` 가 부호를 바깥 `neg` 로 내보내므로 정규화 뒤의
+ * `neg(num)` 도 받는다 — `fromMonomial` 가 부호를 바깥 `neg` 로 내보내므로 정규화 뒤의
  * 음수 지수는 `num(-1)` 이 아니라 `neg(num 1)` 일 수 있다.
  */
 export function asKnownInteger(e: TypedExpr): number | null {
-  const lit = literalOf(e);
+  const lit = asLiteral(e);
   return lit === null ? null : asInteger(lit);
 }
 
 /**
  * 노드를 리터럴로 읽는다. 리터럴이 아니면 `null`.
  *
- * **`neg(num)` 도 받는다** — 정규화가 부호를 바깥 `neg` 로 내보내므로(`buildProduct`),
+ * **`neg(num)` 도 받는다** — 정규화가 부호를 바깥 `neg` 로 내보내므로(`fromMonomial`),
  * 정규화 뒤의 음수는 `num(-3)` 이 아니라 `neg(num 3)` 이다. 이 한 줄 때문에 곳곳에서
  * `num` 만 보다가 음수를 놓치는 일이 있었다.
  */
-export function literalOf(e: TypedExpr): Literal | null {
+export function asLiteral(e: TypedExpr): Literal | null {
   if (e.op === 'num') return e.value;
   if (e.op === 'neg' && e.operand.op === 'num') return negLit(e.operand.value);
   return null;

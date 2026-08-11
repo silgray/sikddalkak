@@ -34,8 +34,8 @@ export type Monomial = {
    *
    * ⚠ **정렬 여부는 생성자 책임이다.** 타입이 강제하지 않는다. `monomialKey` 가 동류항
    * 판정에 이 순서를 쓰므로, 정렬 안 된 채로 키를 뽑으면 같은 항이 다른 항으로 잡힌다.
-   * `rewrite/product.ts` 의 `collect` 는 **일부러 정렬하지 않은 채** 돌려주고
-   * (`buildProduct` 가 마지막에 한 번 정렬한다), 다항식 경로는 만들 때마다 정렬한다.
+   * `rewrite/product.ts` 의 `toMonomial` 는 **일부러 정렬하지 않은 채** 돌려주고
+   * (`fromMonomial` 가 마지막에 한 번 정렬한다), 다항식 경로는 만들 때마다 정렬한다.
    */
   readonly scalars: readonly TypedExpr[];
   /** 비스칼라 인수 — **순서가 의미다.** 절대 정렬하지 않는다. */
@@ -54,7 +54,7 @@ export const monomialKey = (m: Monomial): string =>
 export const ONE: Monomial = { coefficient: ONE_LIT, scalars: [], nonScalars: [] };
 
 /** 잎 하나를 단항식으로. 모양이 결정한다: 스칼라면 계수 쪽, 아니면 인수 열 쪽. */
-export const atom = (e: TypedExpr): Monomial =>
+export const leafToMonomial = (e: TypedExpr): Monomial =>
   isScalar(e.shape)
     ? { coefficient: ONE_LIT, scalars: [e], nonScalars: [] }
     : { coefficient: ONE_LIT, scalars: [], nonScalars: [e] };

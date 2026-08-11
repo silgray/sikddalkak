@@ -9,7 +9,7 @@ import {
   sameOrientation,
   shape,
   shapesConflict,
-  vectorLength,
+  vectorLengthOf,
   type Shape,
 } from '../shape/shape';
 import { fail, ok, type Result } from '../result/result';
@@ -34,7 +34,7 @@ import type { TypedExpr } from './node';
  * 채 나온다.
  */
 
-export const shapeMismatch = (message: string, where?: string): Result<TypedExpr> =>
+export const failShapeMismatch = (message: string, where?: string): Result<TypedExpr> =>
   fail('shape-mismatch', message, where);
 
 // ---------------------------------------------------------------------------
@@ -109,7 +109,7 @@ function buildMatMul(left: TypedExpr, right: TypedExpr, symbol: string): Result<
     return fail('unknown-shape', `Cannot determine the shape of a ${symbol} operand`);
   }
   if (a.cols !== b.rows) {
-    return shapeMismatch(
+    return failShapeMismatch(
       `Cannot multiply ${formatShape(a)} by ${formatShape(b)}: inner dimensions differ`,
     );
   }
@@ -134,12 +134,12 @@ export function buildDot(left: TypedExpr, right: TypedExpr): Result<TypedExpr> {
   }
   if (isVector(a) && isVector(b)) {
     if (!sameOrientation(a, b)) {
-      return shapeMismatch(
+      return failShapeMismatch(
         `Cannot take the dot product of a ${formatShape(a)} and a ${formatShape(b)}`,
       );
     }
-    if (vectorLength(a) !== vectorLength(b)) {
-      return shapeMismatch(
+    if (vectorLengthOf(a) !== vectorLengthOf(b)) {
+      return failShapeMismatch(
         `Dot product needs vectors of equal length (${formatShape(a)} and ${formatShape(b)})`,
       );
     }
@@ -156,13 +156,13 @@ export function buildCross(left: TypedExpr, right: TypedExpr): Result<TypedExpr>
     return buildMul(left, right);
   }
   if (isVector(a) && isVector(b)) {
-    if (vectorLength(a) !== 3 || vectorLength(b) !== 3) {
-      return shapeMismatch(
+    if (vectorLengthOf(a) !== 3 || vectorLengthOf(b) !== 3) {
+      return failShapeMismatch(
         `Cross product needs two 3-vectors (got ${formatShape(a)} and ${formatShape(b)})`,
       );
     }
     if (!sameOrientation(a, b)) {
-      return shapeMismatch(
+      return failShapeMismatch(
         `Cannot take the cross product of a ${formatShape(a)} and a ${formatShape(b)}`,
       );
     }
@@ -238,7 +238,7 @@ export function buildTranspose(operand: TypedExpr): Result<TypedExpr> {
  */
 export function buildFrac(numerator: TypedExpr, denominator: TypedExpr): Result<TypedExpr> {
   if (!isScalar(denominator.shape)) {
-    return shapeMismatch(
+    return failShapeMismatch(
       `Cannot divide by a ${formatShape(denominator.shape)}: use an inverse instead`,
     );
   }
@@ -266,7 +266,7 @@ export function buildAdd(values: readonly TypedExpr[]): Result<TypedExpr> {
   for (const term of values2.slice(1)) {
     // 모양이 **정확히 같아야** 한다. 행렬 + 스칼라는 오류다 (브로드캐스트하지 않는다).
     if (shapesConflict(head, term.shape) || isScalar(head) !== isScalar(term.shape)) {
-      return shapeMismatch(
+      return failShapeMismatch(
         `Cannot add ${formatShape(head)} and ${formatShape(term.shape)}`,
       );
     }
@@ -303,7 +303,7 @@ export function buildDeriv(
   if (isColumnVector(body.shape)) {
     return ok({ op: 'deriv', shape: shape(body.shape.rows, vars.length), body, vars, order });
   }
-  return shapeMismatch(
+  return failShapeMismatch(
     `Cannot take a multivariable derivative of a ${formatShape(body.shape)} body (need a scalar or a column vector)`,
   );
 }
@@ -315,8 +315,8 @@ export function buildSum(
   lower: TypedExpr | null,
   upper: TypedExpr | null,
 ): Result<TypedExpr> {
-  if (lower !== null && !isScalar(lower.shape)) return shapeMismatch('A lower bound must be a scalar');
-  if (upper !== null && !isScalar(upper.shape)) return shapeMismatch('An upper bound must be a scalar');
+  if (lower !== null && !isScalar(lower.shape)) return failShapeMismatch('A lower bound must be a scalar');
+  if (upper !== null && !isScalar(upper.shape)) return failShapeMismatch('An upper bound must be a scalar');
   return ok({ op: 'sum', shape: body.shape, body, variable, lower, upper });
 }
 
@@ -327,8 +327,8 @@ export function buildIntegral(
   lower: TypedExpr | null,
   upper: TypedExpr | null,
 ): Result<TypedExpr> {
-  if (lower !== null && !isScalar(lower.shape)) return shapeMismatch('A lower bound must be a scalar');
-  if (upper !== null && !isScalar(upper.shape)) return shapeMismatch('An upper bound must be a scalar');
+  if (lower !== null && !isScalar(lower.shape)) return failShapeMismatch('A lower bound must be a scalar');
+  if (upper !== null && !isScalar(upper.shape)) return failShapeMismatch('An upper bound must be a scalar');
   return ok({ op: 'integral', shape: body.shape, body, variable, lower, upper });
 }
 
@@ -339,13 +339,13 @@ export function buildProd(
   lower: TypedExpr | null,
   upper: TypedExpr | null,
 ): Result<TypedExpr> {
-  if (lower !== null && !isScalar(lower.shape)) return shapeMismatch('A lower bound must be a scalar');
-  if (upper !== null && !isScalar(upper.shape)) return shapeMismatch('An upper bound must be a scalar');
+  if (lower !== null && !isScalar(lower.shape)) return failShapeMismatch('A lower bound must be a scalar');
+  if (upper !== null && !isScalar(upper.shape)) return failShapeMismatch('An upper bound must be a scalar');
   if (!isKnownShape(body.shape)) {
     return fail('unknown-shape', 'Cannot determine the shape of a product body');
   }
   if (!isSquare(body.shape)) {
-    return shapeMismatch(`A product needs a square body (got ${formatShape(body.shape)})`);
+    return failShapeMismatch(`A product needs a square body (got ${formatShape(body.shape)})`);
   }
   return ok({ op: 'prod', shape: body.shape, body, variable, lower, upper });
 }

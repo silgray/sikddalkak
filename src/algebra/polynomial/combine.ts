@@ -16,7 +16,7 @@ import { monomialKey, type Monomial, type Polynomial } from './polynomial';
  * 계수 `3` 과 인수 `9` 가 나란히 렌더돼 `3\cdot 9…` 같은 게 나오고, `\cdot` 는 병치보다
  * 느슨해서 다시 읽을 때 묶음이 달라진다. 애초에 하나로 합치는 게 맞다.
  */
-export function foldNumericScalars(p: Polynomial): Polynomial {
+export function combineNumericScalars(p: Polynomial): Polynomial {
   return p.map((m) => {
     let coefficient = m.coefficient;
     const scalars: TypedExpr[] = [];
