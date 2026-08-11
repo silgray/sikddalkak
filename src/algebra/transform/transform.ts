@@ -29,7 +29,7 @@ import {
 } from '../parse/normal';
 import { normalize } from '../parse/normalize';
 import { asInteger, intLit, isZero, ONE as ONE_LIT, type Literal } from '../literal/literal';
-import { divideByInt } from '../literalMath';
+import { divideByInt } from '../literal/arith';
 import { guardCe, type TimeLimitedEngine } from '../ceLimit';
 import { fail, ok, type Result } from '../result/result';
 import { render } from '../render';

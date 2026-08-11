@@ -47,9 +47,20 @@
 
 - **`shape/shape.ts`** — 모양 도메인. **모든 것이 `(rows, cols)` 이고 `(1,1)` 이 스칼라다.**
   벡터는 파생 술어. 이 한 선택으로 `v^Tv → 스칼라` 가 하드코딩 없이 나온다.
-- **`literal/literal.ts`** — 리터럴 도메인. `Literal` 타입(정수/유리수/소수/복소수)과 그
-  정규형 술어들(`isZero`·`asInteger`·`splitSign`…), 지문(`literalKey`). 정규형이 깨지면
-  `exprKey` 가 흔들려 동류항 판정이 통째로 무너지는 자리다.
+- **`literal/`** — 리터럴 도메인. 정규형이 깨지면 `exprKey` 가 흔들려 동류항 판정이 통째로
+  무너지는 자리라, **정규형을 만드는 곳을 셋으로 나눠 각각 하나만 책임지게 했다.**
+  - **`literal.ts`** — `Literal` 타입(정수/유리수/소수/복소수), 정규형을 스스로 강제하는
+    생성자(`intLit`·`makeRational`), 술어(`isZero`·`asInteger`·`splitSign`…),
+    지문(`literalKey`). `makeRational` 이 여기 있는 이유: 코덱의 `Rational` 경로와
+    산술의 빠른 경로가 **둘 다** 써서, 두 곳이 같은 정규형을 내야 한다.
+  - **`ceJson.ts`** — 리터럴 ↔ CE MathJSON 코덱. **CE 인스턴스가 없다** — 순수 번역이다.
+    `fromCeJson` 이 리터럴이 생기는 유일한 문(門)이라 정규형 판정이 전부 여기 모인다.
+    행렬도 자기 코덱을 따로 갖는다(`transform/matrixFold.ts`) — **각 도메인이 자기 타입의
+    코덱을 갖는다**는 규칙.
+  - **`arith.ts`** — 산술(`addLit`·`mulLit`·`divideByInt`·`recipLit`·`powLit`).
+    정확한 유리·복소 산술은 CE에 위임하되, 정수·유리수 구간은 JS 빠른 경로로 먼저 친다
+    (CE 왕복 ≈16µs 인데 `normalize` 가 곱마다 부른다). 실패는 `null` — 호출자는 접지 말고
+    원래 트리를 유지한다.
 - **`types-SyntaxNode.ts`** — Syntax IR 타입. `·`/`×`/병치를 **구분해 보존**한다
   (CE는 셋 다 `Multiply` 로 뭉갠다). 어느 쪽이 내적/스칼라곱인지는 이 층에서 안 정한다
   (그건 elaborate 몫).

@@ -3,7 +3,7 @@ import type { MathJsonExpression } from '@cortex-js/compute-engine';
 import { addTyped, elaborate, mulTyped } from '../parse/elaborate';
 import { parseCeJson } from '../parse/parseSymbol';
 import { render } from '../render';
-import { toCeJson } from '../literalMath';
+import { toCeJson } from '../literal/ceJson';
 import { constantInteger } from '../parse/normal';
 import { guardCe } from '../ceLimit';
 import { ok, type Result } from '../result/result';

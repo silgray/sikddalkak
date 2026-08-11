@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { addLit, fromCeJson, mulLit, negLit, powLit, toCeJson } from './literalMath';
+import { addLit, mulLit, negLit, powLit } from './arith';
+import { fromCeJson, toCeJson } from './ceJson';
 import {
   asInteger,
   intLit,
@@ -9,7 +10,7 @@ import {
   splitSign,
   toRealNumber,
   type Literal,
-} from './literal/literal';
+} from './literal';
 
 /**
  * 리터럴 층 테스트.

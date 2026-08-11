@@ -1,7 +1,7 @@
 import { fail, failWith, ok, type AlgebraError, type Result } from '../result/result';
 import { DOT_MARKER, CROSS_MARKER, isMarker } from './preprocess';
 import type { SyntaxNode } from '../types-SyntaxNode';
-import { fromCeJson } from '../literalMath';
+import { fromCeJson } from '../literal/ceJson';
 import { intLit } from '../literal/literal';
 
 
@@ -589,7 +589,7 @@ function translatePostfixToTree(
 
 /** CE JSON 한 노드를 Syntax IR로. */
 export function translateToTree(json: unknown): Result<SyntaxNode> {
-  // 숫자 리터럴은 `literalMath` 가 단독으로 판정한다 — 정수/소수/`{num:}`/`Rational` 이
+  // 숫자 리터럴은 `literal/ceJson.ts` 가 단독으로 판정한다 — 정수/소수/`{num:}`/`Rational` 이
   // 전부 여기로 들어온다. 우리가 못 담는 것(무한대, 안전 정수 밖)은 `null` 이 오므로
   // 아래로 흘려보내지 않고 정직하게 거절한다.
   if (typeof json === 'number' || (typeof json === 'object' && json !== null && 'num' in json)) {

@@ -19,7 +19,7 @@ import {
   ZERO as ZERO_LIT,
   type Literal,
 } from '../literal/literal';
-import { addLit, mulLit, negLit } from '../literalMath';
+import { addLit, mulLit, negLit } from '../literal/arith';
 
 /**
  * 정규형 — **단항식 = (수치 계수, 스칼라 인수 집합, 비스칼라 인수 열)**.
@@ -447,7 +447,7 @@ export function foldNumericScalars(p: Polynomial): Polynomial {
  * 같은 인수 열을 가진 항들을 합친다. 순서는 처음 나온 순서를 유지한다.
  *
  * 계수 덧셈이 실패하면(안전 정수 밖 등) **합치지 않고 따로 남긴다** — 값을 뭉개느니
- * 항이 둘로 남는 게 낫다 (`literalMath` 의 "실패 = 무변경" 관례).
+ * 항이 둘로 남는 게 낫다 (`literal/arith.ts` 의 "실패 = 무변경" 관례).
  */
 export function combineLikeTerms(p: Polynomial): Polynomial {
   const slots: Monomial[] = [];

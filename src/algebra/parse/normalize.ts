@@ -20,7 +20,7 @@ import {
   type Monomial,
 } from './normal';
 import { asInteger, intLit, isOne, splitSign, ONE as ONE_LIT, type Literal } from '../literal/literal';
-import { divideByInt, mulLit, negLit, powLit, recipLit } from '../literalMath';
+import { divideByInt, mulLit, negLit, powLit, recipLit } from '../literal/arith';
 import { fail, ok, type Result } from '../result/result';
 import { SCALAR, isKnownShape, isScalar, isSquare, shape, type Shape } from '../shape/shape';
 import type { TypedExpr } from '../types-TypedExpr';
@@ -700,7 +700,7 @@ export function normalize(e: TypedExpr, foldPowers = true,
       if (!exponent.ok) return exponent;
       // 리터럴^정수리터럴 은 값으로 접는다. 곱에서 숫자를 접는 것(`collect`)과 같은
       // "숫자 접기" 이고, **복소수는 여기서만 접힌다** — `ceSimplify` 는 `i^{2}` 를
-      // 안 풀어준다(실측: `["Power",["Complex",0,1],2]` 그대로). `literalMath` 는
+      // 안 풀어준다(실측: `["Power",["Complex",0,1],2]` 그대로). `literal/arith.ts` 는
       // `ce.box(...).evaluate()` 를 쓰므로 `-1` 이 나온다.
       //
       // `literalOf` 로 밑·지수 둘 다 **`neg(num)` 도** 받는다 — `num` 만 보면

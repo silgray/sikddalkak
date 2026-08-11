@@ -4,11 +4,11 @@
  * 정수 하나(`number`)만 담던 자리를 넓힌 것이다. 유리수·소수·복소수가 전부 여기 들어온다.
  * 심볼 상수(π, e)는 리터럴이 **아니다** — 그건 `sym` 으로 남는다.
  *
- * ⚠ **정규형 불변식은 CE가 만들어 준다.** 리터럴은 오직 `literalMath.fromCeJson` 을
+ * ⚠ **정규형 불변식은 CE가 만들어 준다.** 리터럴은 오직 `ceJson.fromCeJson` 을
  * 통해서만 생기고, CE가 파싱과 evaluate 양쪽에서 기약분수화(gcd)·부호를 분자로 올리기·
  * 분모가 1이면 정수로 무너뜨리기·허수부가 0이면 실수로 무너뜨리기를 이미 해준다(실측).
  * 우리는 그 결과를 담기만 한다. **여기서 손으로 리터럴을 지어내지 말 것** —
- * `intLit` 처럼 불변식이 자명한 것만 예외다.
+ * 아래 생성자(`intLit`·`makeRational`)처럼 불변식을 스스로 강제하는 것만 예외다.
  *
  * `decimal` 이 `rational` 로 안 바뀌는 이유: `0.2` 를 `1/5` 로 만들면 렌더가
  * `\frac{1}{5}` 를 내놓아 **사용자가 쓴 글자가 바뀐다**. CE도 `form:['Number']` 에서
@@ -34,6 +34,33 @@ export const intLit = (value: number): Extract<Literal, { kind: 'int' }> => ({
 
 export const ZERO: Literal = intLit(0);
 export const ONE: Literal = intLit(1);
+
+/** JS 정수 gcd. `makeRational` 전용. */
+function gcd(a: number, b: number): number {
+  let x = Math.abs(a);
+  let y = Math.abs(b);
+  while (y !== 0) [x, y] = [y, x % y];
+  return x;
+}
+
+/**
+ * `n/d` 를 정규형 리터럴로. 기약분수화하고, 부호를 분자로 올리고, 분모가 1이면 정수로
+ * 무너뜨린다 — **CE가 만드는 정규형과 정확히 같은 규약이다.** 안전 정수를 벗어나면 `null`.
+ *
+ * 정규형을 스스로 강제하므로 CE를 안 거치고 리터럴을 만들어도 되는 두 자리 중 하나다
+ * (다른 하나는 `intLit`). `ceJson.fromCeJson` 의 `Rational` 경로와 `arith.ts` 의
+ * 빠른 경로가 **둘 다** 이걸 쓴다 — 두 곳이 같은 정규형을 내야 하므로 여기 하나만 둔다.
+ */
+export function makeRational(n: number, d: number): Literal | null {
+  if (d === 0 || !Number.isSafeInteger(n) || !Number.isSafeInteger(d)) return null;
+  const sign = d < 0 ? -1 : 1;
+  const num = n * sign;
+  const den = d * sign;
+  const g = gcd(num, den) || 1;
+  const rn = num / g;
+  const rd = den / g;
+  return rd === 1 ? intLit(rn) : { kind: 'rational', n: rn, d: rd };
+}
 
 /**
  * 구조 식별 키. `exprKey` 가 이걸 그대로 쓰므로 **단사여야 한다** — 서로 다른 두 리터럴이
