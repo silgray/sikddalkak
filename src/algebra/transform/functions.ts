@@ -1,4 +1,4 @@
-import { instantiateFunction } from '../elaborate/elaborate';
+import { instantiateFunction } from '../parse/elaborate';
 import { substitute } from './transform';
 import { mapChildren } from '../expression/traversal';
 import { evaluate } from './evaluate';

@@ -51,7 +51,7 @@ export function splitDefinition(latex: string): { name: string; rhs: string } | 
  * `parse`(elaborate까지)가 아니라 **`parseSyntax`(Syntax IR)로만** 판단한다 — `f(x)`
  * 가 함수 적용인지 곱인지는 `env.functions` 를 알아야 갈리는데, 지금 그걸 알아내려는
  * 게 이 함수의 목적이라 순환이다. Syntax 층은 env가 없어도 "이름 뒤 괄호"라는 모양만은
- * 안다(`apply` 노드, `syntax/node.ts` 참고) — 그거면 충분하다.
+ * 안다(`apply` 노드, `parse/node.ts` 참고) — 그거면 충분하다.
  *
  * 매개변수 이름이 중복되면(`f(x,x)=...`) 정의로 인정하지 않는다 — 인스턴스화 때 뒤엣것이
  * 앞엣것을 조용히 덮어써 다른 인수를 준 호출이 같은 값으로 뭉개진다.

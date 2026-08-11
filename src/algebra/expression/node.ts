@@ -1,6 +1,6 @@
 import { type Shape } from "../shape/shape";
 import { type Literal } from "../literal/literal";
-import { type SyntaxNode } from "../syntax/node";
+import { type SyntaxNode } from "../parse/node";
 
 export type TypedExpr =
   | { readonly op: 'num'; readonly shape: Shape; readonly value: Literal }

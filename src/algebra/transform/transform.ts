@@ -4,7 +4,7 @@ import {
   simplify as ceSimplify,
 } from '@cortex-js/compute-engine';
 import { getDefaultCeEngine } from '../ce/engine';
-import { elaborate } from '../elaborate/elaborate';
+import { elaborate } from '../parse/elaborate';
 import { buildCross, buildDot, buildMulAll } from '../expression/builders';
 import { mapChildren } from '../expression/traversal';
 import { exprKey, sortScalars } from '../expression/key';
@@ -17,7 +17,7 @@ import { divideByInt } from '../literal/arith';
 import { guardCe } from '../ce/budget';
 import { ok, type Result } from '../result/result';
 import { render } from '../render';
-import { parseCeJson } from '../syntax/parse';
+import { parseCeJson } from '../parse/parse';
 import { SCALAR, isKnownShape, isScalar, type Shape } from '../shape/shape';
 import type { TypedExpr, Env } from '../expression/node';
 import {

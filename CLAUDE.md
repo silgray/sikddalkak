@@ -43,7 +43,7 @@
 **이름 규칙** (7단계에서 확정, 어휘표는 `.claude/.glossary.txt`):
 
 - **폴더가 성격을 결정한다** — 자료를 담는 폴더는 파일명이 명사(`literal/literal.ts`),
-  일을 하는 폴더는 동사(`elaborate/elaborate.ts`). 폴더의 **주연 파일은 폴더명을
+  일을 하는 폴더는 동사(`normalize/normalize.ts`). 폴더의 **주연 파일은 폴더명을
   되풀이해도 된다**.
 - **축약어는 이 도메인에서 통하면 그대로 쓴다** — `mat`·`poly`·`mono`·`lit`·`eval`·
   `oper`·`expr`·`env`·`args`·`params`·`vars`·`Dim`. 뜻이 바로 안 통하는 것만 푼다
@@ -72,17 +72,6 @@
     정확한 유리·복소 산술은 CE에 위임하되, 정수·유리수 구간은 JS 빠른 경로로 먼저 친다
     (CE 왕복 ≈16µs 인데 `normalize` 가 곱마다 부른다). 실패는 `null` — 호출자는 접지 말고
     원래 트리를 유지한다.
-- **`syntax/`** — Syntax IR 도메인. **LaTeX → SyntaxNode 를 만드는 코드가 전부 여기 있다.**
-  - **`node.ts`** — Syntax IR 타입. `·`/`×`/병치를 **구분해 보존**한다 (CE는 셋 다
-    `Multiply` 로 뭉갠다). 어느 쪽이 내적/스칼라곱인지는 이 층에서 안 정한다 (그건
-    elaborate 몫).
-  - **`preprocess.ts`** / **`parse.ts`** / **`translate.ts`** — CE 프런트엔드.
-    `preprocess` 가 `\cdot`/`\times` 를 마커 심볼로 바꿔 CE 파싱에서 살아남게 하고
-    (CE는 파싱하면서 뭉개버린다, 실측), `parse.ts` 의 `parseSyntax` 가 축소 정규화 폼
-    (`Number` 만)으로 CE에 파싱을 맡긴 뒤, `translate.ts` 의 `translateToTree` 가 그
-    MathJSON을 Syntax IR로 번역한다(우선순위 후위 > 병치 > `·`/`×` > `+`, **모호성 →
-    오류** 판정 포함). **CE quirk 우회는 이 세 파일 안에 갇힌다.**
-    `parseCeJson`(=`translateToTree`)은 재작성이 CE 결과를 되받을 때도 쓴다.
 - **`expression/`** — Typed IR 도메인.
   - **`node.ts`** — `TypedExpr` / `Env` / `FunctionDef` 타입.
   - **`builders.ts`** — **스마트 생성자.** 노드를 만들면서 모양 검사를 같이 한다
@@ -98,25 +87,39 @@
   - **`key.ts`** — `exprKey`(구조 지문, **단사여야 한다**)와 `asKnownInteger`.
     동류항 판정·치환 고정점·캐시 지문이 전부 이 키 위에서 돈다. 다항식과 무관한
     범용 유틸이라 다항식 쪽에서 떼어냈다.
-- **`elaborate/elaborate.ts`** — **설계의 심장.** 연산자 해석 + 차원 검사 + 모양 계산을 **한 패스로**
-  한다 (`·` 가 내적인지 스칼라곱인지는 모양을 알아야 정해지고, 결과 모양은 연산자가
-  정해져야 나오는 상호 의존이라 나눌 수 없다). 단 **노드를 실제로 만들고 모양을 검사하는
-  일은 `expression/builders.ts` 몫이고**, 여기 남는 건 Syntax 를 보고 어느 빌더를 부를지 정하는
-  부분과 그러려면 `Env` 가 있어야 하는 것들(사용자 정의 함수 판정, 바운드 변수)이다.
-  정규화는 하지 않는다 — 곱을 둘씩만 중첩해서 담아둔다 (`normalize.ts` 몫). `\frac{p}{q}` 는 `p·q^{-1}` 로 풀어버리지 않고
-  전용 `frac` 노드로 남긴다 — 그래야 `\frac{x^2+2x+1}{x+1}` 이 원문 형태로 렌더된다.
-  **`apply`(사용자 정의 함수 호출) 도 여기서 해소한다** — `name(args)` 가 함수 적용인지
-  곱(행렬곱)인지는 `env.functions` 를 봐야 아는데, 그건 elaborate만 갖고 있다(`cdot`/
-  `juxt` 판정과 같은 이유). 함수면 `instantiateFunction` 이 매개변수에 **그 호출의
-  실제 인수 모양**을 걸고 본문을 다시 elaborate한다(모양 다형 — `f(x)=x^2` 는 인수가
-  스칼라면 스칼라, 정사각 행렬이면 그 행렬 거듭제곱, 그 밖엔 오류). 아니면 병치로
-  되돌려 기존 행렬곱 해석에 맡긴다(§아래 실측 함정의 `tightPostfix`도 이 언저리).
+- **`parse/`** — LaTeX → Syntax IR → Typed IR. **입력을 해석하는 코드가 전부 여기 있다.**
+  둘로 갈려 있던 `syntax/`·`elaborate/` 를 합친 폴더다 — 공개 `parse()`(`index.ts`)가
+  `parseSyntax` → `elaborate` → `normalize` 를 한 줄로 부르는 데서 보듯 앞의 둘은 늘
+  한 세트로 돈다.
+  - **`node.ts`** — Syntax IR 타입. `·`/`×`/병치를 **구분해 보존**한다 (CE는 셋 다
+    `Multiply` 로 뭉갠다). 어느 쪽이 내적/스칼라곱인지는 이 층에서 안 정한다 (그건
+    elaborate 몫).
+  - **`preprocess.ts`** / **`parse.ts`** / **`translate.ts`** — CE 프런트엔드.
+    `preprocess` 가 `\cdot`/`\times` 를 마커 심볼로 바꿔 CE 파싱에서 살아남게 하고
+    (CE는 파싱하면서 뭉개버린다, 실측), `parse.ts` 의 `parseSyntax` 가 축소 정규화 폼
+    (`Number` 만)으로 CE에 파싱을 맡긴 뒤, `translate.ts` 의 `translateToTree` 가 그
+    MathJSON을 Syntax IR로 번역한다(우선순위 후위 > 병치 > `·`/`×` > `+`, **모호성 →
+    오류** 판정 포함). **CE quirk 우회는 이 세 파일 안에 갇힌다.**
+    `parseCeJson`(=`translateToTree`)은 재작성이 CE 결과를 되받을 때도 쓴다.
+  - **`elaborate.ts`** — **설계의 심장.** 연산자 해석 + 차원 검사 + 모양 계산을 **한 패스로**
+    한다 (`·` 가 내적인지 스칼라곱인지는 모양을 알아야 정해지고, 결과 모양은 연산자가
+    정해져야 나오는 상호 의존이라 나눌 수 없다). 단 **노드를 실제로 만들고 모양을 검사하는
+    일은 `expression/builders.ts` 몫이고**, 여기 남는 건 Syntax 를 보고 어느 빌더를 부를지 정하는
+    부분과 그러려면 `Env` 가 있어야 하는 것들(사용자 정의 함수 판정, 바운드 변수)이다.
+    정규화는 하지 않는다 — 곱을 둘씩만 중첩해서 담아둔다 (`normalize.ts` 몫). `\frac{p}{q}` 는 `p·q^{-1}` 로 풀어버리지 않고
+    전용 `frac` 노드로 남긴다 — 그래야 `\frac{x^2+2x+1}{x+1}` 이 원문 형태로 렌더된다.
+    **`apply`(사용자 정의 함수 호출) 도 여기서 해소한다** — `name(args)` 가 함수 적용인지
+    곱(행렬곱)인지는 `env.functions` 를 봐야 아는데, 그건 elaborate만 갖고 있다(`cdot`/
+    `juxt` 판정과 같은 이유). 함수면 `instantiateFunction` 이 매개변수에 **그 호출의
+    실제 인수 모양**을 걸고 본문을 다시 elaborate한다(모양 다형 — `f(x)=x^2` 는 인수가
+    스칼라면 스칼라, 정사각 행렬이면 그 행렬 거듭제곱, 그 밖엔 오류). 아니면 병치로
+    되돌려 기존 행렬곱 해석에 맡긴다(§아래 실측 함정의 `tightPostfix`도 이 언저리).
 
-  ⚠ **`apply` 처리를 별도 파일로 떼지 말 것.** 순환 import 가 된다 —
-  `instantiateFunction`/`elaborateApplyNode`/`elaboratePowOverApply` 가 `elaborate` 와
-  `elaboratePow` 를 부르고, `elaborate` 본체는 반대로 그 셋을 부른다. 파일을 잘못 가른
-  게 아니라 알고리즘 자체가 상호 재귀다(모양 다형이라 본문을 호출부마다 다시 elaborate
-  해야 하는 데서 나온다).
+    ⚠ **`apply` 처리를 별도 파일로 떼지 말 것.** 순환 import 가 된다 —
+    `instantiateFunction`/`elaborateApplyNode`/`elaboratePowOverApply` 가 `elaborate` 와
+    `elaboratePow` 를 부르고, `elaborate` 본체는 반대로 그 셋을 부른다. 파일을 잘못 가른
+    게 아니라 알고리즘 자체가 상호 재귀다(모양 다형이라 본문을 호출부마다 다시 elaborate
+    해야 하는 데서 나온다).
 - **`normalize/`** — elaborate 직후에 도는 별도 정규화 패스. 평탄화·스칼라 호이스팅·
   `neg`/숫자 접기·정렬·항등원 제거, 그리고 **거듭제곱 접기**(`AA`→`A²`, 항상 켜져 있다).
   분배는 **하지 않는다** — `(A+B)C+(A+B)C` 는 `2(A+B)C` 로 남는다.
@@ -129,7 +132,7 @@
   - **`add.ts`** — 동류항 합치기와 항 정렬. / **`frac.ts`** — 유리수 접기와 역수 하강.
 
   ⚠ **핸들러는 `normalize` 를 import 하지 않는다.** 자식 재귀가 필요하면 `recur` 를 인자로
-  받는다 — 그래야 `normalize ↔ product` 순환이 안 생긴다. (`elaborate/` 의 `apply` 를 못
+  받는다 — 그래야 `normalize ↔ product` 순환이 안 생긴다. (`parse/` 의 `apply` 를 못
   떼어낸 것과 갈리는 지점: 저쪽은 공개 시그니처라 인자를 못 늘렸다.)
 - **`opers.ts`** — 대수 성질 **표**(교환/결합/분배). 코드 분기가 아니라 데이터.
 - **`polynomial/`** — 다항식 정규형. 단항식 = (수치 계수, 스칼라 인수 **집합**,

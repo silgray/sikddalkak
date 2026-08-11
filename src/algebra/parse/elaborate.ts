@@ -7,7 +7,7 @@ import {
   shape,
 } from '../shape/shape';
 import { fail, failWith, ok, type AlgebraError, type Result } from '../result/result';
-import type { SyntaxNode } from '../syntax/node';
+import type { SyntaxNode } from './node';
 import type { TypedExpr, Env, FunctionDef } from '../expression/node';
 import {
   buildAdd,
@@ -110,7 +110,7 @@ function elaborateApply(
  * `apply` Syntax 노드를 해소한다 — `name` 이 정의된 함수인지 `env.functions` 로
  * 판단한다. 이 판단이 여기(elaborate) 있는 이유는 `cdot`/`juxt` 가 내적·스칼라곱·
  * 외적 중 뭔지 모양을 알아야 정해지는 것과 같다 — 함수인지 곱인지도 문맥(env) 없이는
- * 모른다(`syntax/node.ts` 의 `apply` 문서 참고).
+ * 모른다(`parse/node.ts` 의 `apply` 문서 참고).
  *
  * **함수가 아니면 병치로 되돌린다** — `A(v+w)` 가 `A` 미정의면 기존 그대로 행렬곱
  * 해석(`buildMul`)에 맡긴다. 인수를 이미 elaborate했으므로(모양이 있어야 함수
@@ -143,7 +143,7 @@ function elaborateApplyNode(
  * `name` 이 함수인지에 따라 갈라 처리한다 — `case 'pow':` 에서 여기로 위임한다.
  *
  * **왜 `case 'pow':` 에서 미리 갈라야 하는가**: `translateToTree` 는 대문자·소문자 두
- * 경로 모두 후위를 "apply 바깥" 꼴로 정규화해 둔다(`syntax/node.ts` 의 `apply`
+ * 경로 모두 후위를 "apply 바깥" 꼴로 정규화해 둔다(`parse/node.ts` 의 `apply`
  * 문서 참고) — 함수인지 아직 모르니 일단 그렇게 담아둔 것뿐이다. `name` 이 함수면
  * 그 정규화가 맞다(`f(x)^2` = `(f(x))^2`). 하지만 함수가 **아니면** 기존 행렬 규칙이
  * 후위를 **마지막 인수 안으로** 요구한다(`A(X)^T` = `A·(X^T)`, 설계 §3) — `case 'pow':`
@@ -403,7 +403,7 @@ export function elaborate(node: SyntaxNode, env: Env): Result<TypedExpr> {
     case 'pow': {
       // `apply` 바로 위의 **꽉 묶인**(`tightPostfix`) 후위는 함수인지 먼저 갈라야
       // 한다 — `elaboratePowOverApply` 문서 참고. 느슨한 후위(사용자가 명시적으로
-      // 한 번 더 괄호를 쳐서 후위 범위를 이미 통째로 정한 경우, `syntax/node.ts`
+      // 한 번 더 괄호를 쳐서 후위 범위를 이미 통째로 정한 경우, `parse/node.ts`
       // 의 `pow.tightPostfix` 문서 참고)는 여기서 안 갈라야 한다 — `base` 를 통째로
       // elaborate한 뒤 후위를 씌우는 아래 일반 경로가 정확히 "괄호 친 전체"를 감싼다.
       if (

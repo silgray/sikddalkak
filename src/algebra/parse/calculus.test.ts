@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { formatTyped } from '../debug';
 import { elaborate } from './elaborate';
 import { formatShape } from '../shape/shape';
-import { parseSyntax } from '../syntax/parse';
+import { parseSyntax } from './parse';
 import { TEST_ENV, typedOf } from '../testEnv';
 import type { Env } from '../expression/node';
 

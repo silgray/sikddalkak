@@ -1,4 +1,4 @@
-import { elaborate } from './elaborate/elaborate';
+import { elaborate } from './parse/elaborate';
 import { type Env, type FunctionDef, type TypedExpr } from './expression/node';
 import { normalize } from './normalize/normalize';
 import { exprKey } from './expression/key';
@@ -6,10 +6,10 @@ import { fail, failWith, ok, type AlgebraError, type Result } from './result/res
 import { render } from './render';
 import { expand, factor, simplify, substitute } from './transform/transform';
 import { SCALAR, formatShape, type Shape } from './shape/shape';
-import { parseSyntax } from './syntax/parse';
-export { parseSyntax } from './syntax/parse';
+import { parseSyntax } from './parse/parse';
+export { parseSyntax } from './parse/parse';
 import { withCeBudget } from './ce/budget';
-import type { SyntaxNode } from './syntax/node';
+import type { SyntaxNode } from './parse/node';
 
 /**
  * 모듈 공개 API.
@@ -22,7 +22,7 @@ export type { Dim, Shape, ShapeKind } from './shape/shape';
 export { SCALAR, classifyShape, formatShape, isScalar, isVector, shape } from './shape/shape';
 export type { AlgebraError, ErrorCode, Result } from './result/result';
 export type { Env, TypedExpr, FunctionDef } from './expression/node';
-export type { SyntaxNode } from './syntax/node';
+export type { SyntaxNode } from './parse/node';
 export { render } from './render';
 export { expand, factor, simplify, substitute, isPureScalar } from './transform/transform';
 export { evalNumeric, matricesClose, type NumericBindings, type Matrix } from './numeric';

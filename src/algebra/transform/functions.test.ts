@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { evaluate } from './evaluate';
 import { render } from '../render';
-import { parseSyntax } from '../syntax/parse';
+import { parseSyntax } from '../parse/parse';
 import { parse } from '../index';
 import type { Env, FunctionDef } from '../expression/node';
 import { typedOf } from '../testEnv';
