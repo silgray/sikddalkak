@@ -40,8 +40,16 @@
 없어서** 심볼이 스칼라인지 행렬인지 모른다. 그래서 `ABA` 를 `A²B` 로 만드는 등 교환법칙을
 잘못 적용한다. CE의 무타입 `Multiply` 위에 얹힌 구조라 우회로는 못 고친다.
 
-- **`types-shape.ts`** — 모양 도메인. **모든 것이 `(rows, cols)` 이고 `(1,1)` 이 스칼라다.**
+⚠ **재구조화 진행 중** — 도메인 개념 단위로 폴더를 나누는 작업을 단계별로 하고 있다.
+이름 규칙은 **폴더가 성격을 결정한다**: 자료를 담는 폴더는 파일명이 명사
+(`literal/literal.ts`), 일을 하는 폴더는 동사(`parse/elaborate.ts`). 축약어는 안 쓴다.
+아래 목록에서 아직 옮기지 않은 파일은 옛 이름 그대로다.
+
+- **`shape/shape.ts`** — 모양 도메인. **모든 것이 `(rows, cols)` 이고 `(1,1)` 이 스칼라다.**
   벡터는 파생 술어. 이 한 선택으로 `v^Tv → 스칼라` 가 하드코딩 없이 나온다.
+- **`literal/literal.ts`** — 리터럴 도메인. `Literal` 타입(정수/유리수/소수/복소수)과 그
+  정규형 술어들(`isZero`·`asInteger`·`splitSign`…), 지문(`literalKey`). 정규형이 깨지면
+  `exprKey` 가 흔들려 동류항 판정이 통째로 무너지는 자리다.
 - **`types-SyntaxNode.ts`** — Syntax IR 타입. `·`/`×`/병치를 **구분해 보존**한다
   (CE는 셋 다 `Multiply` 로 뭉갠다). 어느 쪽이 내적/스칼라곱인지는 이 층에서 안 정한다
   (그건 elaborate 몫).
@@ -80,7 +88,8 @@
   → 재귀 `evaluate`). 실패하면 원래 `apply` 노드를 그대로 돌려준다. `foldMatrices` 보다
   **먼저** 돈다 — `A·f(x)` 에서 `f(x)` 가 행렬 리터럴로 펴져야 `foldMatrices` 가 이웃과
   묶을 수 있다.
-- **`types-result.ts`** — `Result<T>` / `AlgebraError` 등 공용 결과 타입.
+- **`result/result.ts`** — `Result<T>` / `AlgebraError` 등 공용 결과 타입과 생성자
+  (`ok`/`fail`/`failWith`/`all`).
 - **`index.ts`** — 공개 API (`parse`/`transform`/`buildEnv`/`analyze`/`solveFor` 자리).
 
 ⚠ **CE 0.90 실측 함정** (전부 테스트에 핀으로 고정돼 있다):
@@ -145,6 +154,10 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 ### `src/algebra/test` — 개발자 테스트
 
  - 정리된 꼴이 쓸 만한가를 사람이 눈으로 판단. 건들지 말것.
+ - vitest 스위트가 아니라 **눈으로 보는 랩**이다 (`npm run algebra-test`, localhost:5175).
+ - **`tsconfig.json` 의 `exclude` 로 타입체크에서 빠져 있다** — 실험 중인 코드라
+   미사용 import 같은 게 `npm run build` 를 막지 않게. 랩은 vite/esbuild로 도므로
+   제외돼도 그대로 뜬다. 여기 타입을 확인하고 싶으면 그 줄만 잠깐 빼고 돌리면 된다.
 
 ### 기타
 

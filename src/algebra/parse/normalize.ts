@@ -19,10 +19,10 @@ import {
   toPolynomial,
   type Monomial,
 } from './normal';
-import { asInteger, intLit, isOne, splitSign, ONE as ONE_LIT, type Literal } from '../types-Literal';
+import { asInteger, intLit, isOne, splitSign, ONE as ONE_LIT, type Literal } from '../literal/literal';
 import { divideByInt, mulLit, negLit, powLit, recipLit } from '../literalMath';
-import { fail, ok, type Result } from '../types-result';
-import { SCALAR, isKnownShape, isScalar, isSquare, shape, type Shape } from '../types-shape';
+import { fail, ok, type Result } from '../result/result';
+import { SCALAR, isKnownShape, isScalar, isSquare, shape, type Shape } from '../shape/shape';
 import type { TypedExpr } from '../types-TypedExpr';
 
 /**

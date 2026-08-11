@@ -6,8 +6,8 @@ import { render } from '../render';
 import { toCeJson } from '../literalMath';
 import { constantInteger } from '../parse/normal';
 import { guardCe } from '../ceLimit';
-import { ok, type Result } from '../types-result';
-import { SCALAR } from '../types-shape';
+import { ok, type Result } from '../result/result';
+import { SCALAR } from '../shape/shape';
 import type { TypedExpr, Env } from '../types-TypedExpr';
 
 /**

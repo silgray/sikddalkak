@@ -1,6 +1,6 @@
 import { ComputeEngine } from '@cortex-js/compute-engine';
 import type { MathJsonExpression } from '@cortex-js/compute-engine';
-import { fail, type Result } from '../types-result';
+import { fail, type Result } from '../result/result';
 import { preprocess } from './preprocess';
 import { translateToTree } from './translateToTree';
 import type { SyntaxNode } from '../types-SyntaxNode';

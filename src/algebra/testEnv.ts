@@ -1,7 +1,7 @@
 import { elaborate } from './parse/elaborate';
 import { parse, simplify } from './index';
 import { evalNumeric, matricesClose, type Assignment } from './numeric';
-import { shape } from './types-shape';
+import { shape } from './shape/shape';
 import type { TypedExpr, Env } from './index';
 import { parseSyntax } from './parse/parseSymbol';
 

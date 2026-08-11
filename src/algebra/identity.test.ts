@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { sexpTyped } from './debug';
 import { render } from './render';
-import { formatShape, shape } from './types-shape';
+import { formatShape, shape } from './shape/shape';
 import { normalizedOf, sameValue, simplifiedOf, TEST_ENV, typedOf } from './testEnv';
 
 /**

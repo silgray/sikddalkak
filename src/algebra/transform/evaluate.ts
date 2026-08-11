@@ -6,10 +6,10 @@ import { foldCalculus } from './calculus';
 import { foldFunctions } from './functions';
 import { simplify, substitute } from './transform';
 import { withCeBudget } from '../ceLimit';
-import { fail, ok, type Result } from '../types-result';
+import { fail, ok, type Result } from '../result/result';
 import { render } from '../render';
-import { SCALAR, isSquare, shape } from '../types-shape';
-import { ONE, ZERO } from '../types-Literal';
+import { SCALAR, isSquare, shape } from '../shape/shape';
+import { ONE, ZERO } from '../literal/literal';
 
 /**
  * 셀 하나를 값으로 접는다. **치환은 안 한다** — 어떤 이름을 무엇으로 바꿀지는 호출자

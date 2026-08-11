@@ -3,7 +3,7 @@ import { sexpTyped } from '../debug';
 import type { TypedExpr } from '../types-TypedExpr';
 import { combineLikeTerms, fromPolynomial, monomialKey, toPolynomial } from './normal';
 import { render } from '../render';
-import { formatShape } from '../types-shape';
+import { formatShape } from '../shape/shape';
 import { TEST_ENV, sameValue, typedOf } from '../testEnv';
 
 /**

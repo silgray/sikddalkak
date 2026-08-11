@@ -9,7 +9,7 @@ import {
   splitSign,
   toRealNumber,
   type Literal,
-} from './types-Literal';
+} from './literal/literal';
 
 /**
  * 리터럴 층 테스트.

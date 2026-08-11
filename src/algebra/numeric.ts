@@ -1,8 +1,8 @@
 import type { TypedExpr } from './types-TypedExpr';
-import { toRealNumber } from './types-Literal';
+import { toRealNumber } from './literal/literal';
 import { constantInteger } from './parse/normal';
-import { fail, ok, type Result } from './types-result';
-import { isScalar } from './types-shape';
+import { fail, ok, type Result } from './result/result';
+import { isScalar } from './shape/shape';
 
 /**
  * 수치 평가기 — **재작성이 값을 바꾸지 않았는지 대조하는 용도**다.

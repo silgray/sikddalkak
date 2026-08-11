@@ -28,13 +28,13 @@ import {
   type Polynomial,
 } from '../parse/normal';
 import { normalize } from '../parse/normalize';
-import { asInteger, intLit, isZero, ONE as ONE_LIT, type Literal } from '../types-Literal';
+import { asInteger, intLit, isZero, ONE as ONE_LIT, type Literal } from '../literal/literal';
 import { divideByInt } from '../literalMath';
 import { guardCe, type TimeLimitedEngine } from '../ceLimit';
-import { fail, ok, type Result } from '../types-result';
+import { fail, ok, type Result } from '../result/result';
 import { render } from '../render';
 import { parseCeJson } from '../parse/parseSymbol';
-import { SCALAR, isKnownShape, isScalar, isSquare, type Shape } from '../types-shape';
+import { SCALAR, isKnownShape, isScalar, isSquare, type Shape } from '../shape/shape';
 import type { TypedExpr, Env } from '../types-TypedExpr';
 import {
   detectSingleMatrixPolynomial,

@@ -1,7 +1,7 @@
 import type { TypedExpr } from './types-TypedExpr';
-import { formatShape } from './types-shape';
+import { formatShape } from './shape/shape';
 import type { SyntaxNode } from './types-SyntaxNode';
-import { literalKey } from './types-Literal';
+import { literalKey } from './literal/literal';
 
 /**
  * 사람이 읽는 트리 출력.

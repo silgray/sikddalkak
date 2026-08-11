@@ -5,7 +5,7 @@ import { parseSyntax } from '../parse/parseSymbol';
 import { parse } from '../index';
 import type { Env, FunctionDef } from '../types-TypedExpr';
 import { typedOf } from '../testEnv';
-import { shape } from '../types-shape';
+import { shape } from '../shape/shape';
 
 /**
  * `evaluate` 가 `apply`(사용자 정의 함수 호출)를 실제로 값으로 펴는지 보는 표.

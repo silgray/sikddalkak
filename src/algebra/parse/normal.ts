@@ -6,8 +6,8 @@ import {
   transposeTyped,
 } from './elaborate';
 import { OP_PROPERTIES } from '../opers';
-import { fail, ok, type Result } from '../types-result';
-import { SCALAR, formatShape, isKnownShape, isScalar, type Shape } from '../types-shape';
+import { fail, ok, type Result } from '../result/result';
+import { SCALAR, formatShape, isKnownShape, isScalar, type Shape } from '../shape/shape';
 import type { TypedExpr } from '../types-TypedExpr';
 import {
   asInteger,
@@ -18,7 +18,7 @@ import {
   ONE as ONE_LIT,
   ZERO as ZERO_LIT,
   type Literal,
-} from '../types-Literal';
+} from '../literal/literal';
 import { addLit, mulLit, negLit } from '../literalMath';
 
 /**

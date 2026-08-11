@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { sexpTyped } from '../debug';
 import { elaborate } from './elaborate';
-import { formatShape } from '../types-shape';
+import { formatShape } from '../shape/shape';
 import { parseSyntax } from './parseSymbol';
 import { TEST_ENV, typedOf } from '../testEnv';
 import type { Env, FunctionDef } from '../types-TypedExpr';

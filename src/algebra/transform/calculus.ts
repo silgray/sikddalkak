@@ -6,9 +6,9 @@ import { isPureScalar, mapChildren } from './transform';
 import { evaluate } from './evaluate';
 import { constantInteger } from '../parse/normal';
 import { guardCe } from '../ceLimit';
-import { ok, type Result } from '../types-result';
-import { SCALAR, isKnownShape, isScalar, type Shape } from '../types-shape';
-import { intLit } from '../types-Literal';
+import { ok, type Result } from '../result/result';
+import { SCALAR, isKnownShape, isScalar, type Shape } from '../shape/shape';
+import { intLit } from '../literal/literal';
 import type { Env, TypedExpr } from '../types-TypedExpr';
 
 /**

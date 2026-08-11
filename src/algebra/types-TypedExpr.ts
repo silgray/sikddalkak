@@ -1,5 +1,5 @@
-import { type Shape } from "./types-shape";
-import { type Literal } from "./types-Literal";
+import { type Shape } from "./shape/shape";
+import { type Literal } from "./literal/literal";
 import { type SyntaxNode } from "./types-SyntaxNode";
 
 export type TypedExpr =

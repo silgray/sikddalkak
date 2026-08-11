@@ -12,8 +12,8 @@ import {
   shapesConflict,
   vectorLength,
   type Shape,
-} from '../types-shape';
-import { fail, failWith, ok, type AlgebraError, type Result } from '../types-result';
+} from '../shape/shape';
+import { fail, failWith, ok, type AlgebraError, type Result } from '../result/result';
 import type { SyntaxNode } from '../types-SyntaxNode';
 import type { TypedExpr, Env, FunctionDef } from '../types-TypedExpr';
 

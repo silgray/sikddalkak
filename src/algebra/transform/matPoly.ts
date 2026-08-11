@@ -1,8 +1,8 @@
 import { addTyped, fracTyped, mulTyped } from '../parse/elaborate';
 import { constantInteger, fromPolynomial, toPolynomial, exprKey } from '../parse/normal';
-import { intLit } from '../types-Literal';
-import { fail, ok, type Result } from '../types-result';
-import { SCALAR, isScalar, isSquare } from '../types-shape';
+import { intLit } from '../literal/literal';
+import { fail, ok, type Result } from '../result/result';
+import { SCALAR, isScalar, isSquare } from '../shape/shape';
 import type { TypedExpr } from '../types-TypedExpr';
 import { freeSymbols } from './evaluate';
 

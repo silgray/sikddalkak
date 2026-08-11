@@ -2,10 +2,10 @@ import { elaborate } from './parse/elaborate';
 import { type Env, type FunctionDef, type TypedExpr } from './types-TypedExpr';
 import { normalize } from './parse/normalize';
 import { exprKey } from './parse/normal';
-import { fail, failWith, ok, type AlgebraError, type Result } from './types-result';
+import { fail, failWith, ok, type AlgebraError, type Result } from './result/result';
 import { render } from './render';
 import { expand, factor, simplify, substitute } from './transform/transform';
-import { SCALAR, formatShape, type Shape } from './types-shape';
+import { SCALAR, formatShape, type Shape } from './shape/shape';
 import { parseSyntax } from './parse/parseSymbol';
 export { parseSyntax } from './parse/parseSymbol';
 import { withCeBudget } from './ceLimit';
@@ -18,9 +18,9 @@ import type { SyntaxNode } from './types-SyntaxNode';
  * `evaluateGraph` 같은 셀 사이 계산은 바깥에 남되, 이 코어 위에 세운다.
  */
 
-export type { Dim, Shape, ShapeKind } from './types-shape';
-export { SCALAR, classify, formatShape, isScalar, isVector, shape } from './types-shape';
-export type { AlgebraError, ErrorCode, Result } from './types-result';
+export type { Dim, Shape, ShapeKind } from './shape/shape';
+export { SCALAR, classify, formatShape, isScalar, isVector, shape } from './shape/shape';
+export type { AlgebraError, ErrorCode, Result } from './result/result';
 export type { Env, TypedExpr, FunctionDef } from './types-TypedExpr';
 export type { SyntaxNode } from './types-SyntaxNode';
 export { render } from './render';

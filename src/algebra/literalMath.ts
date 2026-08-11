@@ -6,7 +6,7 @@ import {
   isZero,
   type Literal,
   type RealLiteral,
-} from './types-Literal';
+} from './literal/literal';
 
 /**
  * 리터럴 산술 — **CE 위임**.

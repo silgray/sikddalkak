@@ -1,6 +1,6 @@
 import { ComputeEngine } from '@cortex-js/compute-engine';
 import type { TypedExpr } from './types-TypedExpr';
-import { isOne, isZero, splitSign, type Literal } from './types-Literal';
+import { isOne, isZero, splitSign, type Literal } from './literal/literal';
 
 /**
  * Typed IR → string(LaTeX).

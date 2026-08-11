@@ -4,7 +4,7 @@ import { evaluate } from './evaluate';
 import { evalNumeric, matricesClose } from '../numeric';
 import { render } from '../render';
 import { expand, factor, simplify } from './transform';
-import { formatShape } from '../types-shape';
+import { formatShape } from '../shape/shape';
 import { TEST_ENV, TEST_VALUES, typedOf } from '../testEnv';
 import { parse } from '../index';
 

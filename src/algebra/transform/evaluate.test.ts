@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { evaluate, freeSymbols, substituteDeep } from './evaluate';
 import { render } from '../render';
 import type { Env } from '../types-TypedExpr';
-import { shape } from '../types-shape';
+import { shape } from '../shape/shape';
 import { TEST_ENV, sameValue, typedOf } from '../testEnv';
 import { buildEnv } from '../index';
 

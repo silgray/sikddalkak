@@ -4,7 +4,7 @@ import { render } from './render';
 import { TEST_ENV, typedOf } from './testEnv';
 import { parseSyntax } from './parse/parseSymbol';
 import type { Env, FunctionDef } from './types-TypedExpr';
-import { shape } from './types-shape';
+import { shape } from './shape/shape';
 
 /**
  * 렌더러의 계약은 **왕복**이다: 낸 LaTeX을 다시 읽으면 같은 연산 트리가 나와야 한다.
