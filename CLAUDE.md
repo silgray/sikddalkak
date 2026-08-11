@@ -40,10 +40,21 @@
 없어서** 심볼이 스칼라인지 행렬인지 모른다. 그래서 `ABA` 를 `A²B` 로 만드는 등 교환법칙을
 잘못 적용한다. CE의 무타입 `Multiply` 위에 얹힌 구조라 우회로는 못 고친다.
 
-⚠ **재구조화 진행 중** — 도메인 개념 단위로 폴더를 나누는 작업을 단계별로 하고 있다.
-이름 규칙은 **폴더가 성격을 결정한다**: 자료를 담는 폴더는 파일명이 명사
-(`literal/literal.ts`), 일을 하는 폴더는 동사(`parse/elaborate.ts`). 축약어는 안 쓴다.
-아래 목록에서 아직 옮기지 않은 파일은 옛 이름 그대로다.
+**이름 규칙** (7단계에서 확정, 어휘표는 `.claude/.glossary.txt`):
+
+- **폴더가 성격을 결정한다** — 자료를 담는 폴더는 파일명이 명사(`literal/literal.ts`),
+  일을 하는 폴더는 동사(`elaborate/elaborate.ts`). 폴더의 **주연 파일은 폴더명을
+  되풀이해도 된다**.
+- **축약어는 이 도메인에서 통하면 그대로 쓴다** — `mat`·`poly`·`mono`·`lit`·`eval`·
+  `oper`·`expr`·`env`·`args`·`params`·`vars`·`Dim`. 뜻이 바로 안 통하는 것만 푼다
+  (`recip` → `reciprocal`). 단 **폴더 이름은 풀네임**이다(`expression/`) — 폴더는
+  식별자가 아니라 경로로 읽히는 자리라서다.
+- **함수는 동사로 시작**한다. 예외는 일곱 가족뿐: `is*`/`can*`(술어),
+  `to*`/`from*`(코덱 짝), `as*`(타입 좁히기), `*Of`(파생값 뽑기), `*Key`(지문),
+  순수 명사(상수·값 생성), `with*`(덧씌운 스코프).
+- **한 단어는 한 가지만 가리킨다** — `factor`=곱의 인수 또는 인수분해,
+  `literal`=정확한 수, `numeric`=JS 부동소수점, `matrix`=진짜 행렬 리터럴,
+  `scalar`/`nonScalar`=모양이 `(1,1)`인 것/그 밖. `constant`·`callee` 는 안 쓴다.
 
 - **`shape/shape.ts`** — 모양 도메인. **모든 것이 `(rows, cols)` 이고 `(1,1)` 이 스칼라다.**
   벡터는 파생 술어. 이 한 선택으로 `v^Tv → 스칼라` 가 하드코딩 없이 나온다.
@@ -72,25 +83,25 @@
     MathJSON을 Syntax IR로 번역한다(우선순위 후위 > 병치 > `·`/`×` > `+`, **모호성 →
     오류** 판정 포함). **CE quirk 우회는 이 세 파일 안에 갇힌다.**
     `parseCeJson`(=`translateToTree`)은 재작성이 CE 결과를 되받을 때도 쓴다.
-- **`expr/`** — Typed IR 도메인.
+- **`expression/`** — Typed IR 도메인.
   - **`node.ts`** — `TypedExpr` / `Env` / `FunctionDef` 타입.
   - **`builders.ts`** — **스마트 생성자.** 노드를 만들면서 모양 검사를 같이 한다
     (`buildMul`·`buildAdd`·`buildFrac`·`buildTranspose`·`buildDeriv`…).
     `elaborate` 와 재작성이 **같은 함수**를 쓴다 — 조립 규칙이 두 벌이면 모양·연산
     판정이 어긋난다. 덕분에 재작성이 만든 트리도 자동으로 검사된다.
-    ⚠ **이 파일은 잎이다** — import 가 `shape/`·`result/`·`expr/node` 셋뿐이어야 한다
+    ⚠ **이 파일은 잎이다** — import 가 `shape/`·`result/`·`expression/node` 셋뿐이어야 한다
     (`Env` 도 `SyntaxNode` 도 모른다). 넷째가 붙었다면 여기 있으면 안 되는 코드가
     섞여 들어온 것이다.
   - **`traversal.ts`** — `mapChildren`. 자식에 `f` 를 적용하고 **빌더로 다시 조립**한다.
     재작성이 모양을 깨뜨리면 조립 단계에서 오류가 나므로 잘못된 트리가 조용히 못 빠져나간다.
     빌더 10개를 전부 쓰기 때문에 `transform/` 이 아니라 여기 있다.
-  - **`key.ts`** — `exprKey`(구조 지문, **단사여야 한다**)와 `constantInteger`.
+  - **`key.ts`** — `exprKey`(구조 지문, **단사여야 한다**)와 `asKnownInteger`.
     동류항 판정·치환 고정점·캐시 지문이 전부 이 키 위에서 돈다. 다항식과 무관한
-    범용 유틸이라 `normal.ts` 에서 떼어냈다.
+    범용 유틸이라 다항식 쪽에서 떼어냈다.
 - **`elaborate/elaborate.ts`** — **설계의 심장.** 연산자 해석 + 차원 검사 + 모양 계산을 **한 패스로**
   한다 (`·` 가 내적인지 스칼라곱인지는 모양을 알아야 정해지고, 결과 모양은 연산자가
   정해져야 나오는 상호 의존이라 나눌 수 없다). 단 **노드를 실제로 만들고 모양을 검사하는
-  일은 `expr/builders.ts` 몫이고**, 여기 남는 건 Syntax 를 보고 어느 빌더를 부를지 정하는
+  일은 `expression/builders.ts` 몫이고**, 여기 남는 건 Syntax 를 보고 어느 빌더를 부를지 정하는
   부분과 그러려면 `Env` 가 있어야 하는 것들(사용자 정의 함수 판정, 바운드 변수)이다.
   정규화는 하지 않는다 — 곱을 둘씩만 중첩해서 담아둔다 (`normalize.ts` 몫). `\frac{p}{q}` 는 `p·q^{-1}` 로 풀어버리지 않고
   전용 `frac` 노드로 남긴다 — 그래야 `\frac{x^2+2x+1}{x+1}` 이 원문 형태로 렌더된다.
@@ -106,13 +117,15 @@
   `elaboratePow` 를 부르고, `elaborate` 본체는 반대로 그 셋을 부른다. 파일을 잘못 가른
   게 아니라 알고리즘 자체가 상호 재귀다(모양 다형이라 본문을 호출부마다 다시 elaborate
   해야 하는 데서 나온다).
-- **`rewrite/`** — elaborate 직후에 도는 별도 정규화 패스. 평탄화·스칼라 호이스팅·
+- **`normalize/`** — elaborate 직후에 도는 별도 정규화 패스. 평탄화·스칼라 호이스팅·
   `neg`/숫자 접기·정렬·항등원 제거, 그리고 **거듭제곱 접기**(`AA`→`A²`, 항상 켜져 있다).
   분배는 **하지 않는다** — `(A+B)C+(A+B)C` 는 `2(A+B)C` 로 남는다.
   - **`normalize.ts`** — 디스패처. 케이스 16개지만 성격이 여섯이라 덩치 큰 셋을 뺐고,
     짧은 셋(모양 연산·거듭제곱·잎/불투명)만 여기 남았다.
-  - **`product.ts`** — 곱 계열. `collect` 가 곱을 (계수, 스칼라들, 비스칼라들)로 **분해**하고
-    `buildProduct` 가 다시 **조립**한다. 그 사이에서 접기·정렬·항등원 제거가 일어난다.
+  - **`product.ts`** — 곱 계열. `toMonomial` 이 곱을 (계수, 스칼라들, 비스칼라들)로 **분해**하고
+    `fromMonomial` 이 다시 **조립**한다. 그 사이에서 접기·정렬·항등원 제거가 일어난다.
+    이 짝은 `polynomial/convert.ts` 의 `toPolynomial`↔`fromPolynomial` 과 같은 코덱 가족이다
+    (거기 `monomialToExpr` 가 `fromMonomial` 과 거의 같은 일을 한다 — 통합은 아직).
   - **`add.ts`** — 동류항 합치기와 항 정렬. / **`frac.ts`** — 유리수 접기와 역수 하강.
 
   ⚠ **핸들러는 `normalize` 를 import 하지 않는다.** 자식 재귀가 필요하면 `recur` 를 인자로
@@ -123,11 +136,11 @@
   비스칼라 인수 **열**). 비스칼라 열의 순서를 지키는 게 비가환을 지키는 지점.
   `polynomial.ts`(타입·`polyMul`) / `convert.ts`(`toPolynomial`↔`fromPolynomial` 왕복) /
   `combine.ts`(동류항·숫자 합치기).
-  **`rewrite/product.ts` 도 같은 `Monomial` 타입을 쓴다** — 곱 하나를 셋으로 가르는 일이
+  **`normalize/product.ts` 도 같은 `Monomial` 타입을 쓴다** — 곱 하나를 셋으로 가르는 일이
   단항식과 정확히 같은 모양이라, 예전엔 `Collected` 라는 쌍둥이 타입이 따로 있었다.
-  다만 `collect` 가 주는 `scalars` 는 **정렬 전**이다(`monomialKey` 를 뽑기 전에 정렬해야
+  다만 `toMonomial` 이 주는 `scalars` 는 **정렬 전**이다(`monomialKey` 를 뽑기 전에 정렬해야
   한다 — `Monomial` 문서의 경고).
-- **`rewrite.ts`** — expand/simplify/factor/substitute. **순수 스칼라 부분식만** CE에 위임.
+- **`transform/`** — expand/simplify/factor/substitute. **순수 스칼라 부분식만** CE에 위임.
 - **`render.ts`** — Typed IR → LaTeX. 계약은 **렌더 멱등성**(낸 걸 다시 읽어 또 내면 같다).
   **이 파일엔 CE가 없다** — 잎 심볼 이름 사전만 `ce/symbolName.ts` 에 위임한다.
 - **`numeric.ts`** — 수치 평가기. 재작성 전후 값 대조 **전용**(역행렬은 일부러 뺐다).
@@ -291,7 +304,7 @@ ALGEBRA_FUZZ_SAMPLES=10000 npx vitest run src/algebra   # 대수 퍼즈를 넓�
 
 - 단위 테스트는 `*.test.ts` — jsdom, MathLive 없이 순수 로직(엔진/리듀서/에디터 규칙) 검증.
   `workspace.fuzz.test.ts`처럼 랜덤 시드 fuzz 테스트도 여기 포함.
-- **`rewrite.fuzz.test.ts` 는 대수 모듈의 안전망이다.** 무작위 식에 구체적인 수를 채워
+- **`transform/transform.fuzz.test.ts` 는 대수 모듈의 안전망이다.** 무작위 식에 구체적인 수를 채워
   `값·모양이 재작성 전후로 같은가`와 `렌더가 멱등인가`를 확인한다. 여기서 잡힌 버그가
   표 테스트로는 안 잡히는 종류다 (교환법칙 오적용, 인수 순서 뒤집힘, CE 직렬화 버그).
   **대수 모듈을 건드렸으면 표본을 크게 잡고 한 번 돌려볼 것.**

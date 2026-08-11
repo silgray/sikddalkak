@@ -30,7 +30,7 @@ import {
 /**
  * 구문 재작성 — expand / simplify / factor / substitute.
  *
- * 모든 규칙은 `normal.ts` 의 정규형과 `ops.ts` 의 성질 표 위에서만 움직인다. 여기에
+ * 모든 규칙은 `polynomial/polynomial.ts` 의 정규형과 `opers.ts` 의 성질 표 위에서만 움직인다. 여기에
  * "행렬이면 이렇게" 같은 특수 분기를 넣기 시작하면 설계가 다시 무너진다.
  *
  * **순수 스칼라 부분식은 CE에 위임한다**(설계 §7). 삼각항등식·유리식 정리처럼 우리가

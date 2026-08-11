@@ -17,7 +17,7 @@ import { mulLit } from '../literal/arith';
  * 인수 열로 평탄화해도 되는 근거는 `opers.ts` 의 결합법칙 항목이다. 결합법칙이 없는
  * 외적은 평탄화하지 않고 **통째로 인수 하나**로 남긴다 (`(u×v)×w ≠ u×(v×w)`).
  *
- * **`rewrite/` 의 곱 정규화도 같은 타입을 쓴다.** 곱 하나를 (계수, 스칼라들, 비스칼라들)로
+ * **`normalize/` 의 곱 정규화도 같은 타입을 쓴다.** 곱 하나를 (계수, 스칼라들, 비스칼라들)로
  * 가르는 일이 다항식의 단항식과 정확히 같은 모양이라, 예전엔 `Collected` 라는 쌍둥이 타입이
  * 따로 있었다.
  */
@@ -34,7 +34,7 @@ export type Monomial = {
    *
    * ⚠ **정렬 여부는 생성자 책임이다.** 타입이 강제하지 않는다. `monomialKey` 가 동류항
    * 판정에 이 순서를 쓰므로, 정렬 안 된 채로 키를 뽑으면 같은 항이 다른 항으로 잡힌다.
-   * `rewrite/product.ts` 의 `toMonomial` 는 **일부러 정렬하지 않은 채** 돌려주고
+   * `normalize/product.ts` 의 `toMonomial` 은 **일부러 정렬하지 않은 채** 돌려주고
    * (`fromMonomial` 가 마지막에 한 번 정렬한다), 다항식 경로는 만들 때마다 정렬한다.
    */
   readonly scalars: readonly TypedExpr[];

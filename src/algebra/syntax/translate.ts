@@ -380,7 +380,7 @@ function argSourceArgs(source: readonly unknown[]): readonly unknown[] {
 /**
  * `name` 바로 다음에 올 수 있는 "적용 후보" 꼴 — 괄호(또는 자체 괄호인 행렬 리터럴)
  * 그대로거나, 그 바로 뒤에 후위(`^n`,`^T`)가 붙은 것. 후위가 있으면 **감싸개를 apply
- * 노드 밖으로 끌어낸다** (`types-SyntaxNode.ts` 의 `apply` 문서 참고 — 대문자 경로와
+ * 노드 밖으로 끌어낸다** (`syntax/node.ts` 의 `apply` 문서 참고 — 대문자 경로와
  * 같은 "바깥" 꼴로 정규화해야 뒤따르는 패스가 두 경로를 안 갈라도 된다).
  */
 type ApplyTarget = {
@@ -400,7 +400,7 @@ function asApplyTarget(json: unknown): ApplyTarget | null {
     return {
       source: json[1],
       // 이름 바로 뒤(괄호 안)에 붙은 후위다 — 항상 "꽉 묶임"(`tightPostfix`, 위
-      // types-SyntaxNode.ts 문서 참고). 함수가 아니면 이 후위는 마지막 인수로 간다.
+      // syntax/node.ts 문서 참고). 함수가 아니면 이 후위는 마지막 인수로 간다.
       wrap: (base) => {
         const exponent = translateToTree(exponentJson);
         return exponent.ok
@@ -572,7 +572,7 @@ function applyFromUppercase(head: string, args: readonly unknown[]): Result<Synt
  * 일반 `translateToTree` 경로로 새 버려 **똑같은** `pow(apply(...), exp)` 꼴이
  * 된다 — `tightPostfix` 가 없으면 구분이 사라진다. 전자만 "꽉 묶임"이고, 후자는
  * 사용자가 괄호로 후위의 범위를 이미 통째로 못박은 것이므로 "느슨함"이다
- * (`types-SyntaxNode.ts` 의 `pow.tightPostfix` 문서 참고).
+ * (`syntax/node.ts` 의 `pow.tightPostfix` 문서 참고).
  */
 function translatePostfixToTree(
   baseJson: unknown,

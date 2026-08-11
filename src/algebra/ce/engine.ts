@@ -25,7 +25,7 @@ import type { TimeLimitedEngine } from './budget';
  * 건넌다 (`src/main.tsx`, `src/editor/harness.ts` 참고).
  *
  * **왜 모듈마다 인스턴스를 따로 두나.** 지금은 각 호출부가 `createEngine()` 으로 자기
- * 것을 하나씩 갖는다 — 원래부터 그랬고(`render.ts`/`parseSymbol.ts`/`matrixFold.ts` 가
+ * 것을 하나씩 갖는다 — 원래부터 그랬고(`render.ts`/`ce/symbolName.ts`/`matrixFold.ts` 가
  * 각자 갖고 있었다) 모듈이 서로를 몰라도 자립하게 하려는 것이다. 우리 모듈 중 엔진에
  * 심볼을 `declare` 하는 곳은 없으므로 하나로 합쳐도 기능상 문제는 없지만, 공유 상태가
  * 생기는 변경이라 별도로 다룬다. 합치기로 하면 **이 파일만** 고치면 된다.

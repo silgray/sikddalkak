@@ -24,9 +24,9 @@ import type { TypedExpr } from './node';
  * 모양이 안 맞으면 여기서 오류가 나온다.
  *
  * **이 파일은 잎이다.** 자료 도메인(`shape/`·`literal/`·`result/`)과 자기 노드 타입
- * (`expr/node`) 밖으로 나가지 않는다 — **`Env` 도 `SyntaxNode` 도 모른다.** 다섯째
+ * (`expression/node`) 밖으로 나가지 않는다 — **`Env` 도 `SyntaxNode` 도 모른다.** 다섯째
  * import 가 붙는다면 그건 여기 있으면 안 되는 코드가 섞여 들어온 것이다.
- * (`literal/` 은 `expr/node` 가 이미 의존하는 곳이라 새로 늘어난 의존이 아니다.)
+ * (`literal/` 은 `expression/node` 가 이미 의존하는 곳이라 새로 늘어난 의존이 아니다.)
  *
  * **정규화는 하지 않는다.** 중첩된 곱을 평탄화하거나, `neg`/숫자를 끌어올리거나, 이웃
  * 인수를 거듭제곱으로 접는 건 전부 `normalize` 의 몫이다(별도 패스). 여기서는 주어진 걸

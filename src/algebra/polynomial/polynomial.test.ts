@@ -65,7 +65,7 @@ describe('분배 — 사용자가 요구한 전개', () => {
   });
 
   it('정수 거듭제곱을 풀어쓴다', () => {
-    // `monomialToExpr` 는 이웃한 같은 인수를 접지 않는다 (`normal.ts` 서두 참고) —
+    // `monomialToExpr` 는 이웃한 같은 인수를 접지 않는다 (`polynomial/polynomial.ts` 서두 참고) —
     // `AA` 를 `A^{2}` 로 만드는 건 `simplify` 의 몫이라 여기선 풀어쓴 그대로다.
     expect(render(expanded(String.raw`\left(A+B\right)^2`))).toBe('AA+AB+BA+BB');
   });

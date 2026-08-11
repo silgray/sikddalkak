@@ -49,7 +49,7 @@ const OPERATIONS: Record<TransformOp, (e: TypedExpr, env: Env) => Result<TypedEx
  *
  * ⚠ **동류항은 합쳐지고 거듭제곱도 접힌다.** `parse("A+A")` 는 `2A`, `parse("1+2")` 는
  * `3`, `parse("AA")` 는 `A²` 다. 값을 보존하는 재작성이지만 사용자가 쓴 글자 그대로는
- * 아니다 (`rewrite/normalize.ts` 서두 참고). 대신 **분배는 하지 않는다** —
+ * 아니다 (`normalize/normalize.ts` 서두 참고). 대신 **분배는 하지 않는다** —
  * `(A+B)C+(A+B)C` 는 `2(A+B)C` 로 남는다.
  */
 export function parse(latex: string, env: Env): Result<TypedExpr> {

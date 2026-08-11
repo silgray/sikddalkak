@@ -106,7 +106,7 @@ function readStructure(latex: string): Structure {
   // 방어선 2 — 입력 경로가 교정하지 못한 저장본(옛 문서)도 계산되게.
   const repaired = repairLatex(latex.trim()).latex;
   if (repaired === '') return { kind: 'empty' };
-  // 채우지 않은 칸이 남아 있으면 미완성이다. CE(algebra 내부의 parseSymbol도 마찬가지)는
+  // 채우지 않은 칸이 남아 있으면 미완성이다. CE(algebra 내부의 symbolName도 마찬가지)는
   // `\placeholder{}` 를 파싱하지 못해 엉뚱한 메시지를 내므로 여기서 먼저 잡는다.
   if (repaired.includes('\\placeholder')) {
     return { kind: 'error', message: 'incomplete expression' };
