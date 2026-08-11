@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { sexpSyntax } from '../debug';
-import { parseSyntax } from './parseSymbol';
+import { parseSyntax } from './parse';
 
 /**
  * Syntax 층 테스트 — **구조**(우선순위·그룹)와 **어느 곱 기호였는가**만 검증한다.

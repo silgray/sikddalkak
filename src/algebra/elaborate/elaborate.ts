@@ -7,7 +7,7 @@ import {
   shape,
 } from '../shape/shape';
 import { fail, failWith, ok, type AlgebraError, type Result } from '../result/result';
-import type { SyntaxNode } from '../types-SyntaxNode';
+import type { SyntaxNode } from '../syntax/node';
 import type { TypedExpr, Env, FunctionDef } from '../expr/node';
 import {
   buildAdd,

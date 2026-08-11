@@ -2,8 +2,8 @@ import { createEngine } from '../ce/engine';
 import type { MathJsonExpression } from '@cortex-js/compute-engine';
 import { fail, type Result } from '../result/result';
 import { preprocess } from './preprocess';
-import { translateToTree } from './translateToTree';
-import type { SyntaxNode } from '../types-SyntaxNode';
+import { translateToTree } from './translate';
+import type { SyntaxNode } from './node';
 
 
 /** 

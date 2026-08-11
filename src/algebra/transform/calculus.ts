@@ -1,7 +1,7 @@
 import { createEngine } from '../ce/engine';
-import { elaborate, withBoundScalars } from '../parse/elaborate';
+import { elaborate, withBoundScalars } from '../elaborate/elaborate';
 import { buildAdd, buildMul } from '../expr/builders';
-import { parseCeJson } from '../parse/parseSymbol';
+import { parseCeJson } from '../syntax/parse';
 import { render } from '../render';
 import { isPureScalar } from './transform';
 import { mapChildren } from '../expr/traversal';

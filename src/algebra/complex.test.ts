@@ -3,7 +3,7 @@ import { render } from './render';
 import { simplify } from './index';
 import { sexpTyped } from './debug';
 import { normalizedOf, TEST_ENV } from './testEnv';
-import { parseSyntax } from './parse/parseSymbol';
+import { parseSyntax } from './syntax/parse';
 import { evalNumeric } from './numeric';
 
 /**

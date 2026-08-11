@@ -1,8 +1,8 @@
 import { createEngine } from '../ce/engine';
 import type { MathJsonExpression } from '@cortex-js/compute-engine';
-import { elaborate } from '../parse/elaborate';
+import { elaborate } from '../elaborate/elaborate';
 import { buildAdd, buildMul } from '../expr/builders';
-import { parseCeJson } from '../parse/parseSymbol';
+import { parseCeJson } from '../syntax/parse';
 import { render } from '../render';
 import { toCeJson } from '../literal/ceJson';
 import { constantInteger } from '../expr/key';

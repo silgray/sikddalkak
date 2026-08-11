@@ -11,7 +11,7 @@
  * **그 우회는 이 파일 안에만 갇힌다.** 바깥 층은 마커의 존재를 모른다.
  */
 
-import type { Literal } from './literal/literal';
+import type { Literal } from '../literal/literal';
 
 export type SyntaxNode =
   | { readonly kind: 'num'; readonly value: Literal }
