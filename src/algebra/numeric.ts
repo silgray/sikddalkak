@@ -1,4 +1,4 @@
-import type { TypedExpr } from './types-TypedExpr';
+import type { TypedExpr } from './expr/node';
 import { toRealNumber } from './literal/literal';
 import { constantInteger } from './parse/normal';
 import { fail, ok, type Result } from './result/result';

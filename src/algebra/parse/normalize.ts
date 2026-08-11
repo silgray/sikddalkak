@@ -1,15 +1,15 @@
 import {
-  addTyped,
-  crossTyped,
-  derivTyped,
-  dotTyped,
-  fracTyped,
-  integralTyped,
-  mulTyped,
-  prodTyped,
-  sumTyped,
-  transposeTyped,
-} from './elaborate';
+  buildAdd,
+  buildCross,
+  buildDeriv,
+  buildDot,
+  buildFrac,
+  buildIntegral,
+  buildMul,
+  buildProd,
+  buildSum,
+  buildTranspose,
+} from '../expr/builders';
 import {
   combineLikeTerms,
   constantInteger,
@@ -23,7 +23,7 @@ import { asInteger, intLit, isOne, splitSign, ONE as ONE_LIT, type Literal } fro
 import { divideByInt, mulLit, negLit, powLit, recipLit } from '../literal/arith';
 import { fail, ok, type Result } from '../result/result';
 import { SCALAR, isKnownShape, isScalar, isSquare, shape, type Shape } from '../shape/shape';
-import type { TypedExpr } from '../types-TypedExpr';
+import type { TypedExpr } from '../expr/node';
 
 /**
  * Normalize — elaborate가 둘씩만 담아둔 곱을 대수적으로 정리하는 별도 패스.
@@ -262,7 +262,7 @@ function combineTerms(
 
   const rebuilt = fromPolynomial(combined, target);
   if (!rebuilt.ok) return terms;
-  // 재조립된 트리는 `mulTyped` 좌결합이라 정규화 모양이 아니다. 항 단위로만 다시 다진다
+  // 재조립된 트리는 `buildMul` 좌결합이라 정규화 모양이 아니다. 항 단위로만 다시 다진다
   // (`add` 로 재귀하면 여기로 되돌아와 무한 재귀가 된다).
   const out = rebuilt.value.op === 'add' ? rebuilt.value.terms : [rebuilt.value];
   const normalized: TypedExpr[] = [];
@@ -301,7 +301,7 @@ function hoistFracNumerator(
 ): TypedExpr | null {
   const recip = reciprocalOf(denominator);
   if (recip === null) return null;
-  const product = mulTyped(recip, numerator);
+  const product = buildMul(recip, numerator);
   if (!product.ok) return null;
   const c = collect(product.value);
   return buildProduct(c.numeric, c.scalars, c.matrix, foldPowers);
@@ -584,7 +584,7 @@ export function normalize(e: TypedExpr, foldPowers = true,
         if (!r.ok) return r;
         terms.push(r.value);
       }
-      return addTyped(sortTerms(combineTerms(terms, e.shape, foldPowers), _key));
+      return buildAdd(sortTerms(combineTerms(terms, e.shape, foldPowers), _key));
     }
 
     case 'neg': {
@@ -642,7 +642,7 @@ export function normalize(e: TypedExpr, foldPowers = true,
       if (!leftCore.ok) return leftCore;
       const rightCore = asSingleMatrix(cr.matrix);
       if (!rightCore.ok) return rightCore;
-      const combine = e.op === 'dot' ? dotTyped : crossTyped;
+      const combine = e.op === 'dot' ? buildDot : buildCross;
       const core = combine(leftCore.value, rightCore.value);
       if (!core.ok) return core;
       const merged = collect(core.value);
@@ -668,7 +668,7 @@ export function normalize(e: TypedExpr, foldPowers = true,
       const c = collect(inner.value);
       const operand = asSingleMatrix(c.matrix);
       if (!operand.ok) return operand;
-      const t = transposeTyped(operand.value);
+      const t = buildTranspose(operand.value);
       if (!t.ok) return t;
       return ok(buildProduct(c.numeric, c.scalars, [t.value], foldPowers));
     }
@@ -774,7 +774,7 @@ export function normalize(e: TypedExpr, foldPowers = true,
         const hoisted = hoistFracNumerator(numerator.value, denominator.value, foldPowers);
         if (hoisted !== null) return ok(hoisted);
       }
-      return fracTyped(numerator.value, denominator.value);
+      return buildFrac(numerator.value, denominator.value);
     }
 
     // 본문(그리고 상하한)을 재귀 정규화만 하고 재조립한다. **바운드 경계를 넘는 스칼라
@@ -784,7 +784,7 @@ export function normalize(e: TypedExpr, foldPowers = true,
     case 'deriv': {
       const body = normalize(e.body, foldPowers);
       if (!body.ok) return body;
-      return derivTyped(body.value, e.vars, e.order);
+      return buildDeriv(body.value, e.vars, e.order);
     }
 
     case 'sum':
@@ -796,7 +796,7 @@ export function normalize(e: TypedExpr, foldPowers = true,
       if (lower !== null && !lower.ok) return lower;
       const upper = e.upper !== null ? normalize(e.upper, foldPowers) : null;
       if (upper !== null && !upper.ok) return upper;
-      const build = e.op === 'sum' ? sumTyped : e.op === 'prod' ? prodTyped : integralTyped;
+      const build = e.op === 'sum' ? buildSum : e.op === 'prod' ? buildProd : buildIntegral;
       return build(
         body.value,
         e.variable,

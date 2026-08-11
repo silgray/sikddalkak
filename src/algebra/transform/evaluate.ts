@@ -1,4 +1,4 @@
-import type { Env, TypedExpr } from '../types-TypedExpr';
+import type { Env, TypedExpr } from '../expr/node';
 import { constantInteger, exprKey } from '../parse/normal';
 import { normalize } from '../parse/normalize';
 import { foldMatrices } from './matrixFold';

@@ -1,14 +1,14 @@
 import {
-  addTyped,
-  crossTyped,
-  dotTyped,
-  mulTyped,
-  transposeTyped,
-} from './elaborate';
+  buildAdd,
+  buildCross,
+  buildDot,
+  buildMul,
+  buildTranspose,
+} from '../expr/builders';
 import { OP_PROPERTIES } from '../opers';
 import { fail, ok, type Result } from '../result/result';
 import { SCALAR, formatShape, isKnownShape, isScalar, type Shape } from '../shape/shape';
-import type { TypedExpr } from '../types-TypedExpr';
+import type { TypedExpr } from '../expr/node';
 import {
   asInteger,
   isOne,
@@ -218,7 +218,7 @@ function factorsToExpr(m: Monomial): Result<TypedExpr> {
   return m.factors
     .slice(1)
     .reduce<Result<TypedExpr>>(
-      (acc, f) => (acc.ok ? mulTyped(acc.value, f) : acc),
+      (acc, f) => (acc.ok ? buildMul(acc.value, f) : acc),
       ok(m.factors[0]),
     );
 }
@@ -306,7 +306,7 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
       if (!left.ok) return left;
       const right = toPolynomial(e.right);
       if (!right.ok) return right;
-      const combine = e.op === 'dot' ? dotTyped : crossTyped;
+      const combine = e.op === 'dot' ? buildDot : buildCross;
       const out: Monomial[] = [];
       for (const p of left.value) {
         const pe = factorsToExpr(p);
@@ -340,7 +340,7 @@ export function toPolynomial(e: TypedExpr): Result<Polynomial> {
       for (const m of inner.value) {
         const body = factorsToExpr(m);
         if (!body.ok) return body;
-        const t = transposeTyped(body.value);
+        const t = buildTranspose(body.value);
         if (!t.ok) return t;
         out.push({ numeric: m.numeric, scalars: m.scalars, factors: [t.value] });
       }
@@ -381,7 +381,7 @@ function monomialToExpr(m: Monomial): Result<TypedExpr> {
   parts.push(...body);
   return parts
     .slice(1)
-    .reduce<Result<TypedExpr>>((acc, p) => (acc.ok ? mulTyped(acc.value, p) : acc), ok(parts[0]));
+    .reduce<Result<TypedExpr>>((acc, p) => (acc.ok ? buildMul(acc.value, p) : acc), ok(parts[0]));
 }
 
 /**
@@ -419,7 +419,7 @@ export function fromPolynomial(p: Polynomial, target: Shape = SCALAR): Result<Ty
         : built.value,
     );
   }
-  return addTyped(terms);
+  return buildAdd(terms);
 }
 
 /**

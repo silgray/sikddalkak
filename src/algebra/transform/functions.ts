@@ -2,7 +2,7 @@ import { instantiateFunction } from '../parse/elaborate';
 import { mapChildren, substitute } from './transform';
 import { evaluate } from './evaluate';
 import { failWith, ok, type Result } from '../result/result';
-import type { Env, TypedExpr } from '../types-TypedExpr';
+import type { Env, TypedExpr } from '../expr/node';
 
 /**
  * `evaluate` 의 한 단계 — `apply`(사용자 정의 함수 호출)를 실제 값으로 편다.

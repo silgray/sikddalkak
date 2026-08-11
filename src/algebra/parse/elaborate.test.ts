@@ -4,7 +4,7 @@ import { elaborate } from './elaborate';
 import { formatShape } from '../shape/shape';
 import { parseSyntax } from './parseSymbol';
 import { TEST_ENV, typedOf } from '../testEnv';
-import type { Env, FunctionDef } from '../types-TypedExpr';
+import type { Env, FunctionDef } from '../expr/node';
 
 /**
  * §4 표 테스트 — **표가 곧 명세**다.

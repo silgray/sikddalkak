@@ -1,5 +1,6 @@
 import { createEngine } from '../ce/engine';
-import { addTyped, elaborate, mulTyped, withBoundScalars } from '../parse/elaborate';
+import { elaborate, withBoundScalars } from '../parse/elaborate';
+import { buildAdd, buildMul } from '../expr/builders';
 import { parseCeJson } from '../parse/parseSymbol';
 import { render } from '../render';
 import { isPureScalar, mapChildren } from './transform';
@@ -9,7 +10,7 @@ import { guardCe } from '../ce/budget';
 import { ok, type Result } from '../result/result';
 import { SCALAR, isKnownShape, isScalar, type Shape } from '../shape/shape';
 import { intLit } from '../literal/literal';
-import type { Env, TypedExpr } from '../types-TypedExpr';
+import type { Env, TypedExpr } from '../expr/node';
 
 /**
  * `evaluate` 의 마지막 전 단계 — 미분/적분/`\sum`/`\prod` 를 실제로 계산한다.
@@ -284,13 +285,13 @@ function foldSumProd(
   }
 
   if (e.op === 'sum') {
-    const combined = addTyped(terms);
+    const combined = buildAdd(terms);
     if (!combined.ok) return combined;
     return evaluate(combined.value, env);
   }
   const combined = terms
     .slice(1)
-    .reduce<Result<TypedExpr>>((acc, t) => (acc.ok ? mulTyped(acc.value, t) : acc), ok(terms[0]));
+    .reduce<Result<TypedExpr>>((acc, t) => (acc.ok ? buildMul(acc.value, t) : acc), ok(terms[0]));
   if (!combined.ok) return combined;
   return evaluate(combined.value, env);
 }

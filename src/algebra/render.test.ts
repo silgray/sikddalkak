@@ -3,7 +3,7 @@ import { sexpTyped } from './debug';
 import { render } from './render';
 import { TEST_ENV, typedOf } from './testEnv';
 import { parseSyntax } from './parse/parseSymbol';
-import type { Env, FunctionDef } from './types-TypedExpr';
+import type { Env, FunctionDef } from './expr/node';
 import { shape } from './shape/shape';
 
 /**

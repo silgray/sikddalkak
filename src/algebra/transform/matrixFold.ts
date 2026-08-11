@@ -1,6 +1,7 @@
 import { createEngine } from '../ce/engine';
 import type { MathJsonExpression } from '@cortex-js/compute-engine';
-import { addTyped, elaborate, mulTyped } from '../parse/elaborate';
+import { elaborate } from '../parse/elaborate';
+import { buildAdd, buildMul } from '../expr/builders';
 import { parseCeJson } from '../parse/parseSymbol';
 import { render } from '../render';
 import { toCeJson } from '../literal/ceJson';
@@ -8,7 +9,7 @@ import { constantInteger } from '../parse/normal';
 import { guardCe } from '../ce/budget';
 import { ok, type Result } from '../result/result';
 import { SCALAR } from '../shape/shape';
-import type { TypedExpr, Env } from '../types-TypedExpr';
+import type { TypedExpr, Env } from '../expr/node';
 
 /**
  * 구체 행렬 산술 — 리터럴 행렬끼리의 덧셈·곱셈·거듭제곱·전치·내적·외적을 값으로 접는다.
@@ -39,7 +40,7 @@ function addMatrixLiterals(a: MatrixLiteral, b: MatrixLiteral): Result<MatrixLit
   for (let i = 0; i < a.rows.length; i += 1) {
     const row: TypedExpr[] = [];
     for (let j = 0; j < a.rows[i].length; j += 1) {
-      const sum = addTyped([a.rows[i][j], b.rows[i][j]]);
+      const sum = buildAdd([a.rows[i][j], b.rows[i][j]]);
       if (!sum.ok) return sum;
       row.push(sum.value);
     }
@@ -56,11 +57,11 @@ function mulMatrixLiterals(a: MatrixLiteral, b: MatrixLiteral): Result<MatrixLit
     for (let j = 0; j < b.rows[0].length; j += 1) {
       const terms: TypedExpr[] = [];
       for (let k = 0; k < inner; k += 1) {
-        const prod = mulTyped(a.rows[i][k], b.rows[k][j]);
+        const prod = buildMul(a.rows[i][k], b.rows[k][j]);
         if (!prod.ok) return prod;
         terms.push(prod.value);
       }
-      const sum = addTyped(terms);
+      const sum = buildAdd(terms);
       if (!sum.ok) return sum;
       row.push(sum.value);
     }
@@ -74,7 +75,7 @@ function scaleMatrixLiteral(scalar: TypedExpr, m: MatrixLiteral): Result<MatrixL
   for (const row of m.rows) {
     const newRow: TypedExpr[] = [];
     for (const cell of row) {
-      const prod = mulTyped(scalar, cell);
+      const prod = buildMul(scalar, cell);
       if (!prod.ok) return prod;
       newRow.push(prod.value);
     }
@@ -96,11 +97,11 @@ function dotLiteral(a: MatrixLiteral, b: MatrixLiteral): Result<TypedExpr> {
   const bv = components(b);
   const terms: TypedExpr[] = [];
   for (let i = 0; i < av.length; i += 1) {
-    const prod = mulTyped(av[i], bv[i]);
+    const prod = buildMul(av[i], bv[i]);
     if (!prod.ok) return prod;
     terms.push(prod.value);
   }
-  return addTyped(terms);
+  return buildAdd(terms);
 }
 
 /** `numeric.ts`의 `cross`와 같은 공식 — 방향(행/열)은 왼쪽 피연산자를 따른다. */
@@ -108,11 +109,11 @@ function crossLiteral(a: MatrixLiteral, b: MatrixLiteral): Result<MatrixLiteral>
   const av = components(a);
   const bv = components(b);
   const term = (i: number, j: number, k: number, l: number): Result<TypedExpr> => {
-    const p1 = mulTyped(av[i], bv[j]);
+    const p1 = buildMul(av[i], bv[j]);
     if (!p1.ok) return p1;
-    const p2 = mulTyped(av[k], bv[l]);
+    const p2 = buildMul(av[k], bv[l]);
     if (!p2.ok) return p2;
-    return addTyped([p1.value, negScalar(p2.value)]);
+    return buildAdd([p1.value, negScalar(p2.value)]);
   };
   const c0 = term(1, 2, 2, 1);
   if (!c0.ok) return c0;
@@ -272,7 +273,7 @@ export function foldMatrices(e: TypedExpr): Result<TypedExpr> {
           out.push(term);
         }
       }
-      return addTyped(out);
+      return buildAdd(out);
     }
 
     case 'neg': {

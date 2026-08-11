@@ -1,9 +1,9 @@
-import { addTyped, fracTyped, mulTyped } from '../parse/elaborate';
+import { buildAdd, buildFrac, buildMul } from '../expr/builders';
 import { constantInteger, fromPolynomial, toPolynomial, exprKey } from '../parse/normal';
 import { intLit } from '../literal/literal';
 import { fail, ok, type Result } from '../result/result';
 import { SCALAR, isScalar, isSquare } from '../shape/shape';
-import type { TypedExpr } from '../types-TypedExpr';
+import type { TypedExpr } from '../expr/node';
 import { freeSymbols } from './evaluate';
 
 /**
@@ -99,7 +99,7 @@ export function lowerToScalarPolynomial(e: TypedExpr, placeholderName: string): 
  *
  * `sym(placeholder)` → `base`, `scalarPow(placeholder, n)` → `matPow(base, n)` 로
  * 바꾸고 나머지는 재귀한다. `add` 에서 항 일부만 행렬이 되면(상수항 `1` 처럼) 남은
- * 스칼라 항을 `matIdentity` 로 승격한다 — `mulTyped` 로 만들면 모양 검사가 같이 돈다.
+ * 스칼라 항을 `matIdentity` 로 승격한다 — `buildMul` 로 만들면 모양 검사가 같이 돈다.
  *
  * CE `factor` 는 순수 스칼라 다항식만 돌려주므로 `matrix`/`matMul`/`dot`/`cross`/
  * `transpose`/`matPow`/`matIdentity` 는 이 결과에 나타날 수 없다 — 나오면 우리가
@@ -131,7 +131,7 @@ export function liftFromScalarPolynomial(
           if (!l.ok) return l;
           lifted.push(l.value);
         }
-        if (lifted.every((t) => isScalar(t.shape))) return addTyped(lifted);
+        if (lifted.every((t) => isScalar(t.shape))) return buildAdd(lifted);
         const promoted: TypedExpr[] = [];
         for (const term of lifted) {
           if (!isScalar(term.shape)) {
@@ -139,11 +139,11 @@ export function liftFromScalarPolynomial(
             continue;
           }
           // 행렬 항들 사이에 낀 순수 스칼라 항(상수)을 `t·I` 로 승격한다.
-          const withIdentity = mulTyped(term, { op: 'matIdentity', shape: base.shape });
+          const withIdentity = buildMul(term, { op: 'matIdentity', shape: base.shape });
           if (!withIdentity.ok) return withIdentity;
           promoted.push(withIdentity.value);
         }
-        return addTyped(promoted);
+        return buildAdd(promoted);
       }
 
       case 'scalarMul': {
@@ -154,7 +154,7 @@ export function liftFromScalarPolynomial(
           lifted.push(l.value);
         }
         // 스칼라와 행렬로 갈라 **각각 따로 접은 뒤** 마지막에 한 번만 합친다.
-        // 순서대로(스칼라 낀 채) 하나씩 mulTyped를 접으면, 스칼라*행렬 → `mul` 노드가
+        // 순서대로(스칼라 낀 채) 하나씩 buildMul을 접으면, 스칼라*행렬 → `mul` 노드가
         // 나온 다음 그걸 다시 행렬과 곱하려다 `mul` 노드를 행렬곱 인수로 넣는
         // 비정상 중첩(`matMul` 안에 `mul`)이 생겨 뒤따르는 normalize가 이를 잘못
         // 다룬다(실측, 퍼즈가 잡음). 스칼라는 전부 교환 가능하므로 행렬 인수들의
@@ -166,13 +166,13 @@ export function liftFromScalarPolynomial(
             ? null
             : parts
                 .slice(1)
-                .reduce<Result<TypedExpr>>((acc, f) => (acc.ok ? mulTyped(acc.value, f) : acc), ok(parts[0]));
+                .reduce<Result<TypedExpr>>((acc, f) => (acc.ok ? buildMul(acc.value, f) : acc), ok(parts[0]));
         const scalarProduct = foldChain(scalarParts);
         const matrixProduct = foldChain(matrixParts);
         if (scalarProduct !== null && matrixProduct !== null) {
           if (!scalarProduct.ok) return scalarProduct;
           if (!matrixProduct.ok) return matrixProduct;
-          return mulTyped(scalarProduct.value, matrixProduct.value);
+          return buildMul(scalarProduct.value, matrixProduct.value);
         }
         return (scalarProduct ?? matrixProduct) as Result<TypedExpr>;
       }
@@ -203,7 +203,7 @@ export function liftFromScalarPolynomial(
         if (!isScalar(denominator.value.shape)) {
           return fail('unsupported', '행렬을 분모로 되돌릴 수 없다');
         }
-        return fracTyped(numerator.value, denominator.value);
+        return buildFrac(numerator.value, denominator.value);
       }
 
       case 'call': {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TypedExpr } from '../types-TypedExpr';
+import type { TypedExpr } from '../expr/node';
 import { evaluate } from './evaluate';
 import { evalNumeric, matricesClose } from '../numeric';
 import { render } from '../render';

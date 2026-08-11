@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { evaluate } from './evaluate';
 import { render } from '../render';
 import { sexpTyped } from '../debug';
-import type { Env } from '../types-TypedExpr';
+import type { Env } from '../expr/node';
 import { typedOf } from '../testEnv';
 import { CE_BUDGET_MS } from '../ce/budget';
 

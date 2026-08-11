@@ -4,19 +4,19 @@ import {
   simplify as ceSimplify,
 } from '@cortex-js/compute-engine';
 import { defaultEngine } from '../ce/engine';
+import { elaborate } from '../parse/elaborate';
 import {
-  addTyped,
-  crossTyped,
-  derivTyped,
-  dotTyped,
-  elaborate,
-  fracTyped,
-  integralTyped,
-  mulTyped,
-  prodTyped,
-  sumTyped,
-  transposeTyped,
-} from '../parse/elaborate';
+  buildAdd,
+  buildCross,
+  buildDeriv,
+  buildDot,
+  buildFrac,
+  buildIntegral,
+  buildMul,
+  buildProd,
+  buildSum,
+  buildTranspose,
+} from '../expr/builders';
 import {
   combineLikeTerms,
   exprKey,
@@ -35,7 +35,7 @@ import { fail, ok, type Result } from '../result/result';
 import { render } from '../render';
 import { parseCeJson } from '../parse/parseSymbol';
 import { SCALAR, isKnownShape, isScalar, isSquare, type Shape } from '../shape/shape';
-import type { TypedExpr, Env } from '../types-TypedExpr';
+import type { TypedExpr, Env } from '../expr/node';
 import {
   detectSingleMatrixPolynomial,
   liftFromScalarPolynomial,
@@ -199,7 +199,7 @@ export function mapChildren(
         if (!mapped.ok) return mapped;
         terms.push(mapped.value);
       }
-      return addTyped(terms);
+      return buildAdd(terms);
     }
 
     case 'neg': {
@@ -223,7 +223,7 @@ export function mapChildren(
       if (!scalar.ok) return scalar;
       const matrix = f(e.matrix);
       if (!matrix.ok) return matrix;
-      return mulTyped(scalar.value, matrix.value);
+      return buildMul(scalar.value, matrix.value);
     }
 
     case 'dot':
@@ -232,13 +232,13 @@ export function mapChildren(
       if (!left.ok) return left;
       const right = f(e.right);
       if (!right.ok) return right;
-      const combine = e.op === 'dot' ? dotTyped : crossTyped;
+      const combine = e.op === 'dot' ? buildDot : buildCross;
       return combine(left.value, right.value);
     }
 
     case 'transpose': {
       const inner = f(e.operand);
-      return inner.ok ? transposeTyped(inner.value) : inner;
+      return inner.ok ? buildTranspose(inner.value) : inner;
     }
 
     case 'matPow': {
@@ -306,13 +306,13 @@ export function mapChildren(
       if (!numerator.ok) return numerator;
       const denominator = f(e.denominator);
       if (!denominator.ok) return denominator;
-      return fracTyped(numerator.value, denominator.value);
+      return buildFrac(numerator.value, denominator.value);
     }
 
     case 'deriv': {
       const body = f(e.body);
       if (!body.ok) return body;
-      return derivTyped(body.value, e.vars, e.order);
+      return buildDeriv(body.value, e.vars, e.order);
     }
 
     case 'sum':
@@ -324,7 +324,7 @@ export function mapChildren(
       if (lower !== null && !lower.ok) return lower;
       const upper = e.upper !== null ? f(e.upper) : null;
       if (upper !== null && !upper.ok) return upper;
-      const build = e.op === 'sum' ? sumTyped : e.op === 'prod' ? prodTyped : integralTyped;
+      const build = e.op === 'sum' ? buildSum : e.op === 'prod' ? buildProd : buildIntegral;
       return build(
         body.value,
         e.variable,
@@ -371,7 +371,7 @@ function refineScalars(p: Polynomial, op: CeOp, env: Env, fold: boolean): Polyno
  *
  * `v^T(A+B)v` → `v^TAv + v^TBv`, `(A+B)²` → `A² + AB + BA + B²` (순서 유지).
  *
- * `fromPolynomial` 은 `mulTyped` 로 좌결합 접기만 하고 평탄화·정렬은 안 한다 — 그 결과가
+ * `fromPolynomial` 은 `buildMul` 로 좌결합 접기만 하고 평탄화·정렬은 안 한다 — 그 결과가
  * `parse()`(elaborate+normalize)가 같은 값에 대해 내놓는 트리와 **모양이 다를 수 있다**
  * (값은 같은데 구조가 달라 렌더→재파싱 왕복이 깨진다, 퍼즈로 확인). 그래서 끝에
  * `normalize` 를 한 번 더 걸어 어느 경로로 왔든 같은 값이 같은 트리로 수렴하게 한다.
@@ -550,9 +550,9 @@ function inferCoreShape(
  * core가 빈 단항식에 `matIdentity` 를 채워 넣는다.
  *
  * 공통 좌·우인수를 뗀 뒤 한 항에 아무것도 안 남으면(`A + AB` 에서 `A` 항처럼) 그
- * 자리는 수학적으로 항등원이다. `addTyped` 는 스칼라 `1` 과 행렬을 못 더하므로
+ * 자리는 수학적으로 항등원이다. `buildAdd` 는 스칼라 `1` 과 행렬을 못 더하므로
  * (모양 불일치 오류), 여기서 미리 `matIdentity` 를 인수로 박아 넣어야 뒤따르는
- * `fromPolynomial`→`addTyped` 조립이 통과한다.
+ * `fromPolynomial`→`buildAdd` 조립이 통과한다.
  *
  * `coreShape` 가 스칼라면 애초에 행렬이 낀 자리가 아니므로(순수 스칼라 인수분해) 손대지
  * 않는다 — 빈 인수 열은 그대로 숫자 `1` 을 뜻한다. 모양이 확정 안 됐는데 스칼라도
@@ -628,7 +628,7 @@ function factorBilinear(p: Polynomial): Result<TypedExpr> | null {
   );
   if (!inner.ok) return inner;
 
-  const combine = kind === 'dot' ? dotTyped : crossTyped;
+  const combine = kind === 'dot' ? buildDot : buildCross;
   return sharedLeft
     ? combine(parts[0].left, inner.value)
     : combine(inner.value, parts[0].right);
@@ -637,7 +637,7 @@ function factorBilinear(p: Polynomial): Result<TypedExpr> | null {
 const foldMul = (parts: readonly TypedExpr[]): Result<TypedExpr> =>
   parts
     .slice(1)
-    .reduce<Result<TypedExpr>>((acc, p) => (acc.ok ? mulTyped(acc.value, p) : acc), ok(parts[0]));
+    .reduce<Result<TypedExpr>>((acc, p) => (acc.ok ? buildMul(acc.value, p) : acc), ok(parts[0]));
 
 /**
  * 인수분해.

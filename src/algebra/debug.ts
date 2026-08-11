@@ -1,4 +1,4 @@
-import type { TypedExpr } from './types-TypedExpr';
+import type { TypedExpr } from './expr/node';
 import { formatShape } from './shape/shape';
 import type { SyntaxNode } from './types-SyntaxNode';
 import { literalKey } from './literal/literal';

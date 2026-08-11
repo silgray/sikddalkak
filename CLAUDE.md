@@ -64,6 +64,15 @@
 - **`types-SyntaxNode.ts`** — Syntax IR 타입. `·`/`×`/병치를 **구분해 보존**한다
   (CE는 셋 다 `Multiply` 로 뭉갠다). 어느 쪽이 내적/스칼라곱인지는 이 층에서 안 정한다
   (그건 elaborate 몫).
+- **`expr/`** — Typed IR 도메인.
+  - **`node.ts`** — `TypedExpr` / `Env` / `FunctionDef` 타입.
+  - **`builders.ts`** — **스마트 생성자.** 노드를 만들면서 모양 검사를 같이 한다
+    (`buildMul`·`buildAdd`·`buildFrac`·`buildTranspose`·`buildDeriv`…).
+    `elaborate` 와 재작성이 **같은 함수**를 쓴다 — 조립 규칙이 두 벌이면 모양·연산
+    판정이 어긋난다. 덕분에 재작성이 만든 트리도 자동으로 검사된다.
+    ⚠ **이 파일은 잎이다** — import 가 `shape/`·`result/`·`expr/node` 셋뿐이어야 한다
+    (`Env` 도 `SyntaxNode` 도 모른다). 넷째가 붙었다면 여기 있으면 안 되는 코드가
+    섞여 들어온 것이다.
 - **`preprocess.ts`** / **`parseSymbol.ts`** / **`translateToTree.ts`** — CE 프런트엔드.
   `preprocess`가 `\cdot`/`\times` 를 마커 심볼로 바꿔 CE 파싱에서 살아남게 하고
   (CE는 파싱하면서 뭉개버린다, 실측), `parseSymbol`이 축소 정규화 폼(`Number`만)으로
@@ -72,8 +81,10 @@
   파일 안에 갇힌다. `parseCeJson`(=`translateToTree`)은 재작성이 CE 결과를 되받을 때도 쓴다.
 - **`elaborate.ts`** — **설계의 심장.** 연산자 해석 + 차원 검사 + 모양 계산을 **한 패스로**
   한다 (`·` 가 내적인지 스칼라곱인지는 모양을 알아야 정해지고, 결과 모양은 연산자가
-  정해져야 나오는 상호 의존이라 나눌 수 없다). 정규화는 하지 않는다 — 곱을 둘씩만
-  중첩해서 담아둔다 (`normalize.ts` 몫). `\frac{p}{q}` 는 `p·q^{-1}` 로 풀어버리지 않고
+  정해져야 나오는 상호 의존이라 나눌 수 없다). 단 **노드를 실제로 만들고 모양을 검사하는
+  일은 `expr/builders.ts` 몫이고**, 여기 남는 건 Syntax 를 보고 어느 빌더를 부를지 정하는
+  부분과 그러려면 `Env` 가 있어야 하는 것들(사용자 정의 함수 판정, 바운드 변수)이다.
+  정규화는 하지 않는다 — 곱을 둘씩만 중첩해서 담아둔다 (`normalize.ts` 몫). `\frac{p}{q}` 는 `p·q^{-1}` 로 풀어버리지 않고
   전용 `frac` 노드로 남긴다 — 그래야 `\frac{x^2+2x+1}{x+1}` 이 원문 형태로 렌더된다.
   **`apply`(사용자 정의 함수 호출) 도 여기서 해소한다** — `name(args)` 가 함수 적용인지
   곱(행렬곱)인지는 `env.functions` 를 봐야 아는데, 그건 elaborate만 갖고 있다(`cdot`/
