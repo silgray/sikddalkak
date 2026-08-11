@@ -1,6 +1,6 @@
-import { ComputeEngine } from '@cortex-js/compute-engine';
 import type { TypedExpr } from './types-TypedExpr';
 import { isOne, isZero, splitSign, type Literal } from './literal/literal';
+import { symbolLatex } from './ce/symbolName';
 
 /**
  * Typed IR → string(LaTeX).
@@ -10,32 +10,15 @@ import { isOne, isZero, splitSign, type Literal } from './literal/literal';
  * 왕복이 깨지면 조용한 오답이 된다. (render.test.ts가 이걸 자동으로 확인한다.)
  *
  * 그래서 **구조 렌더를 CE에 맡기지 않는다.** CE는 `["Power","A",-1]` 을 `\frac{1}{A}` 로
- * 되돌려 역행렬을 행렬 나눗셈으로 바꿔버린다(실측). CE에 맡기는 건 **잎 심볼 이름**뿐 —
- * `Pi`→`\pi`, `A_bold`→`\mathbf{A}` 같은 이름 사전은 CE가 정확히 알고 있다.
+ * 되돌려 역행렬을 행렬 나눗셈으로 바꿔버린다(실측). CE에 맡기는 건 **잎 심볼 이름**뿐이고
+ * (`Pi`→`\pi`, `A_bold`→`\mathbf{A}`), 그건 `ce/symbolName.ts` 에 따로 빼뒀다 —
+ * 이 파일에는 CE가 없다.
  *
  * ⚠ `apply`(사용자 정의 함수 호출) 노드가 섞이면 왕복 계약이 **"같은 env 안에서"로
  * 좁아진다** — `render` 는 `env` 를 안 받으므로, `f\left(x\right)` 를 함수 정의가 없는
  * 환경에서 다시 읽으면 곱으로 돌아온다(`elaborate` 가 판단한다, `apply` case 참고).
  * 모양이 이미 `env` 에 의존하는 것과 같은 성질이라 새로운 종류의 빚은 아니다.
  */
-
-const ce = new ComputeEngine();
-
-/** 심볼 이름 → LaTeX. CE에 위임하고 결과를 캐시한다. */
-const symbolLatexCache = new Map<string, string>();
-function symbolLatex(name: string): string {
-  const cached = symbolLatexCache.get(name);
-  if (cached !== undefined) return cached;
-  let latex = name;
-  try {
-    const boxed = ce.box(name, { canonical: false }).latex;
-    if (typeof boxed === 'string' && boxed.length > 0) latex = boxed;
-  } catch {
-    // 이름을 그대로 쓴다 — 렌더가 죽는 것보다 낫다.
-  }
-  symbolLatexCache.set(name, latex);
-  return latex;
-}
 
 /**
  * 괄호 판단용 결합 세기. **파서의 우선순위(§3)와 같은 순서여야** 왕복이 성립한다.

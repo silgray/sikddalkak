@@ -8,7 +8,7 @@ import { expand, factor, simplify, substitute } from './transform/transform';
 import { SCALAR, formatShape, type Shape } from './shape/shape';
 import { parseSyntax } from './parse/parseSymbol';
 export { parseSyntax } from './parse/parseSymbol';
-import { withCeBudget } from './ceLimit';
+import { withCeBudget } from './ce/budget';
 import type { SyntaxNode } from './types-SyntaxNode';
 
 /**
@@ -70,7 +70,7 @@ export const shapeOf = (e: TypedExpr): Shape => e.shape;
  * (기존 `transformSelection` 은 문맥이 없어서 심볼이 행렬인지 알 수 없었다).
  */
 export function transform(latex: string, op: TransformOp, env: Env): Result<string> {
-  // `evaluate` 와 함께 CE 예산의 단위다 (`ceLimit.ts`) — 선택 변환도 CE를 타므로
+  // `evaluate` 와 함께 CE 예산의 단위다 (`ce/budget.ts`) — 선택 변환도 CE를 타므로
   // 여기도 상한 없이 두면 앱이 멈출 수 있다.
   return withCeBudget(() => {
     const parsed = parse(latex, env);

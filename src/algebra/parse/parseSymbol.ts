@@ -1,4 +1,4 @@
-import { ComputeEngine } from '@cortex-js/compute-engine';
+import { createEngine } from '../ce/engine';
 import type { MathJsonExpression } from '@cortex-js/compute-engine';
 import { fail, type Result } from '../result/result';
 import { preprocess } from './preprocess';
@@ -18,11 +18,8 @@ import type { SyntaxNode } from '../types-SyntaxNode';
 // ---------------------------------------------------------------------------
 
 
-/**
- * 파싱 전용 CE 인스턴스. 앱 전역 인스턴스와 분리해 이 모듈이 자립하도록 둔다
- * (모듈은 셀·문서·앱을 모른다는 경계).
- */
-const ce = new ComputeEngine();
+/** 파싱 전용 CE 인스턴스 (`ce/engine.ts` 참고). */
+const ce = createEngine();
 
 
 /**

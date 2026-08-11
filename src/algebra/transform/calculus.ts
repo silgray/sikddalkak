@@ -1,11 +1,11 @@
-import { ComputeEngine } from '@cortex-js/compute-engine';
+import { createEngine } from '../ce/engine';
 import { addTyped, elaborate, mulTyped, withBoundScalars } from '../parse/elaborate';
 import { parseCeJson } from '../parse/parseSymbol';
 import { render } from '../render';
 import { isPureScalar, mapChildren } from './transform';
 import { evaluate } from './evaluate';
 import { constantInteger } from '../parse/normal';
-import { guardCe } from '../ceLimit';
+import { guardCe } from '../ce/budget';
 import { ok, type Result } from '../result/result';
 import { SCALAR, isKnownShape, isScalar, type Shape } from '../shape/shape';
 import { intLit } from '../literal/literal';
@@ -36,8 +36,8 @@ export function foldCalculus(e: TypedExpr, env: Env): Result<TypedExpr> {
   }
 }
 
-/** 이 파일 전용 CE 인스턴스 (버전 격리 규칙, `matrixFold.ts`/`parseSymbol.ts` 와 같은 관례). */
-const ce = new ComputeEngine();
+/** 이 파일 전용 CE 인스턴스 (`ce/engine.ts` 참고). */
+const ce = createEngine();
 
 /** `\sum`/`\prod` 를 실제로 펼칠 최대 항 수. 폭주 방지용(`matrixFold.ts` 의 크기 상한과 같은 취지). */
 const MAX_EXPANSION = 64;
@@ -162,7 +162,7 @@ function ceIntegrateOnce(
     const parsed = ce.parse(render(node));
     if (!parsed.isValid) return null;
     // CE 0.90은 어떤 적분에서 안 돌아온다 — 상한을 걸고, 걸리면 미평가로 남긴다
-    // (`ceLimit.ts` 서두에 실측 사례).
+    // (`ce/budget.ts` 서두에 실측 사례).
     const evaluated = guardCe(ce, 'integral', () => parsed.evaluate());
     const syntax = parseCeJson(evaluated.json);
     if (!syntax.ok) return null;

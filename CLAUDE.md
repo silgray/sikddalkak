@@ -89,11 +89,19 @@
   비스칼라 열의 순서를 지키는 게 비가환을 지키는 지점.
 - **`rewrite.ts`** — expand/simplify/factor/substitute. **순수 스칼라 부분식만** CE에 위임.
 - **`render.ts`** — Typed IR → LaTeX. 계약은 **렌더 멱등성**(낸 걸 다시 읽어 또 내면 같다).
+  **이 파일엔 CE가 없다** — 잎 심볼 이름 사전만 `ce/symbolName.ts` 에 위임한다.
 - **`numeric.ts`** — 수치 평가기. 재작성 전후 값 대조 **전용**(역행렬은 일부러 뺐다).
 - **`debug.ts`** — Syntax/Typed IR → 사람이 읽는 s-식. 테스트 기대값과 랩 진단 패널이 공유.
-- **`ceLimit.ts`** — CE 호출의 **시간 예산**. 바깥 진입점(`evaluate`/`transform`)이 예산을
-  한 번 깔고(`withCeBudget`) 안쪽 CE 호출들이 나눠 쓴다(`guardCe`). 호출당이 아니라
-  연산당인 게 요점 — 원소별 적분처럼 CE를 n번 부르는 경로에서 상한이 n배로 불어나면 안 된다.
+- **`ce/`** — CE와 말 섞는 **공통 규약**만. 실제로 CE에 뭘 시키는 코드(분수 산술·정리·
+  미적분·역행렬)와 자기 타입의 MathJSON 코덱은 각 도메인에 남는다.
+  - **`engine.ts`** — 인스턴스를 얻는 **유일한 창구**. `new ComputeEngine()` 이 이 파일
+    밖에 있으면 안 된다. 버전 격리 규칙의 근거도 여기. 자유 함수(`expand`/`factor`/
+    `simplify`)가 도는 **기본 엔진**은 `defaultEngine()` 이 준다 — 상한을 거기 걸어야
+    해서다.
+  - **`budget.ts`** — CE 호출의 **시간 예산**. 바깥 진입점(`evaluate`/`transform`)이 예산을
+    한 번 깔고(`withCeBudget`) 안쪽 CE 호출들이 나눠 쓴다(`guardCe`). 호출당이 아니라
+    연산당인 게 요점 — 원소별 적분처럼 CE를 n번 부르는 경로에서 상한이 n배로 불어나면 안 된다.
+  - **`symbolName.ts`** — 심볼 이름 → LaTeX(`Pi`→`\pi`). CE를 **사전으로만** 쓰는 자리.
 - **`transform/functions.ts`** — `evaluate` 의 한 단계. `apply` 노드를 실제 값으로 편다
   (`foldCalculus`와 같은 규율: 인수를 먼저 완전히 계산 → 함수 정의를 그 값으로 인스턴스화
   → 재귀 `evaluate`). 실패하면 원래 `apply` 노드를 그대로 돌려준다. `foldMatrices` 보다

@@ -1,4 +1,4 @@
-import { ComputeEngine } from '@cortex-js/compute-engine';
+import { createEngine } from '../ce/engine';
 import type { MathJsonExpression } from '@cortex-js/compute-engine';
 import { intLit, makeRational, type Literal, type RealLiteral } from './literal';
 import { fromCeJson, toCeJson } from './ceJson';
@@ -18,11 +18,10 @@ import { fromCeJson, toCeJson } from './ceJson';
  * 실패는 **`null`** 이다 (`viaCe`/`invertLiteral` 과 같은 방어 관례). 호출자는 접지 말고
  * 원래 트리를 그대로 유지해야 한다 — "안 접힘" 이 "틀린 답" 보다 낫다.
  *
- * 이 파일 전용 CE 인스턴스를 두는 것도 기존 관례다 (`render.ts`, `parseSymbol.ts`,
- * `matrixFold.ts` 가 각자 갖고 있다 — 버전 격리 규칙).
+ * 인스턴스는 `ce/engine.ts` 에서 받는다 (왜 모듈마다 따로 두는지는 그 파일 참고).
  */
 
-const ce = new ComputeEngine();
+const ce = createEngine();
 
 /** CE에 이항 연산을 맡긴다. 우리가 못 읽는 결과가 오면 `null`. */
 function viaCe(head: string, a: Literal, b: Literal): Literal | null {

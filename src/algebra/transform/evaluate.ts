@@ -5,7 +5,7 @@ import { foldMatrices } from './matrixFold';
 import { foldCalculus } from './calculus';
 import { foldFunctions } from './functions';
 import { simplify, substitute } from './transform';
-import { withCeBudget } from '../ceLimit';
+import { withCeBudget } from '../ce/budget';
 import { fail, ok, type Result } from '../result/result';
 import { render } from '../render';
 import { SCALAR, isSquare, shape } from '../shape/shape';
@@ -28,7 +28,7 @@ import { ONE, ZERO } from '../literal/literal';
  * 끝나 있어야 한다 — 순서를 바꾸면 `f(x)` 가 여전히 미펼쳐진 채라 `foldMatrices` 가
  * 이웃 리터럴을 못 알아본다.
  *
- * 이 호출 하나가 **CE 예산의 단위**다(`ceLimit.ts`) — 안에서 CE를 몇 번 부르든 합쳐서
+ * 이 호출 하나가 **CE 예산의 단위**다(`ce/budget.ts`) — 안에서 CE를 몇 번 부르든 합쳐서
  * 상한을 넘지 않는다. CE 0.90의 적분이 안 끝나는 입력이 있어서, 없으면 앱이 통째로 멈춘다.
  */
 export function evaluate(e: TypedExpr, env: Env): Result<TypedExpr> {

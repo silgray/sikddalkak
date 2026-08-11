@@ -1,11 +1,11 @@
-import { ComputeEngine } from '@cortex-js/compute-engine';
+import { createEngine } from '../ce/engine';
 import type { MathJsonExpression } from '@cortex-js/compute-engine';
 import { addTyped, elaborate, mulTyped } from '../parse/elaborate';
 import { parseCeJson } from '../parse/parseSymbol';
 import { render } from '../render';
 import { toCeJson } from '../literal/ceJson';
 import { constantInteger } from '../parse/normal';
-import { guardCe } from '../ceLimit';
+import { guardCe } from '../ce/budget';
 import { ok, type Result } from '../result/result';
 import { SCALAR } from '../shape/shape';
 import type { TypedExpr, Env } from '../types-TypedExpr';
@@ -129,8 +129,8 @@ function crossLiteral(a: MatrixLiteral, b: MatrixLiteral): Result<MatrixLiteral>
 // 역행렬 — CE 위임
 // ---------------------------------------------------------------------------
 
-/** 이 파일 전용 CE 인스턴스 — 모듈이 자립하도록 (버전 격리 규칙, `parseSymbol.ts`와 같은 관례). */
-const ce = new ComputeEngine();
+/** 이 파일 전용 CE 인스턴스 (`ce/engine.ts` 참고). */
+const ce = createEngine();
 
 /**
  * 되돌아온 결과를 다시 읽을 때 쓰는 env. 행렬 셀은 `elaborate` 규칙상 반드시

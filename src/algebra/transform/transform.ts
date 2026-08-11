@@ -1,9 +1,9 @@
 import {
   expand as ceExpand,
   factor as ceFactor,
-  getDefaultEngine,
   simplify as ceSimplify,
 } from '@cortex-js/compute-engine';
+import { defaultEngine } from '../ce/engine';
 import {
   addTyped,
   crossTyped,
@@ -30,7 +30,7 @@ import {
 import { normalize } from '../parse/normalize';
 import { asInteger, intLit, isZero, ONE as ONE_LIT, type Literal } from '../literal/literal';
 import { divideByInt } from '../literal/arith';
-import { guardCe, type TimeLimitedEngine } from '../ceLimit';
+import { guardCe } from '../ce/budget';
 import { fail, ok, type Result } from '../result/result';
 import { render } from '../render';
 import { parseCeJson } from '../parse/parseSymbol';
@@ -130,9 +130,9 @@ function viaCe(e: TypedExpr, op: CeOp, env: Env): TypedExpr {
     // 0.90에서 expand/factor는 Expression의 메서드가 아니라 자유 함수다(.d.ts 확인).
     // 문자열 입력은 기본이 느슨한 AsciiMath 문법이라 `strict` 로 LaTeX 문법을 강제한다.
     const source = render(e);
-    // 자유 함수는 CE의 **기본 엔진**에서 돈다 — 상한도 거기에 걸어야 한다
-    // (`ceLimit.ts`: 0.90 타입에는 `withTimeLimit` 이 안 드러나 있어 구조적으로 받는다).
-    const result = guardCe(getDefaultEngine() as unknown as TimeLimitedEngine, op, () =>
+    // 자유 함수는 우리 인스턴스가 아니라 CE의 **기본 엔진**에서 돈다 — 상한도 거기에
+    // 걸어야 한다 (`ce/engine.ts` 의 `defaultEngine`).
+    const result = guardCe(defaultEngine(), op, () =>
       op === 'expand'
         ? ceExpand(source, { strict: true })
         : op === 'factor'

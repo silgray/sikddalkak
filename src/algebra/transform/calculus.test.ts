@@ -4,7 +4,7 @@ import { render } from '../render';
 import { sexpTyped } from '../debug';
 import type { Env } from '../types-TypedExpr';
 import { typedOf } from '../testEnv';
-import { CE_BUDGET_MS } from '../ceLimit';
+import { CE_BUDGET_MS } from '../ce/budget';
 
 /**
  * `evaluate` 가 미분/적분/`\sum`/`\prod` 를 실제로 계산하는지 보는 표.
@@ -171,7 +171,7 @@ describe('적분 — CE가 안 끝나는 입력에도 돌아온다 (동작 핀)'
    * 실측 회귀. CE 0.90의 `.evaluate()` 는
    * `\int_{-\pi}^{\pi}\frac{1}{2}e^{3x}\sin(2x)dx` (본문 정리 후의 모습)에서 **안 돌아온다**.
    * 지수 계수가 `1` 이면 111ms 만에 풀리는데 `3` 이면 멈추는 CE 쪽 버그라, 우리는
-   * 시간 상한(`ceLimit.ts`)으로만 막을 수 있다. 상한이 걸리면 적분은 **미평가로 남는다** —
+   * 시간 상한(`ce/budget.ts`)으로만 막을 수 있다. 상한이 걸리면 적분은 **미평가로 남는다** —
    * 접을 수 없으면 원래 노드를 돌려준다는 이 파일의 규약 그대로다.
    */
   it('e^{3x}sin/cos — 상한 안에 미평가로 돌아온다', () => {
