@@ -117,6 +117,10 @@ export function HelpPanel() {
                 <dt>Result rows</dt>
                 <dd>Editable — the first change detaches them into an independent expression</dd>
               </div>
+              <div>
+                <dt>● / ○ toggle</dt>
+                <dd>Excludes the cell from calculation (dims it) without deleting it</dd>
+              </div>
             </dl>
           </section>
         </div>

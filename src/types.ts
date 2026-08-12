@@ -23,6 +23,12 @@ export type FormulaObject = {
    * 재평가된 새 결과는 다시 보여준다.
    */
   resultDetached: boolean;
+  /**
+   * false면 이 셀을 위상정렬·평가에서 통째로 뺀다 — 정의도 안 되고 결과도 안 나온다
+   * (`cellGraph.ts` 의 `evaluateCells` 참고). 지운 게 아니라 잠깐 끈 것이라 `latex`는
+   * 그대로 남는다. UI는 셀 전체를 반투명하게 표시해 이 상태를 알린다.
+   */
+  enabled: boolean;
 };
 
 export type EvalResult =

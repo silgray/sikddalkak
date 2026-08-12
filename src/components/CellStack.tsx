@@ -89,6 +89,9 @@ export function CellStack({ tab, dispatch }: Props) {
             onEdit={(latex, caret) => dispatch({ type: 'editInput', id: object.id, latex, cursor: caret })}
             onEnter={(latex) => dispatch({ type: 'enter', id: object.id, latex })}
             onRemove={() => dispatch({ type: 'remove', id: object.id })}
+            onToggleEnabled={() =>
+              dispatch({ type: 'setEnabled', id: object.id, enabled: !object.enabled })
+            }
             onDeleteEmpty={() => {
               // 빈 셀 backspace: 셀을 지우고 바로 위 셀 끝으로. 맨 아래 상시 빈
               // 셀은 지워도 불변식이 재추가하므로(히스토리 노이즈) 이동만 한다.

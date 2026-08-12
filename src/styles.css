@@ -274,6 +274,31 @@ body {
   opacity: 0.45;
 }
 
+.cell-disabled {
+  opacity: 0.4;
+}
+
+.cell-toggle {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  padding: 0.15rem 0.1rem;
+  font-size: 0.75rem;
+  line-height: 1;
+  opacity: 0.55;
+}
+
+.cell:hover .cell-toggle {
+  opacity: 1;
+}
+
+.cell-toggle:hover {
+  color: var(--accent);
+}
+
 .drop-line {
   height: 2px;
   border-radius: 1px;

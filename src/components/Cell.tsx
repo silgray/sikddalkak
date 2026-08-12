@@ -20,6 +20,8 @@ type Props = {
   onEdit: (latex: string, caret: number) => void;
   onEnter: (latex: string) => void;
   onRemove: () => void;
+  /** 위상정렬·평가 포함 여부 토글 (`object.enabled`). */
+  onToggleEnabled: () => void;
   /** 결과 행을 편집해 독립 식으로 분리할 때 (편집된 latex + 캐럿). */
   onDetachResult: (latex: string, caret?: number) => void;
   /** 선택 변환처럼 즉시 평가돼야 하는 명시적 편집. selectionBefore = 조작 직전 선택. */
@@ -212,6 +214,7 @@ export function Cell({
   onEdit,
   onEnter,
   onRemove,
+  onToggleEnabled,
   onDetachResult,
   onCommitDistinct,
   onDragStart,
@@ -264,9 +267,22 @@ export function Cell({
     replaceCurrentSelection(selection.field, replacement);
   };
 
+  const cellClassName = ['cell', dragging && 'cell-dragging', !object.enabled && 'cell-disabled']
+    .filter(Boolean)
+    .join(' ');
+
   return (
-    <div className={dragging ? 'cell cell-dragging' : 'cell'}>
+    <div className={cellClassName}>
       <div className="cell-input">
+        {/* 임시 위치 — 셀 제일 왼쪽. 위상정렬·평가에서 이 셀을 뺄지 토글한다. */}
+        <button
+          type="button"
+          className="cell-toggle"
+          title={object.enabled ? 'Exclude from calculation' : 'Include in calculation'}
+          onClick={onToggleEnabled}
+        >
+          {object.enabled ? '●' : '○'}
+        </button>
         <div
           className="drag-handle"
           title="Drag to reorder"

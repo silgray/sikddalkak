@@ -79,6 +79,8 @@ type ObjectAction =
     }
   | { type: 'enter'; id: string; latex: string }
   | { type: 'setMode'; id: string; mode: CellMode }
+  /** 위상정렬·평가에 포함할지 토글 (`FormulaObject.enabled`). */
+  | { type: 'setEnabled'; id: string; enabled: boolean }
   | { type: 'remove'; id: string }
   /** 드래그 재정렬. toIndex = 이동 후 위치. 표시 순서만 바뀐다(평가는 순서 무관). */
   | { type: 'moveObject'; id: string; toIndex: number }
@@ -107,7 +109,7 @@ const HISTORY_LIMIT = 500;
 const emptyHistory = (): History => ({ past: [], future: [] });
 
 export function makeObject(): FormulaObject {
-  return { id: crypto.randomUUID(), latex: '', mode: 'scoped', resultDetached: false };
+  return { id: crypto.randomUUID(), latex: '', mode: 'scoped', resultDetached: false, enabled: true };
 }
 
 export function makeTab(name: string): Tab {
@@ -198,6 +200,9 @@ function reduceContent(tab: Tab, action: ObjectAction): Content {
 
     case 'setMode':
       return { objects: patch(tab.objects, action.id, { mode: action.mode }), focus: tab.focus };
+
+    case 'setEnabled':
+      return { objects: patch(tab.objects, action.id, { enabled: action.enabled }), focus: tab.focus };
 
     case 'enter': {
       const objects = patch(tab.objects, action.id, { latex: action.latex, resultDetached: false });

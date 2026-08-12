@@ -246,6 +246,12 @@ export function evaluateCells(
   // --- 1단계: 그래프 구조 (안 바뀐 식은 캐시에서 꺼내 파싱을 건너뛴다) ---
   const nodes: Node[] = [];
   for (const object of objects) {
+    // 꺼진 셀은 그래프에 아예 안 들어간다 — 정의도 안 하고 계산도 안 된다. 지운
+    // 것처럼 취급하되 latex는 그대로 남는다(꺼졌다 켜지면 원래 식이 다시 보인다).
+    if (!object.enabled) {
+      results.set(object.id, { kind: 'empty' });
+      continue;
+    }
     const key = object.latex.trim();
     const structure = structures.get(key) ?? remember(structures, key, readStructure(object.latex));
     if (structure.kind !== 'node') {

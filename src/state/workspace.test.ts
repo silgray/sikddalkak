@@ -106,6 +106,16 @@ describe('오브젝트 액션은 활성 탭만 건드린다', () => {
     s = workspaceReducer(s, { type: 'remove', id });
     expect(active(s).objects).toHaveLength(1);
   });
+
+  it('setEnabled가 해당 오브젝트의 enabled만 바꾼다', () => {
+    let s = initialWorkspace();
+    const id = active(s).objects[0].id;
+    expect(active(s).objects[0].enabled).toBe(true); // 새 셀은 기본으로 켜져 있다
+    s = workspaceReducer(s, { type: 'setEnabled', id, enabled: false });
+    expect(active(s).objects[0].enabled).toBe(false);
+    s = workspaceReducer(s, { type: 'setEnabled', id, enabled: true });
+    expect(active(s).objects[0].enabled).toBe(true);
+  });
 });
 
 describe('makeTab', () => {
@@ -194,7 +204,7 @@ describe('상시 빈 셀 불변식', () => {
     const t = hydrateTab({
       id: 't1',
       name: 'T',
-      objects: [{ id: 'a', latex: '2x', mode: 'scoped', resultDetached: false }],
+      objects: [{ id: 'a', latex: '2x', mode: 'scoped', resultDetached: false, enabled: true }],
     });
     expect(t.objects).toHaveLength(2);
     expect(t.objects[1].latex).toBe('');

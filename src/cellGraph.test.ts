@@ -13,14 +13,14 @@ import type { EvalResult, FormulaObject } from './types';
  */
 
 let seq = 0;
-function obj(latex: string): FormulaObject {
+function obj(latex: string, enabled = true): FormulaObject {
   seq += 1;
-  return { id: `t${seq}`, latex, mode: 'scoped', resultDetached: false };
+  return { id: `t${seq}`, latex, mode: 'scoped', resultDetached: false, enabled };
 }
 
 /** 그래프를 입력 순서대로 평가하고 결과를 그 순서 배열로 되돌린다. */
 function run(latexes: readonly string[]): EvalResult[] {
-  const objects = latexes.map(obj);
+  const objects = latexes.map((latex) => obj(latex));
   const { results } = evaluateCells(objects);
   return objects.map((o) => results.get(o.id) ?? { kind: 'empty' });
 }
@@ -316,5 +316,37 @@ describe('에러 처리', () => {
   it('에러 셀이 있어도 다른 셀은 계속 평가한다', () => {
     const [, , third] = run(['a=3', 'x+', 'a x']);
     expect(latexOf(third)).toBe('3x');
+  });
+});
+
+describe('셀 비활성화 (enabled)', () => {
+  it('꺼진 셀은 결과가 비어 있다', () => {
+    const objects = [obj('2+2', false)];
+    const { results } = evaluateCells(objects);
+    expect(results.get(objects[0].id)).toEqual({ kind: 'empty' });
+  });
+
+  it('꺼진 정의 셀은 다른 셀에 값을 전달하지 않는다 — 이름이 아예 없던 것처럼', () => {
+    const objects = [obj('a=3', false), obj('a x')];
+    const { results } = evaluateCells(objects);
+    // 정의가 꺼졌으니 `a`는 미정의 심볼 취급 — 스칼라로 가정돼 그대로 남는다(오류 아님).
+    expect(latexOf(results.get(objects[1].id)!)).toBe('ax');
+  });
+
+  it('같은 이름을 정의하는 셀이 꺼져 있으면 중복정의로 안 잡힌다', () => {
+    const objects = [obj('a=3', false), obj('a=5'), obj('a x')];
+    const { results } = evaluateCells(objects);
+    expect(results.get(objects[1].id)).toMatchObject({ kind: 'ok' });
+    expect(latexOf(results.get(objects[2].id)!)).toBe('5x');
+  });
+
+  it('꺼진 셀을 다시 켜면 그래프에 다시 들어간다', () => {
+    const off = obj('a=3', false);
+    const dependent = obj('a x');
+    const { results: before } = evaluateCells([off, dependent]);
+    expect(latexOf(before.get(dependent.id)!)).toBe('ax');
+
+    const { results: after } = evaluateCells([{ ...off, enabled: true }, dependent]);
+    expect(latexOf(after.get(dependent.id)!)).toBe('3x');
   });
 });

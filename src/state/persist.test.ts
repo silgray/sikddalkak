@@ -8,6 +8,7 @@ const obj = (id: string, latex: string, extra: Partial<FormulaObject> = {}): For
   latex,
   mode: 'scoped',
   resultDetached: false,
+  enabled: true,
   ...extra,
 });
 
@@ -35,6 +36,14 @@ describe('직렬화 왕복', () => {
     };
     expect(parseWorkspace(serializeWorkspace(ws))?.tabs[0].objects[0].resultDetached).toBe(true);
   });
+
+  it('enabled도 왕복한다', () => {
+    const ws: WorkspaceState = {
+      tabs: [hydrateTab({ id: 't1', name: 'T', objects: [obj('a', '2x', { enabled: false })] })],
+      activeTabId: 't1',
+    };
+    expect(parseWorkspace(serializeWorkspace(ws))?.tabs[0].objects[0].enabled).toBe(false);
+  });
 });
 
 describe('v1 → v2 마이그레이션', () => {
@@ -53,6 +62,17 @@ describe('v1 → v2 마이그레이션', () => {
   it('v1 오브젝트에 없던 resultDetached는 false로 채운다', () => {
     const v1 = JSON.stringify({ version: 1, objects: [{ id: 'x', latex: '2x', mode: 'scoped' }] });
     expect(parseWorkspace(v1)?.tabs[0].objects[0].resultDetached).toBe(false);
+  });
+
+  it('구 저장본(enabled 없음)은 켜진 채로 채운다', () => {
+    const v1 = JSON.stringify({ version: 1, objects: [{ id: 'x', latex: '2x', mode: 'scoped' }] });
+    expect(parseWorkspace(v1)?.tabs[0].objects[0].enabled).toBe(true);
+    const v2 = JSON.stringify({
+      version: 2,
+      tabs: [{ id: 't', name: 'T', objects: [{ id: 'a', latex: '2x', mode: 'scoped' }] }],
+      activeTabId: 't',
+    });
+    expect(parseWorkspace(v2)?.tabs[0].objects[0].enabled).toBe(true);
   });
 });
 
