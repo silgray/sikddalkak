@@ -1,12 +1,12 @@
 import { render, shape, type Env, parse, expand, simplify, factor, type TypedExpr } from '../index';
-import { elaborate } from '../elaborate/elaborate';
+import { elaborate } from '../parse/elaborate';
 import { normalize } from '../normalize/normalize';
 import { ComputeEngine } from '@cortex-js/compute-engine';
-import { translateToTree } from '../syntax/translate';
+import { translateToTree } from '../parse/translate';
 
 import { evaluate, substituteDeep } from '../transform/evaluate';
 import { group, show } from './view';
-import { prettify } from './sort_add';
+import { prettify } from '../transform/prettify';
 
 import { sort_keys } from './sort_add';
 
@@ -118,7 +118,7 @@ const latex_strs: Record<string, TestValues | null> = {
   // "\\frac{\\mathrm{d}}{\\mathrm{d}(x,y)}x": null,
   // "1-2x^2+x+x^3+x^6+x": null,
   // "1+y+xy+2x^2+x+x^3+x^6+e^{x^2}": null,
-  // "-3 + x^5 + x^3y + xy^3z^3 + x^3z^3u + y^3z^5u + \\sin(x) + \\frac{1}{x} + \\sum_{k=1}^{4}k^2 + \\left(\\sum_{k=1}^{4}a^kx\\right)^{\\left(\\sum_{k=1}^{4}a^kx\\right)} + a^{\\sum_{k=1}^{4}a^kx} + \\left(\\sum_{k=1}^{4}a^kx\\right)^a + 2x^3y": null,
+  "-3 + x^5 + x^3y + xy^3z^3 + x^3z^3u + y^3z^5u + \\sin(x) + \\frac{1}{x} + \\sum_{k=1}^{4}k^2 + \\left(\\sum_{k=1}^{4}a^kx\\right)^{\\left(\\sum_{k=1}^{4}a^kx\\right)} + a^{\\sum_{k=1}^{4}a^kx} + \\left(\\sum_{k=1}^{4}a^kx\\right)^a + 2x^3y": null,
   "x^3+y^3+3xy^2+3x^2y": null,
   // "ba+ab^4": null,
 };
@@ -128,7 +128,6 @@ const ce = new ComputeEngine();
 
 function test(latexs: Record<string, TestValues | null>) {
 
-  console.log("\n\n=================================");
   for(const [latex, /* value */] of Object.entries(latexs)) {
     group("", () => {
       show("raw:", latex);
@@ -170,7 +169,10 @@ function test(latexs: Record<string, TestValues | null>) {
           console.log("normalized error:", normalized_expr.errors);
           return;
         }
-        const prettified_expr = prettify(normalized_expr.value, termKey, mulKey);
+        const prettified_expr = prettify(normalized_expr.value, {
+          compareTerms: termKey,
+          compareFactors: mulKey,
+        });
         show("normalized:", render(prettified_expr), prettified_expr);
 
       });

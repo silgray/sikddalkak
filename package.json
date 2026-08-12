@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:browser": "vitest run --config vitest.browser.config.ts",
     "test:watch": "vitest",
+    "bench": "vitest bench --run",
     "prelab": "node scripts/copy-mathlive-assets.mjs",
     "prealgebra-test": "node scripts/copy-mathlive-assets.mjs",
     "algebra-test": "vite --config vite.algebra-test.config.ts"

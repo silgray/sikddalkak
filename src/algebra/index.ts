@@ -37,6 +37,8 @@ export { formatSyntax, formatTyped, formatTypedWithShapes } from './debug';
 export { OP_PROPERTIES, type BinaryOp, type OpProperties } from './opers';
 export { normalize } from './normalize/normalize';
 export { evaluate, collectFreeSymbols, substituteDeep } from './transform/evaluate';
+// 자리만 마련해 둔 것 — 아직 아무 호출부에도 안 붙는다 (`transform/prettify.ts` 참고).
+export { prettify, type PrettyOrder } from './transform/prettify';
 
 export type TransformOp = 'expand' | 'simplify' | 'factor' | 'substitute';
 
