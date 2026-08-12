@@ -79,6 +79,35 @@ describe('sortScalars', () => {
   });
 });
 
+/**
+ * **깊은 인수**로 된 `sortScalars` — `exprKey` 문자열 비교가 진짜 느려지는 자리다.
+ * 잎 심볼 하나짜리 인수라면 `exprKey` 도 `"s"+이름` 이라 거의 공짜라 `compareExpr` 와
+ * 차이가 안 보인다(위 `길이 5` 벤치가 그 경우). 실제 `Monomial.scalars` 에는
+ * `\sin(x)`, `(a+b)^2` 처럼 얕지 않은 부분식도 그대로 들어온다 — 그런 인수를 매번
+ * 문자열로 통째로 직렬화하는 것과, 첫 차이에서 끊는 것의 격차를 여기서 잰다.
+ */
+const DEEP_FACTORS_LATEX = [
+  '\\sin(x)',
+  '\\cos(y)',
+  '(a+b)^2',
+  '(a-b)^3',
+  'x^{a}y^{b}',
+  '\\frac{x+1}{y+1}',
+  '(x+y+z)^2',
+  'e^{x^2+1}',
+];
+// 이미 정렬된 상태를 재는 게 아니라 매번 실제로 정렬이 도는 걸 재려고 뒤집어 둔다.
+const DEEP_FACTORS: readonly TypedExpr[] = [...DEEP_FACTORS_LATEX]
+  .reverse()
+  .map((latex) => typedOf(latex, TEST_ENV));
+
+describe('sortScalars(깊은 인수)', () => {
+  // 예전(decorate-sort-undecorate, `exprKey` 문자열 비교) 대비 3.44배 빠르다(실측, 길이 8).
+  bench('길이 8', () => {
+    sortScalars(DEEP_FACTORS);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // exprKey 마이크로벤치
 // ---------------------------------------------------------------------------

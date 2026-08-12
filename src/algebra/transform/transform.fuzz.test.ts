@@ -25,8 +25,8 @@ import { parse } from '../index';
  * 씨앗이 고정이라 실패는 항상 재현된다.
  */
 
-/** 씨앗 고정 난수 (mulberry32). */
-function rng(seed: number): () => number {
+/** 씨앗 고정 난수 (mulberry32). `key.test.ts` 도 같은 생성기로 무작위 트리를 만든다. */
+export function rng(seed: number): () => number {
   let state = seed >>> 0;
   return () => {
     state = (state + 0x6d2b79f5) >>> 0;
@@ -42,7 +42,7 @@ function rng(seed: number): () => number {
  * `I` 는 문맥에서 모양이 정해지므로(곱·덧셈 상대) 무작위 조합에 자연스럽게 섞여
  * 소거 규칙(`AI→A`, `AIA→A²` 등)이 값·모양·왕복 대조를 자동으로 받는다.
  */
-const LEAVES = ['u', 'v', 'w', 'r', 'p', 'A', 'B', 'C', 'M', 'a', 'b', 'k', '2', '3', 'I'];
+export const LEAVES = ['u', 'v', 'w', 'r', 'p', 'A', 'B', 'C', 'M', 'a', 'b', 'k', '2', '3', 'I'];
 
 /**
  * LaTeX 식을 무작위로 만든다.
@@ -50,7 +50,7 @@ const LEAVES = ['u', 'v', 'w', 'r', 'p', 'A', 'B', 'C', 'M', 'a', 'b', 'k', '2',
  * **모양이 맞는 식만 골라내지 않는다** — 일부러 아무거나 만들고, elaborate를 통과한
  * 것만 검사 대상으로 삼는다(거부 표집). 이러면 파서와 모양 검사기도 같이 흔들린다.
  */
-function randomLatex(random: () => number, depth: number, leaves: readonly string[] = LEAVES): string {
+export function randomLatex(random: () => number, depth: number, leaves: readonly string[] = LEAVES): string {
   const pick = <T,>(items: readonly T[]): T => items[Math.floor(random() * items.length)];
   if (depth <= 0) return pick(leaves);
 

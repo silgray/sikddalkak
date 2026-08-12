@@ -9,7 +9,7 @@ import {
   buildSum,
   buildTranspose,
 } from '../expression/builders';
-import { asKnownInteger, asLiteral, exprKey, sortScalars } from '../expression/key';
+import { asKnownInteger, asLiteral, compareExpr, sortScalars } from '../expression/key';
 import { ok, type Result } from '../result/result';
 import { SCALAR, isKnownShape } from '../shape/shape';
 import type { TypedExpr } from '../expression/node';
@@ -31,7 +31,7 @@ import { normalizeFrac } from './frac';
  *  1. 평탄화 — 중첩된 `scalarMul`/`matMul` 을 하나의 n-항 목록으로 편다 (`product.ts`)
  *  2. 스칼라 끌어올리기 — `dot`/`cross`/`transpose`/곱을 뚫고 스칼라를 최상단으로
  *  3. `neg` 흡수 — 부호를 스칼라 계수의 부호로
- *  4. 숫자 접기 + 정렬 — 숫자 리터럴을 하나로 묶어 맨 앞에, 나머지 스칼라는 `exprKey` 순
+ *  4. 숫자 접기 + 정렬 — 숫자 리터럴을 하나로 묶어 맨 앞에, 나머지 스칼라는 정규 순서(`compareExpr`)로
  *  5. 항등원 제거 — 인수 열에서 `I` 를 걷어낸다
  *  6. 축약 — 1원소 `scalarMul`/`matMul` 은 그 원소 자체로
  *  7. **덧셈 항 합치기 + 정렬** — 동류항을 합치고(`2A+3A` → `5A`) 항 순서를 고정
@@ -76,34 +76,50 @@ function stripTermSign(t: TypedExpr): { negative: boolean; core: TypedExpr } {
   return { negative: false, core: t };
 }
 
+type SortedTerm = {
+  readonly term: TypedExpr;
+  readonly constant: number;
+  readonly sign: number;
+  readonly core: TypedExpr;
+};
+
+function decorateTerm(term: TypedExpr): SortedTerm {
+  const { negative, core } = stripTermSign(term);
+  return { term, constant: core.op === 'num' ? 1 : 0, sign: negative ? 1 : 0, core };
+}
+
+function compareDecorated(a: SortedTerm, b: SortedTerm): number {
+  return a.constant - b.constant || a.sign - b.sign || compareExpr(a.core, b.core);
+}
+
 /**
  * 덧셈 항 정렬. 덧셈은 교환 가능하므로 순서를 고정해도 되고, 고정해야 `parse` 와
  * `expand` 가 같은 값에 같은 LaTeX 을 낸다 (퍼즈 ③).
  *
- * 키는 세 겹이다. **순수 `exprKey` 하나로는 사람이 읽기 나쁜 순서가 나온다:**
- *  1. **상수항은 맨 뒤로** — `n`(0x6E) < `s`(0x73) 라 `exprKey` 만 쓰면 `a+1` 이 `1+a` 가 된다
- *  2. **양수 먼저** — `-`(0x2D)가 모든 글자보다 앞서서 `A-B` 가 `-B+A` 로 뒤집힌다.
- *     렌더가 첫 항의 `-` 를 그대로 내보내므로 사용자에게 보이는 문자열이 나빠진다
- *  3. 나머지는 `exprKey` 순 — 안정적이기만 하면 되므로 임의로 정한다
+ * 키는 세 겹이다. **순수 정규 순서 하나로는 사람이 읽기 나쁜 순서가 나온다:**
+ *  1. **상수항은 맨 뒤로** — 정규 순서만 쓰면 `a+1` 이 `1+a` 가 된다
+ *  2. **양수 먼저** — 안 그러면 `A-B` 가 `-B+A` 로 뒤집힌다. 렌더가 첫 항의 `-` 를 그대로
+ *     내보내므로 사용자에게 보이는 문자열이 나빠진다
+ *  3. 나머지는 `compareExpr`(`expression/key.ts`) 순 — 안정적이기만 하면 되므로 임의로
+ *     정한다. **문자열을 만들지 않는다** — 예전엔 `exprKey` 를 뽑아 들고 비교했는데, 그건
+ *     사람이 읽기 좋은 순서가 아니라 노드 동일성만 있으면 되는 자리라 값에 비례하는
+ *     비용을 치를 이유가 없었다(사람이 읽기 좋은 순서는 `transform/prettify.ts` 로 뺐다).
+ *
+ * 길이 0·1과 이미 정렬된 경우는 **입력을 그대로 돌려준다** — `sortScalars`
+ * (`expression/key.ts`)와 같은 관례.
  */
 function sortTerms(terms: readonly TypedExpr[]): TypedExpr[] {
-  return terms
-    .map((term) => {
-      const { negative, core } = stripTermSign(term);
-      return {
-        term,
-        constant: core.op === 'num' ? 1 : 0,
-        sign: negative ? 1 : 0,
-        key: exprKey(core),
-      };
-    })
-    .sort(
-      (a, b) =>
-        a.constant - b.constant ||
-        a.sign - b.sign ||
-        (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
-    )
-    .map((keyed) => keyed.term);
+  if (terms.length < 2) return terms as TypedExpr[];
+  const decorated = terms.map(decorateTerm);
+  let sorted = true;
+  for (let i = 1; i < decorated.length; i += 1) {
+    if (compareDecorated(decorated[i - 1], decorated[i]) > 0) {
+      sorted = false;
+      break;
+    }
+  }
+  if (sorted) return terms as TypedExpr[];
+  return decorated.sort(compareDecorated).map((keyed) => keyed.term);
 }
 
 /**

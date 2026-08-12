@@ -87,6 +87,10 @@
   - **`key.ts`** — `exprKey`(구조 지문, **단사여야 한다**)와 `asKnownInteger`.
     동류항 판정·치환 고정점·캐시 지문이 전부 이 키 위에서 돈다. 다항식과 무관한
     범용 유틸이라 다항식 쪽에서 떼어냈다.
+    `compareExpr` 는 같은 지문을 **문자열을 만들지 않고** 비교하는 짝이다 —
+    `sortScalars`(여기)와 `normalize.ts` 의 `sortTerms` 가 정렬에 쓴다. **불변식:
+    `compareExpr(a,b)===0 ⟺ exprKey(a)===exprKey(b)`**(`key.test.ts` 가 무작위로 대조한다).
+    순서 자체(부호)까지 `exprKey` 사전순과 같을 필요는 없다 — "같다" 판정만 일치하면 된다.
 - **`parse/`** — LaTeX → Syntax IR → Typed IR. **입력을 해석하는 코드가 전부 여기 있다.**
   둘로 갈려 있던 `syntax/`·`elaborate/` 를 합친 폴더다 — 공개 `parse()`(`index.ts`)가
   `parseSyntax` → `elaborate` → `normalize` 를 한 줄로 부르는 데서 보듯 앞의 둘은 늘
@@ -123,6 +127,10 @@
 - **`normalize/`** — elaborate 직후에 도는 별도 정규화 패스. 평탄화·스칼라 호이스팅·
   `neg`/숫자 접기·정렬·항등원 제거, 그리고 **거듭제곱 접기**(`AA`→`A²`, 항상 켜져 있다).
   분배는 **하지 않는다** — `(A+B)C+(A+B)C` 는 `2(A+B)C` 로 남는다.
+  ⚠ 여기서 말하는 "정렬" 은 **노드 동일성용 정규 순서**뿐이다(`compareExpr`, 같은 값이면
+  같은 트리가 나오게 하는 것 — 동류항 판정·캐시 지문이 이 위에 걸려 있다). **사람이 읽기
+  좋은 순서**(상수는 뒤로, 무거운 항 먼저 같은 규칙)는 `transform/prettify.ts` 로 뺐다 —
+  출력 한 번에만 필요한 값을 정규화가 도는 내내 모든 부분식마다 치를 이유가 없어서다.
   - **`normalize.ts`** — 디스패처. 케이스 16개지만 성격이 여섯이라 덩치 큰 둘을 뺐고,
     짧은 넷(덧셈·모양 연산·거듭제곱·잎/불투명)만 여기 남았다.
   - **`product.ts`** — 곱 계열. `toMonomial` 이 곱을 (계수, 스칼라들, 비스칼라들)로 **분해**한다.
@@ -155,6 +163,11 @@
 - **`transform/`** — expand/simplify/factor/substitute. **순수 스칼라 부분식만** CE에 위임.
   연산마다 파일 하나다 — `expand.ts` / `simplify.ts` / `factor.ts`(공통인수 추출이라
   혼자 300줄이다) / `substitute.ts`.
+  - **`prettify.ts`** / **`prettifyOrder.ts`** — 사람이 읽기 좋게 `add`/`scalarMul` 항을
+    재정렬하는 별도 패스(`normalize/` 의 정렬과 다르다, 위 `normalize/` 항목 참고).
+    **아직 아무 호출부에도 안 붙는다** — 자리만 마련해 둔 것이고, `expand`/`simplify`/
+    `factor`/`evaluate` 뒤에 붙이는 배선은 다음 판이다. 정렬 기준(`prettifyOrder.ts`)도
+    `src/algebra/test/` 랩에서 계속 다듬는 실험 중인 코드다.
   - **`delegate.ts`** — 셋이 함께 쓰는 **CE 위임 경계**. 통째로 넘겨도 되는지 보는
     `isPureScalar`, 왕복하는 `viaCe`, 다항식에서 계수만 골라 넘기는 `refineScalars`.
     `viaCe` 의 `fold` 인자가 expand/simplify(`true`)와 factor(`false`)를 가른다 —
@@ -329,6 +342,15 @@ ALGEBRA_FUZZ_SAMPLES=10000 npx vitest run src/algebra   # 대수 퍼즈를 넓�
 - 브라우저 테스트는 `*.browser.test.tsx` — 실제 `<math-field>`를 띄워야 하는
   것(키 입력 시퀀스, 셀렉션, DOM 이벤트)만. jsdom보다 느리니 최소한으로.
 - **배포 게이트**: 단위 + 브라우저 테스트 둘 다 통과해야 배포된다 (아래 참고).
+
+### 벤치
+
+```bash
+npm run bench           # vitest bench — src/algebra/normalize/normalize.bench.ts
+```
+
+정규화 처리량 기준선. `expression/key.ts` 의 `WeakMap` 캐시 경고가 재던 숫자가 바로
+이 하네스로 잰 것 — 정렬·비교 로직을 건드릴 땐 여기서 전후를 비교한다.
 
 ### 빌드 / 타입체크
 
