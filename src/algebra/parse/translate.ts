@@ -14,6 +14,22 @@ const SCALAR_FUNCTIONS: Record<string, string> = {
 };
 
 /**
+ * `det`/`tr`/`Re`/`Im`/`conjugate` — 인수가 행렬일 수 있는 CE 함수 머리 → 우리 `call` 이름.
+ * `SCALAR_FUNCTIONS` 와 갈라둔 이유: `det`/`tr` 은 정사각 행렬을 받는다(모양 검사는
+ * `elaborate.ts` 의 `MATRIX_ARG_FUNCTIONS` 몫이고, 여기서는 이름만 옮긴다).
+ *
+ * ⚠ `\overline{z}` 는 `OverBar` 로 온다(실측) — `\bar{z}` 는 CE가 `Mean` 으로 주므로
+ * (실측) 여기 넣지 않는다.
+ */
+const MATRIX_AWARE_FUNCTIONS: Record<string, string> = {
+  Determinant: 'det',
+  Trace: 'tr',
+  Real: 'Re',
+  Imaginary: 'Im',
+  OverBar: 'conjugate',
+};
+
+/**
  * `\sin^{-1}` 계열 → 이미 있는 arc- 이름.
  *
  * CE는 이걸 `Apply(InverseFunction(Sin), x)` 로 준다(실측) — 막히던 머리는
@@ -755,7 +771,7 @@ export function translateToTree(json: unknown): Result<SyntaxNode> {
     });
   }
 
-  const fnName = SCALAR_FUNCTIONS[head];
+  const fnName = SCALAR_FUNCTIONS[head] ?? MATRIX_AWARE_FUNCTIONS[head];
   if (fnName !== undefined) {
     const parsed = args.map(translateToTree);
     const errors = parsed.flatMap((a) => (a.ok ? [] : a.errors));

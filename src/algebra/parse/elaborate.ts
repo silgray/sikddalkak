@@ -41,6 +41,9 @@ import {
 /** 전치 표기로 인정하는 지수 심볼. */
 const TRANSPOSE_MARKS = new Set(['T', 'top', 'intercal', '\\top', '\\intercal']);
 
+/** `call` 함수 중 정사각 행렬 인수를 받는 것들. 그 밖은 전부 스칼라 전용이다. */
+const MATRIX_ARG_FUNCTIONS = new Set(['det', 'tr']);
+
 // ---------------------------------------------------------------------------
 // 사용자 정의 함수 — `apply` 는 이름 뒤 괄호가 함수 적용인지 곱(행렬곱)인지 여기서 정한다
 // ---------------------------------------------------------------------------
@@ -435,10 +438,26 @@ export function elaborate(node: SyntaxNode, env: Env): Result<TypedExpr> {
       const errors = args.flatMap((a) => (a.ok ? [] : a.errors));
       if (errors.length > 0) return failWith(errors);
       const values = args.map((a) => (a as { value: TypedExpr }).value);
+      // `det`/`tr` 만 정사각 행렬 인수를 받는다 — 그 밖(삼각함수·Re·Im·conjugate 등)은
+      // 전부 스칼라 전용인 기존 규칙 그대로다.
+      if (MATRIX_ARG_FUNCTIONS.has(node.name)) {
+        if (values.length !== 1) {
+          return failShapeMismatch(
+            `${node.name} expects exactly 1 argument (got ${values.length})`,
+          );
+        }
+        if (!isSquare(values[0].shape)) {
+          return failShapeMismatch(
+            `${node.name} expects a square matrix argument (got ${classifyShape(values[0].shape)})`,
+          );
+        }
+        return ok({ op: 'call', shape: SCALAR, name: node.name, args: values });
+      }
       const nonScalar = values.find((v) => !isScalar(v.shape));
       if (nonScalar !== undefined) {
         // `\sin(행렬)` 처럼 내장 스칼라 함수에 비스칼라 인자가 들어온 경우 — 뜻이
-        // 정해지지 않았으므로 오류다.
+        // 정해지지 않았으므로 오류다. `\overline{A}`(행렬)도 여기 걸린다 — conjugate는
+        // 스칼라 전용이다(요청 사항).
         return failShapeMismatch(
           `${node.name} expects a scalar argument (got ${classifyShape(nonScalar.shape)})`,
         );

@@ -16,6 +16,14 @@ import { isScalar } from '../shape/shape';
 import type { TypedExpr, Env } from '../expression/node';
 
 /**
+ * `call` 이름 중 CE에 절대 위임하지 않는 것들 — 전개는 `evaluate` 단계의
+ * `foldBuiltins`(`transform/builtins.ts`) 에서만 한다는 요청 사항. `det`/`tr` 은 인수가
+ * 행렬이라 아래 `isScalar(e.args)` 검사에서 이미 걸러지지만, `Re`/`Im`/`conjugate` 는
+ * 인수가 스칼라(복소수)라 그 검사를 통과해버린다 — 그래서 이름으로 명시적으로 막는다.
+ */
+const EVALUATE_ONLY_BUILTINS = new Set(['det', 'tr', 'Re', 'Im', 'conjugate']);
+
+/**
  * CE 위임 경계 — expand/simplify/factor 셋이 함께 쓰는 부분.
  *
  * **순수 스칼라 부분식은 CE에 위임한다**(설계 §7). 삼각항등식·유리식 정리처럼 우리가
@@ -56,7 +64,7 @@ export function isPureScalar(e: TypedExpr): boolean {
     case 'scalarPow':
       return isPureScalar(e.base) && isPureScalar(e.exponent);
     case 'call':
-      return e.args.every(isPureScalar);
+      return !EVALUATE_ONLY_BUILTINS.has(e.name) && e.args.every(isPureScalar);
     case 'frac':
       return isPureScalar(e.numerator) && isPureScalar(e.denominator);
     // 미정 항등원은 `isScalar(e.shape)` 관문에서 대부분 걸러지지만(정사각 미정 크기는

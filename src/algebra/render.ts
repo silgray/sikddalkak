@@ -128,6 +128,7 @@ const CALL_LATEX: Record<string, string> = {
   arcsin: '\\arcsin', arccos: '\\arccos', arctan: '\\arctan',
   sinh: '\\sinh', cosh: '\\cosh', tanh: '\\tanh',
   exp: '\\exp', ln: '\\ln', log: '\\log',
+  det: '\\det', Re: '\\Re', Im: '\\Im', tr: '\\operatorname{tr}',
 };
 
 /** `\left(` 나 `\begin{pmatrix}` 로 시작하는가 — CE가 "이름 뒤 자체 구분자"로 읽어
@@ -313,6 +314,9 @@ export function render(e: TypedExpr): string {
       const arg = e.args.map((a) => render(a)).join(',');
       if (e.name === 'sqrt') return `\\sqrt{${arg}}`;
       if (e.name === 'abs') return `\\left|${arg}\\right|`;
+      // `\overline{...}` — sqrt/abs 처럼 감싸는 델리미터 자체가 있는 표기라 `paren()`
+      // 을 안 거친다.
+      if (e.name === 'conjugate') return `\\overline{${arg}}`;
       const command = CALL_LATEX[e.name] ?? `\\operatorname{${e.name}}`;
       return `${command}${paren(arg)}`;
     }

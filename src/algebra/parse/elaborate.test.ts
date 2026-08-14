@@ -203,6 +203,35 @@ describe('분수·함수', () => {
   });
 });
 
+describe('det/tr/Re/Im/conjugate', () => {
+  it('det/tr 은 정사각 행렬을 받아 스칼라를 낸다', () => {
+    expect(shapeOf(String.raw`\det(A)`)).toBe('scalar');
+    expect(shapeOf(String.raw`\operatorname{tr}(A)`)).toBe('scalar');
+  });
+
+  it('det/tr 에 비정사각 행렬을 넣으면 오류다', () => {
+    expect(errorCode(String.raw`\det(M)`)).toBe('shape-mismatch');
+    expect(errorCode(String.raw`\operatorname{tr}(M)`)).toBe('shape-mismatch');
+  });
+
+  it('det/tr 에 벡터를 넣으면 오류다', () => {
+    expect(errorCode(String.raw`\det(v)`)).toBe('shape-mismatch');
+  });
+
+  it('det 은 인수가 정확히 하나여야 한다', () => {
+    expect(errorCode(String.raw`\det(A,B)`)).toBe('shape-mismatch');
+  });
+
+  it('Re/Im/conjugate 는 스칼라 전용이다 — 행렬을 넣으면 오류다', () => {
+    expect(shapeOf(String.raw`\Re(y)`)).toBe('scalar');
+    expect(shapeOf(String.raw`\Im(y)`)).toBe('scalar');
+    expect(shapeOf(String.raw`\overline{y}`)).toBe('scalar');
+    expect(errorCode(String.raw`\Re(A)`)).toBe('shape-mismatch');
+    expect(errorCode(String.raw`\Im(A)`)).toBe('shape-mismatch');
+    expect(errorCode(String.raw`\overline{A}`)).toBe('shape-mismatch');
+  });
+});
+
 describe('행렬 리터럴', () => {
   it('열벡터 리터럴', () => {
     expect(shapeOf(String.raw`\begin{pmatrix}1\\2\\3\end{pmatrix}`)).toBe('3x1');

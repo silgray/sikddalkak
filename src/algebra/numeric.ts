@@ -42,6 +42,35 @@ function matMul(a: Matrix, b: Matrix): Matrix {
 
 const transpose = (m: Matrix): Matrix => m[0].map((_, j) => m.map((row) => row[j]));
 
+function trace(m: Matrix): Result<Matrix> {
+  if (m.length !== m[0].length) return fail('shape-mismatch', 'tr needs a square matrix');
+  let sum = 0;
+  for (let i = 0; i < m.length; i += 1) sum += m[i][i];
+  return ok([[sum]]);
+}
+
+/** 여인수 전개용 소행렬 — `i`행/`j`열을 뺀 나머지. */
+function minor(m: Matrix, skipRow: number, skipCol: number): Matrix {
+  return m.filter((_, i) => i !== skipRow).map((row) => row.filter((_, j) => j !== skipCol));
+}
+
+function determinantValue(m: Matrix): number {
+  const n = m.length;
+  if (n === 1) return m[0][0];
+  if (n === 2) return m[0][0] * m[1][1] - m[0][1] * m[1][0];
+  let det = 0;
+  for (let j = 0; j < n; j += 1) {
+    const sign = j % 2 === 0 ? 1 : -1;
+    det += sign * m[0][j] * determinantValue(minor(m, 0, j));
+  }
+  return det;
+}
+
+function determinant(m: Matrix): Result<Matrix> {
+  if (m.length !== m[0].length) return fail('shape-mismatch', 'det needs a square matrix');
+  return ok([[determinantValue(m)]]);
+}
+
 /** 열/행 방향에 상관없이 벡터의 성분을 뽑는다. */
 const components = (m: Matrix): number[] => m.flatMap((row) => [...row]);
 
@@ -201,6 +230,18 @@ export function evalNumeric(e: TypedExpr, assignment: NumericBindings): Result<M
     }
 
     case 'call': {
+      // `det`/`tr` 은 인수가 행렬이라 아래 `SCALAR_FNS` 경로(스칼라 1인수)와 다르게
+      // 직접 계산한다 — 퍼즈가 실제로 대조할 수 있게.
+      if (e.name === 'det' || e.name === 'tr') {
+        const m = evalNumeric(e.args[0], assignment);
+        if (!m.ok) return m;
+        return e.name === 'det' ? determinant(m.value) : trace(m.value);
+      }
+      // `Re`/`Im`/`conjugate` — 값 도메인이 실수뿐이라(`Matrix` 는 `number[][]`) 대조하지
+      // 않는다. 복소수 리터럴 자체를 이 평가기가 못 담는 것과 같은 이유(`case 'num'` 참고).
+      if (e.name === 'Re' || e.name === 'Im' || e.name === 'conjugate') {
+        return fail('unsupported', `Numeric check does not cover ${e.name}`);
+      }
       const fn = SCALAR_FNS[e.name];
       if (fn === undefined) return fail('unsupported', `No numeric definition for ${e.name}`);
       const arg = evalNumeric(e.args[0], assignment);

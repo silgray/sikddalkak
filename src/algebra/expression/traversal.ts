@@ -132,14 +132,15 @@ export function mapChildren(
       return ok({ op: 'scalarPow', shape: SCALAR, base: base.value, exponent: exponent.value });
     }
 
+    // `det`/`tr` 은 정사각 행렬 인수를 받는다 — 그래서 `apply` 와 같은 이유로 인수
+    // 모양을 강제하지 않는다: 재작성(`substitute` 등)은 심볼을 같은 모양의 값으로만
+    // 바꾸므로(`buildEnv` 가 심볼마다 모양을 하나로 고정한다) 인수 모양이 바뀔 일이
+    // 없다 — 애초의 모양 검사는 `elaborate.ts` 의 `MATRIX_ARG_FUNCTIONS` 분기가 끝냈다.
     case 'call': {
       const args: TypedExpr[] = [];
       for (const arg of e.args) {
         const mapped = f(arg);
         if (!mapped.ok) return mapped;
-        if (!isScalar(mapped.value.shape)) {
-          return fail('shape-mismatch', `${e.name} expects a scalar argument`);
-        }
         args.push(mapped.value);
       }
       return ok({ op: 'call', shape: SCALAR, name: e.name, args });

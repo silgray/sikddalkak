@@ -4,6 +4,7 @@ import { normalize } from '../normalize/normalize';
 import { foldMatrices } from './matrixFold';
 import { foldCalculus } from './calculus';
 import { foldFunctions } from './functions';
+import { foldBuiltins } from './builtins';
 import { simplify } from './simplify';
 import { substitute } from './substitute';
 import { withCeBudget } from '../ce/budget';
@@ -18,7 +19,8 @@ import { ONE, ZERO } from '../literal/literal';
  *
  * 파이프라인: `normalize` (입력 형태 불문 항상 평탄화된 상태로) → `foldFunctions`
  * (`functions.ts`, 사용자 정의 함수 호출을 값으로) → `foldMatrices`(리터럴 행렬 산술)
- * → `foldCalculus`(`calculus.ts`, 미분/적분/`\sum`/`\prod` 를 값으로) → `simplify`
+ * → `foldBuiltins`(`builtins.ts`, `det`/`tr`/`Re`/`Im`/`conjugate` 를 값으로) →
+ * `foldCalculus`(`calculus.ts`, 미분/적분/`\sum`/`\prod` 를 값으로) → `simplify`
  * (순수 스칼라는 CE로, 마지막에 거듭제곱 접기까지). 맨 앞의 `normalize` 는 `foldMatrices`
  * 가 n-항 `matMul`/`scalarMul` 이 평탄화돼 있다고 가정하기 때문이다 — `substituteDeep`
  * 처럼 트리를 다시 조립하는 경로를 거친 입력도 안전하게 받으려면 여기서 한 번 더 다져야
@@ -27,7 +29,8 @@ import { ONE, ZERO } from '../literal/literal';
  * **`foldFunctions` 가 `foldMatrices` 보다 먼저인 이유**: `A\cdot f(x)` 에서 `f(x)` 가
  * 행렬 리터럴로 펴지는 게 `foldMatrices` 가 `A` 와 합쳐 접을 수 있으려면 그보다 **먼저**
  * 끝나 있어야 한다 — 순서를 바꾸면 `f(x)` 가 여전히 미펼쳐진 채라 `foldMatrices` 가
- * 이웃 리터럴을 못 알아본다.
+ * 이웃 리터럴을 못 알아본다. **`foldBuiltins` 가 `foldMatrices` 뒤인 이유는 거꾸로다** —
+ * `\det(A)` 가 값으로 접히려면 `A` 가 그 전에 구체 `matrix` 리터럴이 돼 있어야 한다.
  *
  * 이 호출 하나가 **CE 예산의 단위**다(`ce/budget.ts`) — 안에서 CE를 몇 번 부르든 합쳐서
  * 상한을 넘지 않는다. CE 0.90의 적분이 안 끝나는 입력이 있어서, 없으면 앱이 통째로 멈춘다.
@@ -44,7 +47,9 @@ export function evaluate(e: TypedExpr, env: Env): Result<TypedExpr> {
     if (!expanded.ok) return expanded;
     const folded = foldMatrices(expanded.value);
     if (!folded.ok) return folded;
-    const calculated = foldCalculus(folded.value, env);
+    const builtins = foldBuiltins(folded.value, env);
+    if (!builtins.ok) return builtins;
+    const calculated = foldCalculus(builtins.value, env);
     if (!calculated.ok) return calculated;
     return simplify(calculated.value, env);
   });
