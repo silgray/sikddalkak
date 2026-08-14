@@ -234,12 +234,26 @@ body {
   gap: 0.5rem;
 }
 
-.cell {
+.cell-group {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: color-mix(in srgb, var(--fg) 2%, transparent);
   /* overflow: hidden을 두지 않는다 — 선택 툴바가 셀 위로 떠야 한다.
      긴 수식은 각 행의 min-width:0 + 필드 자체 스크롤이 처리한다. */
+}
+
+.cell-group-dragging {
+  opacity: 0.45;
+}
+
+/* 그룹 안 하위 셀(손으로 변형해 온 파생)은 위 셀과 얇은 점선으로 갈린다 —
+   그룹 최상단 셀과는 카드 테두리 자체가 경계라 겹치지 않는다. */
+.cell-group .cell + .cell {
+  border-top: 1px dashed var(--line);
+}
+
+.cell {
+  /* 카드 테두리는 `.cell-group` 몫 — 개별 셀은 그 안의 행일 뿐이다. */
 }
 
 .cell-input {
@@ -250,8 +264,14 @@ body {
   min-width: 0;
 }
 
-.drag-handle {
+.drag-handle,
+.drag-handle-spacer {
   flex-shrink: 0;
+  width: 1.05rem;
+  text-align: center;
+}
+
+.drag-handle {
   cursor: grab;
   color: var(--muted);
   user-select: none;
@@ -262,16 +282,12 @@ body {
   opacity: 0.45;
 }
 
-.cell:hover .drag-handle {
+.cell-group:hover .drag-handle {
   opacity: 1;
 }
 
 .drag-handle:active {
   cursor: grabbing;
-}
-
-.cell-dragging {
-  opacity: 0.45;
 }
 
 .cell-disabled {
@@ -291,7 +307,7 @@ body {
   opacity: 0.55;
 }
 
-.cell:hover .cell-toggle {
+.cell-group:hover .cell-toggle {
   opacity: 1;
 }
 
@@ -405,6 +421,17 @@ math-field::part(virtual-keyboard-toggle) {
 
 .cell-actions .mode-toggle {
   white-space: nowrap;
+}
+
+/* 그룹 하위 셀의 삭제 — 그룹 전체를 지우는 최상단 ×보다 눈에 덜 띄게. */
+.cell-actions .remove-sub {
+  opacity: 0.35;
+  border-color: transparent;
+}
+
+.cell-actions .remove-sub:hover {
+  opacity: 0.9;
+  border-color: var(--muted);
 }
 
 .cell-actions .transform-btn {
