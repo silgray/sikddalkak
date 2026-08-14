@@ -9,6 +9,7 @@ import {
 } from '../editor/internals';
 import { contentCount, findViolations, repairLatex } from '../editor/wellformed';
 import { dispatchKeyOp } from '../editor/keyOps';
+import { configureKeybindings } from '../editor/keybindings';
 import {
   expandSelectionSemantic,
   extendSelectionSibling,
@@ -197,24 +198,6 @@ function pruneMenu(mf: MathfieldElement): void {
   } catch {
     // 메뉴 구조가 바뀌면(버전 업) 기본 메뉴 그대로 둔다.
   }
-}
-
-/**
- * MathLive 기본 키바인딩 중 **행렬의 행/열을 추가·삭제**하는 것들.
- * 행렬 크기는 삽입한 뒤 불변이라는 정책이라 전부 막는다 (조사로 확보한 목록).
- */
-function isMatrixResizeKey(ev: KeyboardEvent): boolean {
-  const ctrl = ev.ctrlKey || ev.metaKey;
-  const key = ev.key;
-  const isEnter = key === 'Enter';
-  // addRowAfter / addRowBefore
-  if (isEnter && (ctrl || ev.altKey)) return true;
-  if (key === ';' && ctrl) return true;
-  // addColumnAfter / addColumnBefore
-  if (key === 'Tab' && ev.altKey) return true;
-  // removeColumn / removeRow
-  if (ev.shiftKey && (key === 'Backspace' || key === 'Delete')) return true;
-  return false;
 }
 
 /** 부모가 명시적으로 조작할 때 쓰는 핸들 (선택 변환 등). */
@@ -486,14 +469,6 @@ export function MathField({
           ev.stopImmediatePropagation();
           return;
         }
-        // 행렬 크기는 삽입한 뒤 바뀌지 않는다 — MathLive 기본 행/열 편집 키를 막는다.
-        // (이 리스너 뒤의 keyOps 리스너는 ctrl/meta/alt 조합을 통째로 통과시키므로
-        //  여기서 잡아야 한다.)
-        if (isMatrixResizeKey(ev)) {
-          ev.preventDefault();
-          ev.stopImmediatePropagation();
-          return;
-        }
         if (mf.readOnly) return;
         // Ctrl/Cmd+Shift+E/S/F: 선택 변환 단축키 (임시 키바인딩).
         if ((ev.ctrlKey || ev.metaKey) && ev.shiftKey && !ev.altKey) {
@@ -566,6 +541,8 @@ export function MathField({
     // 인라인 숏컷 On/Off 커스터마이징. `inlineShortcuts` getter/setter는 mathfield가
     // mount(= append)되기 전에 부르면 "Mathfield not mounted" 에러를 던진다(실측).
     configureInlineShortcuts(mf);
+    // ctrl/alt/shift 키바인딩 On/Off 커스터마이징 — 같은 mount 후 제약(`editor/keybindings.ts`).
+    configureKeybindings(mf);
     // ☰ 메뉴에서 안 쓰는 항목 제거 (append 후여야 기본 메뉴가 구성돼 있다).
     pruneMenu(mf);
     // 포커스된 필드가 언마운트될 때의 MathLive 크래시 우회 (editor/internals.ts 참고).

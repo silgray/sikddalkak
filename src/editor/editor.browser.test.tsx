@@ -9,6 +9,7 @@ import { finalizeGhostFences, modelOf } from './internals';
 import { expandSelectionSemantic, siblingRunRange } from './selection';
 import { KEY_OPS, dispatchKeyOp } from './keyOps';
 import { findViolations, repairLatex } from './wellformed';
+import { BLOCKED_KEYBINDINGS } from './keybindings';
 
 /**
  * 에디터 회귀 스위트 — 실제 MathLive(헤드리스 Chromium)를 구동한다.
@@ -509,6 +510,46 @@ describe('MathField 통합 — 고아 fence 교정 파이프라인', () => {
     expect(mf.value).toBe('a+b+c'); // 값 불변
     expect(mf.mode).toBe('math'); // 원본 LaTeX 모드로 안 넘어감
     expect(mf.selectionIsCollapsed).toBe(true); // 선택도 확장 안 됨
+  });
+
+  it('마운트 후 mf.keybindings 에 차단 key 가 하나도 없다', async () => {
+    const { mf } = await mountMathField('a');
+    const remaining = mf.keybindings.map((kb) => kb.key).filter((key) => BLOCKED_KEYBINDINGS.has(key));
+    expect(remaining).toEqual([]);
+  });
+
+  it(String.raw`Ctrl+2 를 눌러도 \sqrt 가 안 들어간다 (기본 키바인딩 차단)`, async () => {
+    const { mf } = await mountMathField('a');
+    mf.position = mf.lastOffset;
+    mf.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: '2',
+        code: 'Digit2',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await settle();
+    expect(mf.value).toBe('a');
+    expect(mf.value).not.toContain('sqrt');
+  });
+
+  it(String.raw`Alt+D 를 눌러도 \differentialD 가 안 들어간다 (기본 키바인딩 차단)`, async () => {
+    const { mf } = await mountMathField('a');
+    mf.position = mf.lastOffset;
+    mf.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'd',
+        code: 'KeyD',
+        altKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await settle();
+    expect(mf.value).toBe('a');
+    expect(mf.value).not.toContain('differentialD');
   });
 });
 
