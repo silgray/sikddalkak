@@ -116,3 +116,81 @@ describe('MathField — Alt+↑/↓ (그룹 이동·복제)', () => {
     expect(handlers.onDuplicate).toHaveBeenCalledWith('above');
   });
 });
+
+describe('MathField — 포커스가 셀 그룹 밖으로 나가면 선택을 원상복구한다', () => {
+  async function mountGroup() {
+    const group = document.createElement('div');
+    group.className = 'cell-group';
+    document.body.append(group);
+    const hostA = document.createElement('div');
+    const hostB = document.createElement('div');
+    group.append(hostA, hostB);
+    const outside = document.createElement('button');
+    document.body.append(outside);
+
+    const onSelA = vi.fn<(latex: string | null) => void>();
+    const onSelB = vi.fn<(latex: string | null) => void>();
+    const rootA = createRoot(hostA);
+    const rootB = createRoot(hostB);
+    rootA.render(createElement(MathField, { value: 'x+y', onSelectionChange: onSelA }));
+    rootB.render(createElement(MathField, { value: 'a+b', onSelectionChange: onSelB }));
+    await new Promise((r) => setTimeout(r, 30));
+
+    cleanups.push(() => {
+      rootA.unmount();
+      rootB.unmount();
+      group.remove();
+      outside.remove();
+    });
+
+    return {
+      mfA: hostA.querySelector('math-field') as MathfieldElement,
+      mfB: hostB.querySelector('math-field') as MathfieldElement,
+      onSelA,
+      outside,
+    };
+  }
+
+  // 실제 MathLive는 blur만으로도 자기 선택을 collapse하고 'selection-change'로
+  // null을 보고할 때가 있다(실측, 포커스 이동 대상과 무관하게) — 그 경로와 여기서
+  // 검증하려는 "relatedTarget 컨테인먼트" 로직이 섞이지 않도록, 진짜 `.focus()`
+  // 대신 합성 `focusout` 이벤트로 relatedTarget만 직접 주입해 이 로직만 딱 잰다.
+  it('그룹 밖 요소로 포커스가 옮겨가면 onSelectionChange(null)을 부른다', async () => {
+    const { mfA, onSelA, outside } = await mountGroup();
+    mfA.focus();
+    await settle();
+    mfA.selection = { ranges: [[0, 3]], direction: 'forward' };
+    await settle();
+    expect(onSelA).toHaveBeenLastCalledWith(expect.any(String));
+    onSelA.mockClear();
+    mfA.dispatchEvent(new FocusEvent('focusout', { relatedTarget: outside }));
+    await settle();
+    expect(onSelA).toHaveBeenCalledWith(null);
+  });
+
+  it('같은 그룹 안 다른 셀로 포커스가 옮겨가면 지우지 않는다', async () => {
+    const { mfA, mfB, onSelA } = await mountGroup();
+    mfA.focus();
+    await settle();
+    mfA.selection = { ranges: [[0, 3]], direction: 'forward' };
+    await settle();
+    expect(onSelA).toHaveBeenLastCalledWith(expect.any(String));
+    onSelA.mockClear();
+    mfA.dispatchEvent(new FocusEvent('focusout', { relatedTarget: mfB }));
+    await settle();
+    expect(onSelA).not.toHaveBeenCalledWith(null);
+  });
+
+  it('relatedTarget이 없는 blur(창 포커스 전환 등)는 지우지 않는다', async () => {
+    const { mfA, onSelA } = await mountGroup();
+    mfA.focus();
+    await settle();
+    mfA.selection = { ranges: [[0, 3]], direction: 'forward' };
+    await settle();
+    expect(onSelA).toHaveBeenLastCalledWith(expect.any(String));
+    onSelA.mockClear();
+    mfA.dispatchEvent(new FocusEvent('focusout', { relatedTarget: null }));
+    await settle();
+    expect(onSelA).not.toHaveBeenCalledWith(null);
+  });
+});

@@ -348,6 +348,9 @@ export function MathField({
     mf.value = initialValue.current;
     // 데스크톱에서 가상 키보드가 멋대로 뜨지 않게.
     mf.mathVirtualKeyboardPolicy = 'manual';
+    // 클립보드로 복사할 때 기본값인 `$$...$$` 감싸기를 뺀다 — LaTeX 문자열 자체가
+    // 정본이라(CLAUDE.md 변환 경계 ①) 복사 결과도 그와 같아야 한다.
+    mf.onExport = (_from, latex) => latex;
 
     mf.addEventListener('input', () => {
       if (suppressReport.current) return;
@@ -442,14 +445,25 @@ export function MathField({
       // 들어오면 이벤트 없이 선택만 존재해 버튼 상태가 어긋난다 — 즉시 보고해 동기화.
       reportSelection();
     });
-    mf.addEventListener('focusout', () => {
+    mf.addEventListener('focusout', (ev) => {
       isEditing.current = false;
       // ghost 괄호는 "편집 중인 셀의 순간 상태"다 — 셀을 떠나면 확정한다.
       // LaTeX 표현은 동일하므로 문서·계산에는 영향이 없다 (반투명 표시만 사라진다).
       finalizeGhostFences(mf);
-      // 주의: 여기서 onSelectionChange(null)를 부르지 않는다. blur돼도 모델의
-      // 선택은 살아 있고(변환 적용 가능), 창 포커스 전환(alt-tab)만으로 선택
-      // 조작 버튼이 사라지면 안 된다. 선택 해제는 selection-change가 알린다.
+      // 선택은 기본적으로 blur돼도 안 지운다 — 모델의 선택은 살아 있고(변환 적용
+      // 가능), 창 포커스 전환(alt-tab, relatedTarget이 null)만으로 선택 조작
+      // 버튼이 사라지면 안 된다. 하지만 포커스가 **이 셀 그룹 밖의 다른 곳**으로
+      // 확실히 옮겨갔으면(relatedTarget이 있고 그룹 DOM 밖) 그건 사용자가 실제로
+      // 자리를 뜬 것이니 원상복구한다 — TransformButtons/SelectionToolbar는
+      // mousedown에서 preventDefault해 포커스를 안 뺏으므로 그 클릭으로는 여기가
+      // 안 탄다.
+      const related = (ev as FocusEvent).relatedTarget as Node | null;
+      if (related !== null) {
+        const group = host.closest('.cell-group');
+        if (group !== null && !group.contains(related)) {
+          handlers.current.onSelectionChange?.(null);
+        }
+      }
     });
     mf.addEventListener('selection-change', reportSelection);
     // 캐럿이 경계를 넘으려 할 때 — 셀 간 이동의 신호.

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormulaObject, EvalResult } from '../types';
+import { FieldClip } from './FieldClip';
 import { MathField, type MathFieldHandle } from './MathField';
 import { splitRelation } from '../cellEnv';
 import { SOLVE_ENABLED } from '../features';
@@ -179,23 +180,25 @@ export function Cell({
             onReplace={(latex) => replaceCurrentSelection(latex)}
           />
         )}
-        <MathField
-          ref={inputRef}
-          value={object.latex}
-          focusToken={focusToken}
-          focusOffset={focusOffset}
-          focusSelection={focusSelection}
-          syncKey={syncKey}
-          onEdit={onEdit}
-          onEnter={onEnter}
-          onSelectionChange={trackSelection}
-          onMoveOut={onMoveOut}
-          onTransformShortcut={applyTransform}
-          onDeleteEmpty={onDeleteEmpty}
-          onInsertCell={onInsertCell}
-          onMoveGroup={onMoveGroup}
-          onDuplicate={onDuplicate}
-        />
+        <FieldClip watch={object.latex}>
+          <MathField
+            ref={inputRef}
+            value={object.latex}
+            focusToken={focusToken}
+            focusOffset={focusOffset}
+            focusSelection={focusSelection}
+            syncKey={syncKey}
+            onEdit={onEdit}
+            onEnter={onEnter}
+            onSelectionChange={trackSelection}
+            onMoveOut={onMoveOut}
+            onTransformShortcut={applyTransform}
+            onDeleteEmpty={onDeleteEmpty}
+            onInsertCell={onInsertCell}
+            onMoveGroup={onMoveGroup}
+            onDuplicate={onDuplicate}
+          />
+        </FieldClip>
         <div className="cell-actions">
           {/* 선택 변환 버튼 — 조작 대상 옆에. 오류 셀에서는 숨긴다. */}
           {selection !== null && !transformsBlocked && (

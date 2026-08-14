@@ -327,6 +327,86 @@ body {
   min-width: 0;
 }
 
+/* --- 긴 식 축약 (입력 행) --- */
+
+.field-clip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.field-clip {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+/* MathLive는 자기 콘텐츠 상자(part 이름 실측: content)에 스스로 overflow-x:hidden을
+   건다 — 그대로 두면 넘친 내용이 거기서 먼저 잘려 우리 쪽(`FieldClip`)에서는
+   `scrollWidth`가 절대 `clientWidth`를 넘지 않는다(실측). 넘침을 우리가 재려면
+   MathLive의 내부 클리핑부터 풀어야 한다 — 실제 화면 클리핑은 `.field-clip-clipped`
+   가 대신 맡는다. */
+.field-clip math-field::part(content) {
+  overflow: visible;
+}
+
+.field-clip-clipped {
+  overflow-x: hidden;
+}
+
+.field-clip-expanded {
+  overflow-x: auto;
+}
+
+/* 잘렸을 때 좌우 끝에 옅어지는 페이드 + `..` 표식. 카드 배경(`--bg` 위에 옅게
+   덮인 색)과 완전히 같지는 않지만(실측상 2% 정도 차이) 눈에 띌 만큼은 아니다. */
+.field-clip-clipped::before,
+.field-clip-clipped::after {
+  content: '..';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.3rem;
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.field-clip-clipped::before {
+  left: 0;
+  justify-content: flex-start;
+  background: linear-gradient(to right, var(--bg) 55%, transparent);
+}
+
+.field-clip-clipped::after {
+  right: 0;
+  justify-content: flex-end;
+  background: linear-gradient(to left, var(--bg) 55%, transparent);
+}
+
+.field-expand-btn {
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.75rem;
+  font-family: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.field-expand-btn:hover {
+  color: var(--fg);
+  border-color: var(--muted);
+}
+
 .mf math-field {
   width: 100%;
   border: none;
@@ -344,6 +424,12 @@ body {
 
 /* 가상 키보드는 안 쓴다 — 토글 버튼 숨김 (part 이름 실측: virtual-keyboard-toggle) */
 math-field::part(virtual-keyboard-toggle) {
+  display: none;
+}
+
+/* 결과 행에서는 ☰ 메뉴 자체를 뺀다 — 편집은 되지만 잘라내기/색상 같은 메뉴
+   항목이 결과 필드와는 안 맞는다. 입력 행에는 그대로 둔다. */
+.result math-field::part(menu-toggle) {
   display: none;
 }
 
