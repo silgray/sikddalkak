@@ -1,15 +1,15 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FormulaObject, EvalResult } from '../types';
 import { MathField, type MathFieldHandle } from './MathField';
-import { expand, factor, parse, render, simplify, type Env } from '../algebra';
-import { repairLatex } from '../editor/wellformed';
+import { splitRelation } from '../cellEnv';
+import { SOLVE_ENABLED } from '../features';
 import { SelectionToolbar } from './SelectionToolbar';
+import { readSelectionAsync } from '../worker/client';
+import { TRANSFORM_OPS, type SelectionInfo, type SelectionOp } from '../cellSelection';
 
 type Props = {
   object: FormulaObject;
   result: EvalResult;
-  /** 심볼 모양 환경 — 변환이 `A` 가 행렬인지 스칼라인지 알려면 필요하다. */
-  env: Env;
   /** 이 셀이 드래그 중인지 (반투명 표시). */
   dragging: boolean;
   focusToken: number | null;
@@ -22,6 +22,8 @@ type Props = {
   onRemove: () => void;
   /** 위상정렬·평가 포함 여부 토글 (`object.enabled`). */
   onToggleEnabled: () => void;
+  /** 등식 셀의 solve 대상 지정. `null`이면 해제(결과가 빈다). */
+  onSetSolveFor: (symbol: string | null) => void;
   /** 결과 행을 편집해 독립 식으로 분리할 때 (편집된 latex + 캐럿). */
   onDetachResult: (latex: string, caret?: number) => void;
   /** 선택 변환처럼 즉시 평가돼야 하는 명시적 편집. selectionBefore = 조작 직전 선택. */
@@ -42,69 +44,6 @@ type Props = {
 
 /** 공백 차이는 MathLive 재직렬화 재량이라 "달라졌다" 판정에서 뺀다. */
 const norm = (s: string) => s.replace(/\s+/g, '');
-
-/**
- * 선택 위에서 제공하는 변환. algebra의 `TransformOp` 은 `substitute` 까지 포함하지만
- * 버튼으로 내보내는 건 이 셋뿐이다.
- */
-type SelectionOp = 'expand' | 'simplify' | 'factor';
-
-const TRANSFORM_OPS: readonly SelectionOp[] = ['expand', 'simplify', 'factor'];
-
-const OPS: Record<SelectionOp, typeof simplify> = { expand, simplify, factor };
-
-/** 현재 선택 상태: 어느 필드에서, 무엇이 선택됐고, 어떤 변환이 가능한지. */
-type SelectionInfo = {
-  field: 'input' | 'result';
-  latex: string;
-  replacements: Partial<Record<SelectionOp, string>>;
-  /**
-   * algebra가 이 선택을 아예 못 읽었을 때의 이유 (모양 불일치·모호한 순서·미지원).
-   * 버튼 대신 이걸 보여준다 — 무엇을 아직 못 하는지가 보여야 다음에 뭘 깎을지 안다.
-   */
-  error: string | null;
-};
-
-/**
- * 변환 결과를 주변 LaTeX에 끼워 넣을 수 있는 꼴로 만든다.
- *
- * `x^3+3x^2+3x+1` 에서 `+3x^2+3x` 를 선택해 변환하면 결과가 `3x(x+1)` 처럼 연산자 없이
- * 시작할 수 있다. 그대로 넣으면 앞의 `x^3` 과 붙어 곱셈이 돼버리므로, 선택이 부호로
- * 시작했다면 치환도 부호로 시작하게 한다. (선행 `-` 의 의미는 이미 파싱된 식에
- * 들어 있어서, 결과가 `-` 로 시작하지 않으면 `+` 합류가 수학적으로 옳다.)
- *
- * **끼워 넣기는 앱의 문제라 algebra가 아니라 여기 있다** — 그 모듈은 주변 문맥을 모른다.
- */
-function joinSign(source: string, out: string): string {
-  const needsJoin = source.startsWith('+') || source.startsWith('-');
-  const startsWithSign = out.startsWith('+') || out.startsWith('-');
-  return needsJoin && !startsWithSign ? `+${out}` : out;
-}
-
-/**
- * 선택 조각을 **한 번만** 파싱하고, 그 Typed IR 위에서 세 변환을 각각 돌린다.
- * (구 엔진 경로는 op마다 CE 왕복을 따로 했다.)
- *
- * op 하나가 실패해도 나머지는 살린다 — factor는 못 해도 expand는 되는 식이 흔하다.
- */
-function readSelection(field: 'input' | 'result', selected: string, env: Env): SelectionInfo {
-  const replacements: Partial<Record<SelectionOp, string>> = {};
-  // 방어선 2: 선택 조각에 파손된 구조가 섞여 있어도 파싱은 되게.
-  const raw = repairLatex(selected.trim()).latex;
-  if (raw === '') return { field, latex: selected, replacements, error: null };
-
-  const parsed = parse(raw, env);
-  if (!parsed.ok) {
-    return { field, latex: selected, replacements, error: parsed.errors[0].message };
-  }
-
-  for (const op of TRANSFORM_OPS) {
-    const out = OPS[op](parsed.value, env);
-    if (!out.ok) continue;
-    replacements[op] = joinSign(raw, render(out.value));
-  }
-  return { field, latex: selected, replacements, error: null };
-}
 
 /**
  * 변환 버튼 묶음. 선택이 있는 필드 바로 옆에 렌더한다.
@@ -161,7 +100,10 @@ function ResultRow({
   onSelectionChange: (selectedLatex: string | null) => void;
   onTransformShortcut: (op: SelectionOp) => void;
 }) {
-  if (result.kind === 'empty') return null;
+  // `pending` 은 아직 응답 못 받은 새 셀 — 이전 값이 없으니 흐릴 것도 없이 조용히 있는다
+  // (`types.ts` 의 `EvalResult` 문서 참고). 이미 결과가 있던 셀은 새 계산이 도는 동안
+  // `CellStack.tsx` 의 `results` 맵이 마지막 값을 그대로 들고 있어 깜빡이지 않는다.
+  if (result.kind === 'empty' || result.kind === 'pending') return null;
   if (result.kind === 'error') {
     return <div className="result result-error">⚠ {result.message}</div>;
   }
@@ -202,10 +144,13 @@ function ResultRow({
   );
 }
 
+/** 선택 변경마다 워커로 CE를 네 번(expand/simplify/factor/substitute) 돌리므로, 타이핑처럼
+ * 빠르게 연달아 오는 선택 변경을 걸러낸다. */
+const SELECTION_DEBOUNCE_MS = 120;
+
 export function Cell({
   object,
   result,
-  env,
   dragging,
   focusToken,
   focusOffset,
@@ -215,6 +160,7 @@ export function Cell({
   onEnter,
   onRemove,
   onToggleEnabled,
+  onSetSolveFor,
   onDetachResult,
   onCommitDistinct,
   onDragStart,
@@ -226,14 +172,33 @@ export function Cell({
   const inputRef = useRef<MathFieldHandle>(null);
   const resultRef = useRef<MathFieldHandle>(null);
   const [selection, setSelection] = useState<SelectionInfo | null>(null);
+  // 워커 요청은 비동기라 응답이 도착하는 순서가 요청한 순서와 다를 수 있다 — 번호를
+  // 올려서 최신 요청의 응답만 반영한다(`CellStack.tsx` 의 `latestRequest` 와 같은 패턴).
+  const selectionRequestRef = useRef(0);
+  const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (selectionTimerRef.current !== null) clearTimeout(selectionTimerRef.current);
+    };
+  }, []);
 
   const trackSelection = (field: 'input' | 'result') => (selected: string | null) => {
-    setSelection((current) => {
-      const next = selected === null ? null : readSelection(field, selected, env);
-      // 다른 필드의 선택 상태를 지우지 않도록, null 갱신은 같은 필드일 때만.
-      if (next === null && current !== null && current.field !== field) return current;
-      return next;
-    });
+    if (selectionTimerRef.current !== null) clearTimeout(selectionTimerRef.current);
+    if (selected === null) {
+      setSelection((current) => {
+        // 다른 필드의 선택 상태를 지우지 않도록, null 갱신은 같은 필드일 때만.
+        if (current !== null && current.field !== field) return current;
+        return null;
+      });
+      return;
+    }
+    const requestId = ++selectionRequestRef.current;
+    selectionTimerRef.current = setTimeout(() => {
+      readSelectionAsync(field, selected).then((info) => {
+        if (selectionRequestRef.current === requestId) setSelection(info);
+      });
+    }, SELECTION_DEBOUNCE_MS);
   };
 
   /** 선택을 replacement로 치환하고 적절한 커밋 경로로 보낸다 (변환·구분 기호 공용). */
@@ -266,6 +231,20 @@ export function Cell({
     if (replacement === undefined) return;
     replaceCurrentSelection(selection.field, replacement);
   };
+
+  // 이 셀이 등식(`2x+1=7`)인가 — solve 버튼 노출 판정에만 쓴다. 실제 그래프 진입 판정은
+  // `cellGraph.ts` 가 같은 함수로 따로 한다(판정이 두 벌이면 어긋난다).
+  const isRelation = splitRelation(object.latex) !== null;
+  // ⚠ `transformsBlocked` 를 타면 안 된다 — solve가 "근 없음" 오류를 내면 결과가
+  // `kind:'error'` 가 되는데, 그 게이트를 쓰면 버튼이 사라져 토글을 끌 수가 없다.
+  // `SOLVE_ENABLED` 는 CE 0.90이 초월식을 못 풀어서 잠시 꺼둔 기능 플래그다
+  // (`src/features.ts` 참고) — 꺼져 있으면 버튼 자체를 안 낸다.
+  const showSolveButton =
+    SOLVE_ENABLED &&
+    isRelation &&
+    selection !== null &&
+    selection.field === 'input' &&
+    selection.solveSymbol !== null;
 
   const cellClassName = ['cell', dragging && 'cell-dragging', !object.enabled && 'cell-disabled']
     .filter(Boolean)
@@ -318,6 +297,28 @@ export function Cell({
           {/* 입력 필드의 선택 변환 버튼 — 조작 대상 옆에. 오류 셀에서는 숨긴다. */}
           {selection !== null && selection.field === 'input' && !transformsBlocked && (
             <TransformButtons selection={selection} onApply={applyTransform} />
+          )}
+          {/* 등식 셀에서 변수 하나를 선택하면 뜨는 solve 토글. 이미 그 변수로 풀고
+              있으면 눌러서 해제한다. `transformsBlocked` 밖에 있다 — 근이 없어 결과가
+              오류가 돼도 토글을 끌 수 있어야 한다. */}
+          {showSolveButton && selection !== null && selection.solveSymbol !== null && (
+            <button
+              type="button"
+              className={
+                object.solveFor === selection.solveSymbol
+                  ? 'transform-btn solve-btn solve-btn-active'
+                  : 'transform-btn solve-btn'
+              }
+              title={`Solve the equation for ${selection.solveSymbol}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() =>
+                onSetSolveFor(
+                  object.solveFor === selection.solveSymbol ? null : selection.solveSymbol,
+                )
+              }
+            >
+              solve for {selection.solveSymbol}
+            </button>
           )}
           <button type="button" className="remove" title="Delete cell" onClick={onRemove}>
             ×

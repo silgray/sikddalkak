@@ -293,6 +293,23 @@ function computeNode(node: Node, env: Env): Computed {
     : { result: { kind: 'ok', latex: `${node.defName} = ${latex}`, json: null, definitionName: node.defName } };
 }
 
+export type EvaluateCellsOptions = {
+  /**
+   * 셀 하나의 실제 계산(`computeNode`)을 시작하기 **직전**마다 부른다(캐시 적중이든
+   * 아니든). `worker/algebra.worker.ts` 가 이걸로 "지금 어느 셀을 계산 중인가"를
+   * 메인 스레드에 보고한다 — CE가 안 끝나 워커를 강제 종료해야 할 때 범인 셀을
+   * 지목하는 유일한 방법이다(워커가 죽으면 지역 상태는 통째로 사라진다).
+   */
+  onCellStart?: (id: string) => void;
+  /**
+   * 이 id들은 `computeNode` 를 아예 안 부르고 곧장 타임아웃 오류로 채운다. 워커가
+   * 어떤 셀에서 멈춰 강제 종료됐을 때, 재시도가 **같은 셀에서 다시 멈추는 무한
+   * 재시도**를 막는 장치다(`worker/client.ts`) — 그 셀의 latex가 그대로인 한 계속
+   * 막힌 채로 있고, 사용자가 고치면(=latex가 바뀌면) 클라이언트가 다시 기회를 준다.
+   */
+  forceTimeoutIds?: ReadonlySet<string>;
+};
+
 /**
  * 오브젝트 집합을 이름 기반 의존성 그래프로 평가한다. 배열 순서가 아니라 "누가 무엇을
  * 정의하고 누가 그 이름을 참조하는가"로 계산 순서가 정해진다.
@@ -301,11 +318,12 @@ function computeNode(node: Node, env: Env): Computed {
  * 정의를 한 번에 몰아넣고 끝이다 — 위상정렬은 **순환 감지 전용**과 캐시 지문(상류 지문이
  * 하류로 전파되게) 용도로만 쓴다.
  *
- * 선택 변환(`Cell.tsx`)이 쓰는 환경과 결과 계산이 쓰는 환경이 어긋나면 안 되므로
- * `env` 를 같이 돌려준다 — 호출자가 그대로 `Cell` 에 내려준다.
+ * 선택 변환(`cellSelection.ts`)이 쓰는 환경과 결과 계산이 쓰는 환경이 어긋나면 안 되므로
+ * `env` 를 같이 돌려준다 — `worker/algebra.worker.ts` 가 다음 선택 변환 요청에 그대로 쓴다.
  */
 export function evaluateCells(
   objects: readonly FormulaObject[],
+  options: EvaluateCellsOptions = {},
 ): { results: Map<string, EvalResult>; env: Env } {
   const results = new Map<string, EvalResult>();
 
@@ -481,6 +499,11 @@ export function evaluateCells(
       });
       continue;
     }
+    if (options.forceTimeoutIds?.has(node.id)) {
+      results.set(node.id, { kind: 'error', message: 'Computation timed out' });
+      continue;
+    }
+    options.onCellStart?.(node.id);
     const fingerprint =
       fingerprints.get(node.id) ?? `${node.defName ?? ''}|${node.value}|${node.solveFor ?? ''}|`;
     const entry = computed.get(fingerprint) ?? remember(computed, fingerprint, computeNode(node, env));

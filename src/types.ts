@@ -42,6 +42,13 @@ export type EvalResult =
   | { kind: 'empty' }
   | { kind: 'error'; message: string }
   /**
+   * 계산 중 — 워커(`worker/client.ts`)가 아직 응답하지 않았다. `CellStack.tsx` 가
+   * 새 결과를 받기 전까지 **이전 결과**를 그대로 들고 있는 것과는 다르다: 이 상태는
+   * 셀이 새로 생겼거나 첫 계산이 아직 안 끝난 경우에만 나온다(이전 값이 없으니 흐릴
+   * 것도 없다). `ResultRow` 는 이걸 받으면 조용히 있는다 — 깜빡임 방지.
+   */
+  | { kind: 'pending' }
+  /**
    * 관계식(`1=1`, `x+1=1+x`, `2<1`)의 참/거짓 판정.
    * 수식이 아니라 판정이므로 MathLive가 아니라 일반 텍스트로 렌더한다.
    */

@@ -1,6 +1,7 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type Dispatch } from 'react';
+import { Fragment, useEffect, useRef, useState, type Dispatch } from 'react';
 import type { Action, Tab } from '../state/workspace';
-import { evaluateCells } from '../cellGraph';
+import type { EvalResult } from '../types';
+import { evaluateCellsAsync } from '../worker/client';
 import { Cell } from './Cell';
 
 type Props = {
@@ -27,10 +28,22 @@ export function CellStack({ tab, dispatch }: Props) {
     return undefined;
   }, [tab.objects, tab.lastChange]);
 
-  // 결과와 선택 변환이 쓰는 심볼 환경을 **한 번에** 얻는다 — 둘이 따로 만들어지면
-  // "결과는 A를 행렬로 알고 계산했는데 변환 버튼은 A를 모른다" 같은 어긋남이 생긴다.
-  // 그래프 층(cellGraph.ts)이 캐시로 바뀐 노드와 그 후손만 실제로 재계산한다.
-  const { results, env } = useMemo(() => evaluateCells(evalObjects), [evalObjects]);
+  // 계산은 워커에서 비동기로 돈다(`worker/client.ts`) — CE 예산이 못 끊는 입력이
+  // 있어도(`ce/budget.ts` 서두 참고) 이 탭이 얼어붙지 않게 하려는 조치다. `env`(심볼
+  // 환경)는 이제 워커가 소유한다 — 선택 변환도 같은 워커에 요청을 보내 같은 env를
+  // 쓰므로("결과는 A를 행렬로 알고 계산했는데 변환 버튼은 A를 모른다" 어긋남 방지),
+  // `Cell` 은 더 이상 env를 받을 필요가 없다.
+  //
+  // 새 요청을 보낼 때마다 요청 번호를 올려, 먼저 보낸 stale 요청의 응답이 늦게 와도
+  // 최신 상태를 덮어쓰지 않게 한다.
+  const [results, setResults] = useState<Map<string, EvalResult>>(new Map());
+  const latestRequest = useRef(0);
+  useEffect(() => {
+    const requestId = ++latestRequest.current;
+    evaluateCellsAsync(evalObjects).then(({ results: r }) => {
+      if (latestRequest.current === requestId) setResults(r);
+    });
+  }, [evalObjects]);
 
   // --- 드래그 재정렬 (라이브러리 없이 pointer 이벤트로) ---
   const containerRef = useRef<HTMLDivElement>(null);
@@ -79,9 +92,8 @@ export function CellStack({ tab, dispatch }: Props) {
           {drag !== null && drag.insertAt === index && <div className="drop-line" />}
           <Cell
             object={object}
-            env={env}
             dragging={drag?.id === object.id}
-            result={object.resultDetached ? { kind: 'empty' } : (results.get(object.id) ?? { kind: 'empty' })}
+            result={object.resultDetached ? { kind: 'empty' } : (results.get(object.id) ?? { kind: 'pending' })}
             focusToken={tab.focus?.id === object.id ? tab.focus.token : null}
             focusOffset={tab.focus?.id === object.id ? (tab.focus.offset ?? null) : null}
             focusSelection={tab.focus?.id === object.id ? (tab.focus.selection ?? null) : null}
@@ -92,6 +104,7 @@ export function CellStack({ tab, dispatch }: Props) {
             onToggleEnabled={() =>
               dispatch({ type: 'setEnabled', id: object.id, enabled: !object.enabled })
             }
+            onSetSolveFor={(symbol) => dispatch({ type: 'setSolveFor', id: object.id, symbol })}
             onDeleteEmpty={() => {
               // 빈 셀 backspace: 셀을 지우고 바로 위 셀 끝으로. 맨 아래 상시 빈
               // 셀은 지워도 불변식이 재추가하므로(히스토리 노이즈) 이동만 한다.
