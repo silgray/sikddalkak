@@ -9,6 +9,7 @@ const obj = (id: string, latex: string, extra: Partial<FormulaObject> = {}): For
   mode: 'scoped',
   resultDetached: false,
   enabled: true,
+  solveFor: null,
   ...extra,
 });
 
@@ -44,6 +45,14 @@ describe('직렬화 왕복', () => {
     };
     expect(parseWorkspace(serializeWorkspace(ws))?.tabs[0].objects[0].enabled).toBe(false);
   });
+
+  it('solveFor도 왕복한다', () => {
+    const ws: WorkspaceState = {
+      tabs: [hydrateTab({ id: 't1', name: 'T', objects: [obj('a', '2x=8', { solveFor: 'x' })] })],
+      activeTabId: 't1',
+    };
+    expect(parseWorkspace(serializeWorkspace(ws))?.tabs[0].objects[0].solveFor).toBe('x');
+  });
 });
 
 describe('v1 → v2 마이그레이션', () => {
@@ -73,6 +82,17 @@ describe('v1 → v2 마이그레이션', () => {
       activeTabId: 't',
     });
     expect(parseWorkspace(v2)?.tabs[0].objects[0].enabled).toBe(true);
+  });
+
+  it('구 저장본(solveFor 없음)은 solve 대상 없음으로 채운다', () => {
+    const v1 = JSON.stringify({ version: 1, objects: [{ id: 'x', latex: '2x=8', mode: 'scoped' }] });
+    expect(parseWorkspace(v1)?.tabs[0].objects[0].solveFor).toBeNull();
+    const v2 = JSON.stringify({
+      version: 2,
+      tabs: [{ id: 't', name: 'T', objects: [{ id: 'a', latex: '2x=8', mode: 'scoped' }] }],
+      activeTabId: 't',
+    });
+    expect(parseWorkspace(v2)?.tabs[0].objects[0].solveFor).toBeNull();
   });
 });
 

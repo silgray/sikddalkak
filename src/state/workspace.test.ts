@@ -116,6 +116,24 @@ describe('오브젝트 액션은 활성 탭만 건드린다', () => {
     s = workspaceReducer(s, { type: 'setEnabled', id, enabled: true });
     expect(active(s).objects[0].enabled).toBe(true);
   });
+
+  it('setSolveFor가 해당 오브젝트의 solveFor만 바꾼다', () => {
+    let s = initialWorkspace();
+    const id = active(s).objects[0].id;
+    expect(active(s).objects[0].solveFor).toBeNull(); // 새 셀은 기본으로 solve 대상이 없다
+    s = workspaceReducer(s, { type: 'setSolveFor', id, symbol: 'x' });
+    expect(active(s).objects[0].solveFor).toBe('x');
+    s = workspaceReducer(s, { type: 'setSolveFor', id, symbol: null });
+    expect(active(s).objects[0].solveFor).toBeNull();
+  });
+
+  it('latex를 고쳐도 solveFor는 리셋되지 않는다 (resultDetached와 다르다)', () => {
+    let s = initialWorkspace();
+    const id = active(s).objects[0].id;
+    s = workspaceReducer(s, { type: 'setSolveFor', id, symbol: 'x' });
+    s = workspaceReducer(s, { type: 'commitInput', id, latex: '2x=9' });
+    expect(active(s).objects[0].solveFor).toBe('x');
+  });
 });
 
 describe('makeTab', () => {
@@ -204,7 +222,9 @@ describe('상시 빈 셀 불변식', () => {
     const t = hydrateTab({
       id: 't1',
       name: 'T',
-      objects: [{ id: 'a', latex: '2x', mode: 'scoped', resultDetached: false, enabled: true }],
+      objects: [
+        { id: 'a', latex: '2x', mode: 'scoped', resultDetached: false, enabled: true, solveFor: null },
+      ],
     });
     expect(t.objects).toHaveLength(2);
     expect(t.objects[1].latex).toBe('');

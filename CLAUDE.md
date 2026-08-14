@@ -172,6 +172,20 @@
     `isPureScalar`, 왕복하는 `viaCe`, 다항식에서 계수만 골라 넘기는 `refineScalars`.
     `viaCe` 의 `fold` 인자가 expand/simplify(`true`)와 factor(`false`)를 가른다 —
     묶어서 넘기면 인수분해가 뽑아야 할 공통 인수가 블록 안에 갇힌다.
+  - **`solve.ts`** — `solveFor(e, symbol, env)`. `e` 는 이미 `lhs - rhs` 로 접힌 식이다 —
+    `=` 를 아는 IR 노드가 없어서(등식은 `cellGraph.ts` 층에만 있다) "이 식이 0" 이라는
+    스칼라 식 하나만 받는다. `isPureScalar` 로 게이트하고 CE의 `solve` 자유 함수에
+    위임한다(`viaCe` 와 같은 규율 — `render()` 로 LaTeX을 만들어 `{strict:true}` 로
+    넘기고 MathJSON으로 받는다). **수식이냐 수치냐는 안 가른다** — 호출자가
+    `substituteDeep` 로 정의된 심볼을 먼저 다 먹인 뒤 부르면 CE가 남은 심볼에 따라
+    알아서 고른다(`ax=b`→수식, 전부 리터럴이면 수치, 닫힌 형이 없으면 근 찾기로 폴백).
+    ⚠ **CE 0.90 실측 함정**: `.d.ts` 는 `solve()` 가 순수 MathJSON 배열을 준다고 적어놨지만
+    실제로는 **`BoxedExpression` 인스턴스**를 준다 — `.json` 접근자로 한 번 더 벗겨야
+    한다(`delegate.ts` 의 `result.json` 과 같은 이유, `.d.ts` 를 믿지 말 것).
+    ⚠ **지금은 `src/features.ts` 의 `SOLVE_ENABLED=false` 로 꺼져 있다** — CE 0.90이
+    닫힌 형 없는 초월식(`\cos(x)=x` 등)을 못 풀고(빈 배열), 뉴턴 시작점을 넘길 API도
+    없어서다(아래 CE 실측 함정 목록 참고). 이 파일과 `cellGraph.ts`/`Cell.tsx` 의 등식
+    플러밍(상태·영속·UI)은 그대로 살아 있다 — 더 나은 엔진을 찾으면 플래그만 뒤집으면 된다.
 - **`render.ts`** — Typed IR → LaTeX. 계약은 **렌더 멱등성**(낸 걸 다시 읽어 또 내면 같다).
   **이 파일엔 CE가 없다** — 잎 심볼 이름 사전만 `ce/symbolName.ts` 에 위임한다.
 - **`numeric.ts`** — 수치 평가기. 재작성 전후 값 대조 **전용**(역행렬은 일부러 뺐다).
@@ -193,7 +207,8 @@
   묶을 수 있다.
 - **`result/result.ts`** — `Result<T>` / `AlgebraError` 등 공용 결과 타입과 생성자
   (`ok`/`fail`/`failWith`/`all`).
-- **`index.ts`** — 공개 API (`parse`/`transform`/`buildEnv`/`analyze`/`solveFor` 자리).
+- **`index.ts`** — 공개 API (`parse`/`transform`/`buildEnv`/`analyze`, `solveFor` 는
+  `transform/solve.ts` 재노출).
 
 ⚠ **CE 0.90 실측 함정** (전부 테스트에 핀으로 고정돼 있다):
 - `Add`/`Power` 정규화 폼은 항을 재배열하고 `A^{-1}` 을 `\frac{1}{A}` 로 바꾼다 → `Number` 만 쓴다
@@ -213,6 +228,19 @@
 - **심볼릭 적분이 안 끝나는 입력이 있다** — `\int_{-\pi}^{\pi}\frac{1}{2}e^{3x}\sin(2x)dx` 는
   `.evaluate()` 에서 안 돌아온다 (`e^{x}` 면 111ms). 우리 호출은 전부 동기라 곧 앱 프리즈다 →
   `ceLimit.ts` 가 시간 예산을 걸고, 걸리면 미평가로 남긴다
+- **수치 근찾기(뉴턴/이분법)가 아예 없다** — `dist/types` 와 번들 JS를 다 뒤져도
+  `nsolve`/`FindRoot`/`newton`/`bisect`/`initialGuess`/`x0`/`maxIterations` 류 식별자가
+  하나도 없다. `solve()` 의 옵션은 `{strict?}` 뿐이라 **뉴턴 시작점을 넘길 자리 자체가
+  없다**. 있는 수치 루틴(`durandKernerRoots`/`realPolynomialRoots`)은 다항식 전용이고
+  자체 시작(self-starting)이라 시드를 안 받는다. 다항식은 실근을 **전부** 주지만
+  (`x^3-6x^2+11x-6=0` → `[1,2,3]`, 실측), **닫힌 형이 없는 초월식은 근을 하나만 주는
+  게 아니라 빈 배열**이다(`\cos(x)=x`, `xe^x=3`, `\ln(x)+x=5` 전부 `[]`, 실측) — 공학용
+  계산기가 시드를 받는 게 바로 이 구간이다. 대신 `Solve(eq, ["Element", x,
+  ["Interval", a, b]])` 는 **주기함수(sin/cos/tan 계열)의 근을 그 구간 안에서 전부**
+  확장해 준다(실측: `\sin(x)=1/2` 에 `[0,20]` 을 주면 근 7개) — 수치해석이 아니라 CE의
+  네이티브 기능이라 시드 없이도 된다. 단 `\cos(x)=x` 는 구간을 줘도 그대로 미평가로
+  남는다. `src/algebra/transform/solve.ts` 는 이 한계 때문에 `SOLVE_ENABLED=false`
+  로 꺼둔 상태다.
 
 ### `src/editor/` — MathLive 경계 레이어 (구조 안전성)
 
@@ -273,10 +301,18 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
   정의와 겹치면 오류, 서로 다른 함수끼리는 겹쳐도 된다. 함수 정의 셀의 결과 행은
   **계산하지 않고 본문을 그대로 되뇐다**(`computeFunctionNode`) — 인수가 없어 모양을
   모르니 계산할 수가 없다(모양 다형, `elaborate.ts` 참고).
+  **등식 셀**(`2x+1=7`, `splitRelation` 이 갈라낸다)은 `defName` 이 없어 아무것도
+  정의하지 않는다 — `FormulaObject.solveFor` 가 골라졌을 때만
+  `computeRelationNode` 가 `lhs-\left(rhs\right)` 를 만들어 algebra의 `solveFor`
+  에 넘긴다(`transform/solve.ts`). 안 골랐으면(`solveFor===null`) 그래프에 아예
+  안 들어간다 — 정의가 없으니 빼도 다른 셀에 영향이 없다. 부등호(`<`,`\leq` 등)는
+  여전히 오류다.
 - **`cellEnv.ts`** — 정의 판정(`splitDefinition`: `a=3` 의 좌변/우변 분리,
-  `splitFunctionDefinition`: `f(x)=x^2` 의 이름/매개변수/우변 분리)과 `Env` 조립
+  `splitFunctionDefinition`: `f(x)=x^2` 의 이름/매개변수/우변 분리, `splitRelation`:
+  둘 다 아닌 최상위 `=` 의 좌변/우변 분리 — `2x+1=7` 같은 등식)과 `Env` 조립
   (`buildCellEnv`, algebra의 `buildEnv` 얇은 재노출 — 이제 `functions` 도 받는다).
-  그래프 구성 자체는 안 한다 — 그건 `cellGraph.ts` 몫.
+  그래프 구성 자체는 안 한다 — 그건 `cellGraph.ts` 몫. `splitRelation` 은
+  `Cell.tsx` 도 같이 쓴다(solve 버튼 노출 판정 — 판정이 두 벌이면 어긋난다).
 - **`types.ts`** — `FormulaObject`(정본), `EvalResult`, `CellMode` 등 공용 타입.
 - **`styles.css`** — 전역 CSS (라이트/다크 자동, CSS 변수).
 - **`scripts/copy-mathlive-assets.mjs`** — 빌드 전 MathLive 폰트를 public으로 복사.

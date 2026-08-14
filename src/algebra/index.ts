@@ -2,7 +2,7 @@ import { elaborate } from './parse/elaborate';
 import { type Env, type FunctionDef, type TypedExpr } from './expression/node';
 import { normalize } from './normalize/normalize';
 import { exprKey } from './expression/key';
-import { fail, failWith, ok, type AlgebraError, type Result } from './result/result';
+import { failWith, ok, type AlgebraError, type Result } from './result/result';
 import { render } from './render';
 import { expand } from './transform/expand';
 import { factor } from './transform/factor';
@@ -31,6 +31,7 @@ export { expand } from './transform/expand';
 export { factor } from './transform/factor';
 export { simplify } from './transform/simplify';
 export { substitute } from './transform/substitute';
+export { solveFor } from './transform/solve';
 export { isPureScalar } from './transform/delegate';
 export { evalNumeric, matricesClose, type NumericBindings, type Matrix } from './numeric';
 export { formatSyntax, formatTyped, formatTypedWithShapes } from './debug';
@@ -239,22 +240,8 @@ export function analyze(latex: string, env: Env): Diagnostics {
 }
 
 // ---------------------------------------------------------------------------
-// 자리만 마련해 둔 것 (설계 §8·§11)
+// 기타 공개 유틸
 // ---------------------------------------------------------------------------
-
-/**
- * 미지수에 대해 푼다 — **아직 구현하지 않았다.**
- *
- * 자리를 미리 잡아두는 이유는, 나중에 붙일 때 호출부 시그니처가 흔들리지 않게 하기
- * 위해서다. 여러 해가 나올 수 있으므로 결과는 목록이다.
- */
-export function solveFor(
-  _expression: TypedExpr,
-  _symbol: string,
-  _env: Env,
-): Result<readonly TypedExpr[]> {
-  return fail('unsupported', 'Solving is not implemented yet');
-}
 
 /** 오류 여러 개를 하나로 모으는 편의 (호출부가 결과를 합칠 때 쓴다). */
 export const collectErrors = <T,>(results: readonly Result<T>[]): Result<T[]> => {

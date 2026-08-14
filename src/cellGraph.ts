@@ -4,13 +4,16 @@ import {
   parse,
   parseSyntax,
   render,
+  solveFor as solveEquation,
   substituteDeep,
+  SCALAR_SHAPE,
   type Env,
   type FunctionDef,
 } from './algebra';
-import { buildCellEnv, splitDefinition, splitFunctionDefinition } from './cellEnv';
+import { buildCellEnv, splitDefinition, splitFunctionDefinition, splitRelation } from './cellEnv';
 import { scanLatex } from './editor/latexScan';
 import { repairLatex } from './editor/wellformed';
+import { SOLVE_ENABLED } from './features';
 import type { EvalResult, FormulaObject } from './types';
 
 /**
@@ -19,10 +22,11 @@ import type { EvalResult, FormulaObject } from './types';
  * algebra는 "식 하나와 심볼 환경"만 안다(index.ts 서두). 위상정렬·순환 감지·중복정의·
  * 캐시는 여기, algebra 밖에 있다.
  *
- * **관계식은 아직 없다.** `a=3`(변수)·`f(x)=x^2`(함수) 같은 정의만 지원하고,
- * `1=1`·`x^2=4`·`2<1` 처럼 최상위에 관계 기호가 있는데 정의가 아니면 오류로 표시한다.
- * `EvalResult` 의 `boolean` 판정은 나중에 쓴다 — 지금은 이 경로로 갈 방법이 없을 뿐,
- * 타입은 그대로 둔다.
+ * **등식은 `solve for` 가 골라졌을 때만 계산된다.** `2x+1=7` 처럼 정의(변수·함수)가
+ * 아닌 최상위 `=` 는 관계(relation) 노드가 된다 — `defName` 이 없어 아무것도 정의하지
+ * 않고, 다른 셀에 solve 결과를 전달하지도 않는다(순수 표시용). `<`,`\leq` 같은 부등호는
+ * 여전히 오류다. `EvalResult` 의 `boolean` 판정은 그대로 도달 불가로 남는다(부등호를
+ * 지원할 때 쓸 자리).
  *
  * **변수와 함수는 한 이름 공간을 공유한다** — `a=3` 다음에 `a(x)=x` 를 쓰면 (또는
  * 그 반대여도) `duplicate definition` 이다. 함수의 매개변수 이름은 별개 규칙 —
@@ -50,6 +54,13 @@ type Structure =
       value: string;
       /** 계산 순서를 정하는 간선 */
       deps: readonly string[];
+    }
+  | {
+      kind: 'relation';
+      lhs: string;
+      rhs: string;
+      /** 양변을 합친 자유 심볼 — solve 시 치환·위상 순서에 쓴다 */
+      deps: readonly string[];
     };
 
 type Node = {
@@ -58,18 +69,18 @@ type Node = {
   params: readonly string[];
   value: string;
   deps: readonly string[];
+  /** 등식 노드일 때만 채워진다. `defName`/`params` 는 등식이면 늘 `null`/`[]`. */
+  relation: { lhs: string; rhs: string } | null;
+  /** 이 등식을 어느 변수에 대해 풀지. `null` 이면 결과가 비어 있다(버튼 안 누른 상태). */
+  solveFor: string | null;
 };
 
-/** 관계 기호 한 글자(문자 토큰)로 오는 것들. `=` 는 `splitDefinition` 이 따로 본다. */
+/** 관계 기호 한 글자(문자 토큰)로 오는 것들. `=` 는 `splitRelation` 이 따로 본다. */
 const RELATION_CHARS = new Set(['<', '>']);
 /** 명령어로 오는 관계 기호. `scanLatex` 의 command 토큰은 `\` 를 포함한다. */
 const RELATION_COMMANDS = new Set([
   '\\leq', '\\geq', '\\neq', '\\le', '\\ge', '\\ne', '\\leqslant', '\\geqslant', '\\neqslant',
 ]);
-
-function hasTopLevelEquals(latex: string): boolean {
-  return scanLatex(latex).tokens.some((t) => t.kind === 'char' && t.text === '=');
-}
 
 function hasTopLevelRelation(latex: string): boolean {
   return scanLatex(latex).tokens.some(
@@ -128,8 +139,19 @@ function readStructure(latex: string): Structure {
       deps: dependencyNames(fnDef.rhs, fnDef.params),
     };
   }
-  // 정의가 아닌데 최상위에 관계 기호가 있으면 관계식이다 — 이번 라운드는 지원하지 않는다.
-  if (hasTopLevelEquals(repaired) || hasTopLevelRelation(repaired)) {
+  // 정의는 아닌데 최상위 `=` 가 있으면 등식이다 — solve 대상을 고르면 계산된다.
+  const rel = splitRelation(repaired);
+  if (rel !== null) {
+    // ⚠ SOLVE_ENABLED=false 인 동안은 `=`도 부등호와 같은 "아직 지원 안 함" 오류로
+    // 떨어뜨린다 — CE 0.90이 초월식을 못 풀고(`\cos(x)=x` 등이 빈 배열로 온다) 뉴턴
+    // 시작점을 넘길 API도 없어서다(CE 실측 함정 참고). 조용히 빈 결과보다 정직하다.
+    if (!SOLVE_ENABLED) return { kind: 'error', message: 'Relations are not supported yet' };
+    // 의존 심볼은 양변을 하나로 합쳐 뽑는다 — 어느 쪽에 있든 solve 전 치환 대상이다.
+    const deps = dependencyNames(`${rel.lhs}-\\left(${rel.rhs}\\right)`);
+    return { kind: 'relation', lhs: rel.lhs, rhs: rel.rhs, deps };
+  }
+  // 부등호(`<`,`\leq` 등)는 아직 지원하지 않는다.
+  if (hasTopLevelRelation(repaired)) {
     return { kind: 'error', message: 'Relations are not supported yet' };
   }
   return { kind: 'node', defName: null, params: [], value: repaired, deps: dependencyNames(repaired) };
@@ -196,6 +218,48 @@ function computeFunctionNode(node: Node): Computed {
 }
 
 /**
+ * 등식 셀(`2x+1=7`)의 결과 행. `evaluateCells` 가 `solveFor === null` 인 관계 노드는
+ * 애초에 그래프에 안 넣으므로(아래 참고) 여기 도달하면 항상 풀 대상이 있다 — `null`
+ * 분기는 방어적으로만 남긴다.
+ *
+ * `lhs - \left(rhs\right)` 를 만들어 `parse` 한 뒤 algebra의 `solveFor` 에 넘긴다.
+ * **풀 대상 심볼은 치환에서 뺀다** — 안 빼면 다른 셀의 `x=5` 같은 정의가 먼저 먹어버려
+ * 풀 게 남지 않는다. 나머지 심볼은 평소처럼 다 치환한다 — 그래야 `ax=b` 가 `a`·`b` 둘
+ * 다 정의돼 있으면 수치로, 아니면 수식으로 나온다(algebra가 알아서 가른다,
+ * `transform/solve.ts` 문서의 실측 표 참고).
+ */
+function computeRelationNode(node: Node, env: Env): Computed {
+  const symbol = node.solveFor;
+  if (node.relation === null || symbol === null) {
+    return { result: { kind: 'empty' } };
+  }
+
+  const diff = parse(`${node.relation.lhs}-\\left(${node.relation.rhs}\\right)`, env);
+  if (!diff.ok) {
+    return { result: { kind: 'error', message: diff.errors[0].message } };
+  }
+
+  const bindings = env.bindings ?? {};
+  const freeBindings = Object.fromEntries(
+    Object.entries(bindings).filter(([name]) => name !== symbol),
+  );
+  const substituted = substituteDeep(diff.value, { ...env, bindings: freeBindings });
+  if (!substituted.ok) {
+    return { result: { kind: 'error', message: substituted.errors[0].message } };
+  }
+
+  const solved = solveEquation(substituted.value, symbol, env);
+  if (!solved.ok) {
+    return { result: { kind: 'error', message: solved.errors[0].message } };
+  }
+
+  // 근이 여럿이면(`x^2=4` → 2, -2) 한 줄에 모은다 — 결과 행이 표시용이라 하나로 족하다.
+  const symbolLatex = render({ op: 'sym', shape: SCALAR_SHAPE, name: symbol });
+  const latex = solved.value.map((root) => `${symbolLatex} = ${render(root)}`).join(',\\ ');
+  return { result: { kind: 'ok', latex, json: null, definitionName: null } };
+}
+
+/**
  * 셀 하나를 실제 환경으로 다시 파싱해 계산한다. `readStructure` 의 파싱(BLIND_ENV)을
  * 재사용하지 않는다 — 모양을 모르고 판단한 연산(스칼라곱 vs 행렬곱)이 실제와 다를 수
  * 있어서다.
@@ -203,8 +267,10 @@ function computeFunctionNode(node: Node): Computed {
  * **정의 셀도 치환·평가를 거친다** — 결과 행에는 `B=A^T` 의 `A` 까지 실제로 풀린 값이
  * 보여야 한다(정의를 그때까지의 바인딩으로 치환한 값을 보여준다).
  * **함수 정의 셀은 예외다** — `computeFunctionNode` 로 갈라진다(위 문서 참고).
+ * **등식 셀도 예외다** — `computeRelationNode` 로 갈라진다.
  */
 function computeNode(node: Node, env: Env): Computed {
+  if (node.relation !== null) return computeRelationNode(node, env);
   if (node.params.length > 0) return computeFunctionNode(node);
 
   const parsed = parse(node.value, env);
@@ -254,8 +320,27 @@ export function evaluateCells(
     }
     const key = object.latex.trim();
     const structure = structures.get(key) ?? remember(structures, key, readStructure(object.latex));
-    if (structure.kind !== 'node') {
+    if (structure.kind === 'empty' || structure.kind === 'error') {
       results.set(object.id, structure);
+      continue;
+    }
+    if (structure.kind === 'relation') {
+      // solve 대상을 아직 안 골랐으면 그래프에 안 넣는다 — `defName` 이 없어 정의도
+      // 안 하므로(아무도 이 셀에 의존하지 않는다) 빼도 다른 셀에 영향이 없고, 결과는
+      // 버튼을 누르기 전이니 어차피 비어 있어야 한다.
+      if (object.solveFor === null) {
+        results.set(object.id, { kind: 'empty' });
+        continue;
+      }
+      nodes.push({
+        id: object.id,
+        defName: null,
+        params: [],
+        value: `${structure.lhs}=${structure.rhs}`,
+        deps: structure.deps,
+        relation: { lhs: structure.lhs, rhs: structure.rhs },
+        solveFor: object.solveFor,
+      });
       continue;
     }
     nodes.push({
@@ -264,6 +349,8 @@ export function evaluateCells(
       params: structure.params,
       value: structure.value,
       deps: structure.deps,
+      relation: null,
+      solveFor: null,
     });
   }
 
@@ -371,7 +458,12 @@ export function evaluateCells(
     // defName을 지문에 넣어야 한다 — `node.value`는 정의 셀이면 **우변뿐**이라
     // (`a=M`, `q=M`처럼) 이름만 다른 두 정의가 같은 우변 텍스트를 쓰면 지문이 겹친다.
     // 결과 latex(`"a = …"` vs `"q = …"`)가 이름을 담고 있으니 지문도 담아야 한다.
-    fingerprints.set(id, `${node.defName ?? ''}|${node.value}|${depPrints.join('&')}`);
+    // solveFor도 넣는다 — 안 넣으면 같은 등식에서 solve 대상만 바꿔도(또는 껐다 켜도)
+    // 캐시가 옛 결과를 그대로 돌려준다.
+    fingerprints.set(
+      id,
+      `${node.defName ?? ''}|${node.value}|${node.solveFor ?? ''}|${depPrints.join('&')}`,
+    );
   }
 
   // --- 6단계: 평가 (순환 아닌 노드만, 순서는 무관 — env가 이미 완성돼 있다) ---
@@ -389,7 +481,8 @@ export function evaluateCells(
       });
       continue;
     }
-    const fingerprint = fingerprints.get(node.id) ?? `${node.defName ?? ''}|${node.value}|`;
+    const fingerprint =
+      fingerprints.get(node.id) ?? `${node.defName ?? ''}|${node.value}|${node.solveFor ?? ''}|`;
     const entry = computed.get(fingerprint) ?? remember(computed, fingerprint, computeNode(node, env));
     results.set(node.id, entry.result);
   }

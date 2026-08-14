@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { clearCellGraphCache, evaluateCells } from './cellGraph';
+import { SOLVE_ENABLED } from './features';
 import type { EvalResult, FormulaObject } from './types';
 
 /**
@@ -13,9 +14,9 @@ import type { EvalResult, FormulaObject } from './types';
  */
 
 let seq = 0;
-function obj(latex: string, enabled = true): FormulaObject {
+function obj(latex: string, enabled = true, solveFor: string | null = null): FormulaObject {
   seq += 1;
-  return { id: `t${seq}`, latex, mode: 'scoped', resultDetached: false, enabled };
+  return { id: `t${seq}`, latex, mode: 'scoped', resultDetached: false, enabled, solveFor };
 }
 
 /** 그래프를 입력 순서대로 평가하고 결과를 그 순서 배열로 되돌린다. */
@@ -130,15 +131,72 @@ describe('그래프 평가 (순서 비의존)', () => {
   });
 });
 
-describe('관계식은 아직 지원하지 않는다', () => {
-  it('단일 심볼 정의가 아닌 최상위 `=` 는 오류다', () => {
+// SOLVE_ENABLED=false 인 동안(`src/features.ts`) 등식은 예전처럼 부등호와 같은 오류로
+// 돌아간다 — CE 0.90이 초월식을 못 풀고 뉴턴 시작점을 넘길 API도 없어서 잠시 꺼둔
+// 상태다. 아래 두 describe가 그 두 상태를 각각 지킨다 — 플래그를 켜면 자동으로
+// 반대쪽이 돈다.
+describe.runIf(!SOLVE_ENABLED)('등식 — SOLVE_ENABLED=false 인 동안은 오류다', () => {
+  it('단일 심볼 정의가 아닌 최상위 `=` 도 부등호처럼 오류다', () => {
     expect(one('x^2=4')).toMatchObject({ kind: 'error' });
     expect(one('1=1')).toMatchObject({ kind: 'error' });
   });
+});
 
-  it('부등호도 오류다', () => {
+describe('부등호는 항상 오류다 (플래그와 무관)', () => {
+  it('< 와 \\geq', () => {
     expect(one('2<1')).toMatchObject({ kind: 'error' });
     expect(one(String.raw`x\geq 1`)).toMatchObject({ kind: 'error' });
+  });
+});
+
+describe.skipIf(!SOLVE_ENABLED)('등식 — solve 대상을 안 고르면 결과가 비어 있다', () => {
+  it('단일 심볼 정의가 아닌 최상위 `=` 는 오류가 아니라 빈 결과다', () => {
+    expect(one('x^2=4')).toEqual({ kind: 'empty' });
+    expect(one('1=1')).toEqual({ kind: 'empty' });
+  });
+});
+
+describe.skipIf(!SOLVE_ENABLED)('등식 — solve for', () => {
+  function solveOne(latex: string, symbol: string): EvalResult {
+    const object = obj(latex, true, symbol);
+    const { results } = evaluateCells([object]);
+    return results.get(object.id) ?? { kind: 'empty' };
+  }
+
+  it('다중근은 한 줄에 모아 보여준다', () => {
+    expect(latexOf(solveOne('x^2=4', 'x'))).toBe(norm('x=2,\\ x=-2'));
+  });
+
+  it('미정 심볼이 남아 있으면 수식 해', () => {
+    expect(latexOf(solveOne('ax=b', 'x'))).toBe(norm(String.raw`x=\frac{b}{a}`));
+  });
+
+  it('참조하는 정의가 전부 리터럴이면 수치 해', () => {
+    const a = obj('a=3');
+    const b = obj('b=12');
+    const eq = obj('ax=b', true, 'x');
+    const { results } = evaluateCells([a, b, eq]);
+    expect(latexOf(results.get(eq.id)!)).toBe('x=4');
+  });
+
+  it('풀 대상 심볼은 다른 셀에 같은 이름의 정의가 있어도 거기 안 먹힌다', () => {
+    const x = obj('x=5');
+    const eq = obj('2x=8', true, 'x');
+    const { results } = evaluateCells([x, eq]);
+    // x=5로 치환됐다면 2*5=8이 거짓이라 근이 없어 오류였을 것 — 4가 나와야 옳다.
+    expect(latexOf(results.get(eq.id)!)).toBe('x=4');
+  });
+
+  it('근이 없으면 오류', () => {
+    expect(solveOne('1=2', 'x').kind).toBe('error');
+  });
+
+  it('solve 대상을 끄면 다시 결과가 빈다', () => {
+    const eq = obj('2x=8', true, 'x');
+    const on = evaluateCells([eq]).results.get(eq.id);
+    expect(on).toMatchObject({ kind: 'ok' });
+    const off = evaluateCells([{ ...eq, solveFor: null }]).results.get(eq.id);
+    expect(off).toEqual({ kind: 'empty' });
   });
 });
 

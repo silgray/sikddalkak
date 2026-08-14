@@ -29,6 +29,13 @@ export type FormulaObject = {
    * 그대로 남는다. UI는 셀 전체를 반투명하게 표시해 이 상태를 알린다.
    */
   enabled: boolean;
+  /**
+   * 이 셀이 등식(`2x+1=7`)일 때, 어느 변수에 대해 풀지. `null`이면 결과가 비어 있다
+   * (solve 버튼을 아직 안 눌렀다는 뜻). 등식이 아닌 셀에서는 그냥 무시된다.
+   * `latex`를 고쳐도 리셋하지 않는다 — solve 대상을 고른 채로 식을 계속 다듬을 수
+   * 있어야 한다(`resultDetached`가 latex 변경에 리셋되는 것과 반대).
+   */
+  solveFor: string | null;
 };
 
 export type EvalResult =

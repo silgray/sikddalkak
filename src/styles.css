@@ -419,6 +419,14 @@ math-field::part(virtual-keyboard-toggle) {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
+/* 지금 이 변수로 풀고 있다 — 채워서 강조한다 (구분 기호 툴바의 delim-btn-active와
+   같은 언어, 다만 solve는 토글 상태를 눈에 더 띄게 하려고 배경까지 채운다). */
+.cell-actions .transform-btn.solve-btn-active {
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
 .result {
   display: flex;
   align-items: center;

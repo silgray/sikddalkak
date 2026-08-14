@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyze, buildEnv, formatShape, parse, solveFor, transform } from './index';
+import { analyze, buildEnv, formatShape, parse, render, solveFor, transform } from './index';
 import { TEST_ENV } from './testEnv';
 
 /**
@@ -123,12 +123,24 @@ describe('analyze — 단계별 진단', () => {
   });
 });
 
-describe('아직 없는 것', () => {
-  it('solveFor 는 자리만 있고 구현은 없다', () => {
-    const parsed = parse('x+1', { shapes: {} });
+describe('solveFor — 공개 API', () => {
+  // 자세한 계약(수식/수치/다중근/비스칼라 거부)은 `transform/solve.test.ts` 가 덮는다 —
+  // 여기서는 `index.ts` 배선(스텁이 아니라 실제로 CE까지 왕복하는지)만 스모크 테스트한다.
+  it('e = 0 을 symbol에 대해 풀어 근을 돌려준다', () => {
+    const parsed = parse('2x-6', TEST_ENV);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    const result = solveFor(parsed.value, 'x', { shapes: {} });
+    const result = solveFor(parsed.value, 'x', TEST_ENV);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.map((r) => render(r))).toEqual(['3']);
+  });
+
+  it('근이 없으면 실패한다', () => {
+    const parsed = parse('1-2', TEST_ENV); // 늘 거짓 — x 없이도 성립하지 않는다
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const result = solveFor(parsed.value, 'x', TEST_ENV);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.errors[0].code).toBe('unsupported');
   });

@@ -38,6 +38,8 @@ function normalizeObject(o: unknown): FormulaObject | null {
     resultDetached: o.resultDetached === true,
     // v2 초기본에도 없던 필드. 없으면(구 저장본) 켜진 채로 — 저장 당시엔 다 계산 대상이었다.
     enabled: o.enabled !== false,
+    // 마찬가지로 없던 필드. 없으면 solve 대상 없음(등식이 아니거나 아직 안 고른 상태).
+    solveFor: typeof o.solveFor === 'string' ? o.solveFor : null,
   };
 }
 
@@ -56,7 +58,16 @@ function normalizeObjects(raw: unknown): FormulaObject[] | null {
 function ensureNonEmpty(objects: FormulaObject[]): FormulaObject[] {
   return objects.length > 0
     ? objects
-    : [{ id: crypto.randomUUID(), latex: '', mode: 'scoped', resultDetached: false, enabled: true }];
+    : [
+        {
+          id: crypto.randomUUID(),
+          latex: '',
+          mode: 'scoped',
+          resultDetached: false,
+          enabled: true,
+          solveFor: null,
+        },
+      ];
 }
 
 /**
@@ -113,6 +124,7 @@ export function serializeWorkspace(state: WorkspaceState): string {
         mode: o.mode,
         resultDetached: o.resultDetached,
         enabled: o.enabled,
+        solveFor: o.solveFor,
       })),
     })),
     activeTabId: state.activeTabId,
