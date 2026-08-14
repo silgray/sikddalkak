@@ -29,6 +29,10 @@ type Props = {
   onDragEnd: () => void;
   onMoveOut: (index: number, direction: 'forward' | 'backward' | 'upward' | 'downward') => void;
   onDeleteEmpty: (index: number) => void;
+  /** Alt+↑/↓ — 그룹 전체를 위/아래로. 어느 셀에서 눌러도 같은 그룹 이동이라 CellStack이
+   * 그룹 하나당 하나만 만들어 그대로 내려준다(onMoveOut/onDeleteEmpty와 달리 셀별로
+   * 안 갈린다). */
+  onMoveGroup: (delta: -1 | 1) => void;
 };
 
 /**
@@ -53,6 +57,7 @@ export function CellGroup({
   onDragEnd,
   onMoveOut,
   onDeleteEmpty,
+  onMoveGroup,
 }: Props) {
   const resultRef = useRef<MathFieldHandle>(null);
   const [selection, setSelection] = useState<SelectionInfo | null>(null);
@@ -136,6 +141,9 @@ export function CellGroup({
             onDragEnd={i === 0 ? onDragEnd : undefined}
             onMoveOut={(direction) => onMoveOut(index, direction)}
             onDeleteEmpty={() => onDeleteEmpty(index)}
+            onInsertCell={(position) => dispatch({ type: 'insertCell', id: object.id, position })}
+            onMoveGroup={onMoveGroup}
+            onDuplicate={(position) => dispatch({ type: 'duplicateCell', id: object.id, position })}
           />
         );
       })}

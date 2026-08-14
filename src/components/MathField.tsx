@@ -240,6 +240,12 @@ type Props = {
   onTransformShortcut?: (op: 'expand' | 'simplify' | 'factor') => void;
   /** 빈 필드에서 backspace — 셀 삭제/위 셀 이동은 CellStack이 조율. */
   onDeleteEmpty?: () => void;
+  /** Ctrl+Enter(아래)/Ctrl+Shift+Enter(위) — 그룹 밖에 새 빈 셀. */
+  onInsertCell?: (position: 'above' | 'below') => void;
+  /** Alt+↑/↓ — 이 셀이 속한 그룹 전체를 위/아래로. */
+  onMoveGroup?: (delta: -1 | 1) => void;
+  /** Shift+Alt+↑/↓ — 이 셀을 복제해 그룹 밖에 놓는다(방향은 명세대로 반대). */
+  onDuplicate?: (position: 'above' | 'below') => void;
   /**
    * 값이 바뀔 때마다가 아니라, 이 토큰이 바뀔 때만 포커스를 준다.
    * 리렌더마다 focus()가 불려 커서가 튀는 것을 막기 위한 장치.
@@ -285,6 +291,9 @@ export function MathField({
   onMoveOut,
   onTransformShortcut,
   onDeleteEmpty,
+  onInsertCell,
+  onMoveGroup,
+  onDuplicate,
   focusToken,
   focusOffset,
   focusSelection,
@@ -302,6 +311,9 @@ export function MathField({
     onMoveOut,
     onTransformShortcut,
     onDeleteEmpty,
+    onInsertCell,
+    onMoveGroup,
+    onDuplicate,
   });
   handlers.current = {
     onEdit,
@@ -311,6 +323,9 @@ export function MathField({
     onMoveOut,
     onTransformShortcut,
     onDeleteEmpty,
+    onInsertCell,
+    onMoveGroup,
+    onDuplicate,
   };
   const initialValue = useRef(value);
 
@@ -451,10 +466,18 @@ export function MathField({
     });
     mf.addEventListener('keydown', (ev) => {
       // MathLive의 'change'는 blur 시에도 발사되므로 Enter만 직접 잡는다.
-      if (ev.key === 'Enter') {
-        ev.preventDefault();
-        handlers.current.onEnter?.(mf.value);
+      if (ev.key !== 'Enter') return;
+      // 항상 막는다 — 수정자 조합별 MathLive 기본 동작(행렬 행 삽입 등)은
+      // `editor/keybindings.ts` 의 BLOCKED_KEYBINDINGS가 무력화해 두지만, 여기서도
+      // 막아 두면 바인딩이 없는 새 조합이 브라우저 기본(개행 등)으로 새지 않는다.
+      ev.preventDefault();
+      if (ev.ctrlKey || ev.metaKey) {
+        // Ctrl(+Shift)+Enter — 그룹 밖에 새 빈 셀. Shift면 위, 아니면 아래.
+        handlers.current.onInsertCell?.(ev.shiftKey ? 'above' : 'below');
+        return;
       }
+      if (ev.altKey || ev.shiftKey) return; // 정의되지 않은 조합 — 아무 것도 안 한다
+      handlers.current.onEnter?.(mf.value);
     });
 
     // 선택 조작 단축키. capture 단계여야 MathLive 기본 처리보다 먼저 가로챈다.
@@ -485,6 +508,18 @@ export function MathField({
           ev.preventDefault();
           ev.stopImmediatePropagation();
           handlers.current.onDeleteEmpty?.();
+          return;
+        }
+        // Alt+↑/↓: 그룹 전체를 위/아래로. Shift+Alt+↑/↓: 이 셀을 복제해 그룹 밖에
+        // 놓는다 — 방향은 명세대로 반대다(↑ 누르면 아래에, ↓ 누르면 위에 놓인다).
+        if (ev.altKey && !ev.ctrlKey && !ev.metaKey && (ev.key === 'ArrowUp' || ev.key === 'ArrowDown')) {
+          ev.preventDefault();
+          ev.stopImmediatePropagation();
+          if (ev.shiftKey) {
+            handlers.current.onDuplicate?.(ev.key === 'ArrowUp' ? 'below' : 'above');
+          } else {
+            handlers.current.onMoveGroup?.(ev.key === 'ArrowUp' ? -1 : 1);
+          }
           return;
         }
         // Ctrl/Cmd+D: 의미 단위 선택 확장 (브라우저 북마크를 가로챈다).

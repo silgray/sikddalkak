@@ -46,6 +46,7 @@ function mount(
       onDragEnd: () => {},
       onMoveOut: () => {},
       onDeleteEmpty: () => {},
+      onMoveGroup: () => {},
     }),
   );
   cleanups.push(() => {

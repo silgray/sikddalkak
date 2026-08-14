@@ -128,6 +128,11 @@ export function CellStack({ tab, dispatch }: Props) {
               }
               dispatch({ type: 'focus', id: prev.id, offset: Number.MAX_SAFE_INTEGER });
             }}
+            onMoveGroup={(delta) => {
+              // moveGroup의 toIndex는 "제거 이후" 그룹 열 기준(reducer 클램프가
+              // 범위 밖 값을 알아서 정리한다) — Alt+↑/↓ 한 칸도 드래그와 같은 규약.
+              dispatch({ type: 'moveGroup', id: tab.objects[group.start].id, toIndex: gi + delta });
+            }}
           />
         </Fragment>
       ))}

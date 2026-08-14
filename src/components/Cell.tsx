@@ -43,6 +43,12 @@ type Props = {
   onMoveOut?: (direction: 'forward' | 'backward' | 'upward' | 'downward') => void;
   /** 빈 셀에서 backspace (셀 삭제/위 셀 이동은 CellStack이 조율). */
   onDeleteEmpty?: () => void;
+  /** Ctrl+Enter(아래)/Ctrl+Shift+Enter(위) — 그룹 밖에 새 빈 셀. */
+  onInsertCell?: (position: 'above' | 'below') => void;
+  /** Alt+↑/↓ — 이 셀이 속한 그룹 전체를 위/아래로. */
+  onMoveGroup?: (delta: -1 | 1) => void;
+  /** Shift+Alt+↑/↓ — 이 셀을 복제해 그룹 밖에 놓는다. */
+  onDuplicate?: (position: 'above' | 'below') => void;
 };
 
 /** 선택 변경마다 워커로 CE를 네 번(expand/simplify/factor/substitute) 돌리므로, 타이핑처럼
@@ -73,6 +79,9 @@ export function Cell({
   onDragEnd,
   onMoveOut,
   onDeleteEmpty,
+  onInsertCell,
+  onMoveGroup,
+  onDuplicate,
 }: Props) {
   const inputRef = useRef<MathFieldHandle>(null);
   const [selection, setSelection] = useState<SelectionInfo | null>(null);
@@ -183,6 +192,9 @@ export function Cell({
           onMoveOut={onMoveOut}
           onTransformShortcut={applyTransform}
           onDeleteEmpty={onDeleteEmpty}
+          onInsertCell={onInsertCell}
+          onMoveGroup={onMoveGroup}
+          onDuplicate={onDuplicate}
         />
         <div className="cell-actions">
           {/* 선택 변환 버튼 — 조작 대상 옆에. 오류 셀에서는 숨긴다. */}
