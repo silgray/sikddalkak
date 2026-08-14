@@ -1,11 +1,11 @@
 import { createEngine } from '../ce/engine';
-import type { MathJsonExpression } from '@cortex-js/compute-engine';
+import type { BoxedExpression, MathJsonExpression } from '@cortex-js/compute-engine';
 import { elaborate } from '../parse/elaborate';
 import { buildAdd, buildMul } from '../expression/builders';
 import { parseCeJson } from '../parse/parse';
 import { render } from '../render';
 import { toCeJson } from '../literal/ceJson';
-import { asKnownInteger } from '../expression/key';
+import { asKnownInteger, asLiteral } from '../expression/key';
 import { guardCe } from '../ce/budget';
 import { ok, type Result } from '../result/result';
 import { SCALAR } from '../shape/shape';
@@ -21,12 +21,17 @@ import type { TypedExpr, Env } from '../expression/node';
  * 다시 훑으며 순수 스칼라 셀을 CE로 접어주므로, 여기서 중복으로 할 이유가 없다.
  *
  * 예외: **역행렬**은 CE에 위임한다(`invertLiteral`) — 정확한 유리수 가우스-조던 +
- * 특이행렬 판정을 다시 만들 이유가 없다. `A^{-1}` 을 LaTeX으로 만들어 다시 파싱하면
- * `Inverse` 머리가 되는데, **`Inverse` 는 `.evaluate()`로 안 풀린다**(CE 0.90 실측).
- * `Power(M,-1)` MathJSON을 직접 박싱해야 실제로 계산된다.
+ * 특이행렬 판정을 다시 만들 이유가 없다. `Power(M,-1)` MathJSON을 직접 박싱한다
+ * (`Inverse` 머리도 0.90에서는 `.evaluate()`로 풀리지만, 굳이 CE의 정규화를 한 번 더
+ * 거칠 이유가 없어 `Power` 로 통일한다).
+ *
+ * ⚠ **복소수 함정**: CE 0.90은 원소가 **전부 수치이면서 하나라도 복소수**이면 부동소수
+ * 복소 커널로 새서 `0.4-0.2i` 같은 근사값을 준다(실측) — 심볼이 하나라도 섞이면 정확한
+ * 여인수 경로로 간다. `invertLiteral` 은 그래서 복소수 원소가 있으면 그 칸 하나를 더미
+ * 심볼로 바꿔 CE를 정확한 경로로 유도한 뒤, 답에 원래 값을 대입해 되돌린다(`subs`).
  */
 
-type MatrixLiteral = Extract<TypedExpr, { op: 'matrix' }>;
+export type MatrixLiteral = Extract<TypedExpr, { op: 'matrix' }>;
 
 const isMatrixLiteral = (e: TypedExpr): e is MatrixLiteral => e.op === 'matrix';
 
@@ -155,24 +160,48 @@ const MAX_SYMBOLIC_INVERSE_SIZE = 8;
  * 쓴다(`form:['Number']` 를 안 준다) — 축소 정규화 폼이 막으려던 건 곱셈 인자의
  * 비가환 재배열인데, 행렬 셀은 반드시 스칼라라 그 위험이 애초에 없다.
  */
-function cellToJson(cell: TypedExpr): MathJsonExpression | null {
+export function cellToJson(cell: TypedExpr): MathJsonExpression | null {
   if (cell.op === 'num') return toCeJson(cell.value);
   const parsed = ce.parse(render(cell));
   return parsed.isValid ? parsed.json : null;
 }
 
-function matrixLiteralToJson(m: MatrixLiteral): MathJsonExpression | null {
+/**
+ * `replaceAt` 이 주어지면 그 좌표 하나만 `replaceAt.json` 으로 바꿔치기한다 — 복소수 우회가
+ * 그 칸을 더미 심볼로 덮어씌우는 데 쓴다. 나머지 셀은 평소대로 `cellToJson`.
+ */
+export function matrixLiteralToJson(
+  m: MatrixLiteral,
+  replaceAt?: { i: number; j: number; json: MathJsonExpression },
+): MathJsonExpression | null {
   const rows: MathJsonExpression[] = [];
-  for (const row of m.rows) {
+  for (let i = 0; i < m.rows.length; i += 1) {
     const cells: MathJsonExpression[] = [];
-    for (const cell of row) {
-      const json = cellToJson(cell);
+    for (let j = 0; j < m.rows[i].length; j += 1) {
+      const json =
+        replaceAt !== undefined && replaceAt.i === i && replaceAt.j === j
+          ? replaceAt.json
+          : cellToJson(m.rows[i][j]);
       if (json === null) return null;
       cells.push(json);
     }
     rows.push(['List', ...cells] as unknown as MathJsonExpression);
   }
   return ['Matrix', ['List', ...rows] as unknown as MathJsonExpression] as unknown as MathJsonExpression;
+}
+
+/** 복소수 우회에 쓰는 더미 심볼 이름. 사용자 심볼과 안 겹치게 밑줄로 시작한다. */
+const DUMMY_INVERSE_SYMBOL = '_sikInv0';
+
+/** 셀 중 복소수 리터럴인 첫 좌표. 없으면 `null`. */
+function firstComplexCell(m: MatrixLiteral): { i: number; j: number } | null {
+  for (let i = 0; i < m.rows.length; i += 1) {
+    for (let j = 0; j < m.rows[i].length; j += 1) {
+      const lit = asLiteral(m.rows[i][j]);
+      if (lit !== null && lit.kind === 'complex') return { i, j };
+    }
+  }
+  return null;
 }
 
 /**
@@ -189,11 +218,30 @@ function matrixLiteralToJson(m: MatrixLiteral): MathJsonExpression | null {
 function invertLiteral(base: MatrixLiteral, exponent: number): TypedExpr | null {
   if (base.rows.length > MAX_SYMBOLIC_INVERSE_SIZE) return null;
   try {
-    const baseJson = matrixLiteralToJson(base);
-    if (baseJson === null) return null;
-    const json = ['Power', baseJson, exponent] as unknown as MathJsonExpression;
-    // 심볼 원소 여인수 전개는 `n!` 로 커진다 — 크기 상한만으로는 부족해 시간도 막는다.
-    const evaluated = guardCe(ce, 'matInverse', () => ce.box(json).evaluate());
+    const complexAt = firstComplexCell(base);
+    let evaluated: BoxedExpression;
+    if (complexAt === null) {
+      const baseJson = matrixLiteralToJson(base);
+      if (baseJson === null) return null;
+      const json = ['Power', baseJson, exponent] as unknown as MathJsonExpression;
+      // 심볼 원소 여인수 전개는 `n!` 로 커진다 — 크기 상한만으로는 부족해 시간도 막는다.
+      evaluated = guardCe(ce, 'matInverse', () => ce.box(json).evaluate());
+    } else {
+      // 복소수 우회(파일 머리 참고): 그 칸을 더미 심볼로 감춰 CE가 정확한 여인수 경로를
+      // 타게 한 뒤, 답에 원래 값을 대입해 되돌린다.
+      const originalJson = cellToJson(base.rows[complexAt.i][complexAt.j]);
+      if (originalJson === null) return null;
+      const dummyJson = matrixLiteralToJson(base, { ...complexAt, json: DUMMY_INVERSE_SYMBOL });
+      if (dummyJson === null) return null;
+      const json = ['Power', dummyJson, exponent] as unknown as MathJsonExpression;
+      evaluated = guardCe(ce, 'matInverse', () =>
+        ce
+          .box(json)
+          .evaluate()
+          .subs({ [DUMMY_INVERSE_SYMBOL]: ce.box(originalJson) })
+          .evaluate(),
+      );
+    }
     // 성공하면 `List`의 `List`로 온다(행렬 결과의 CE 관례). 특이행렬이면 `Power`/
     // `Inverse`/`Error` 머리가 그대로 남는다.
     if (!Array.isArray(evaluated.json) || evaluated.json[0] !== 'List') return null;

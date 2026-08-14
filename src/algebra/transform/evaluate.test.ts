@@ -147,6 +147,20 @@ describe('역행렬', () => {
     ).toBe(String.raw`\begin{pmatrix}a&a\\a&a\end{pmatrix}^{-1}`);
   });
 
+  it('복소수 원소가 있어도 정확한 분수로 나온다 (CE의 float 커널 우회)', () => {
+    // CE 0.90은 원소가 전부 수치이면서 하나라도 복소수면 부동소수 커널로 새서
+    // `0.4-0.2i` 같은 근사값을 준다(실측) — `invertLiteral` 이 더미 심볼로 우회한다.
+    expect(evaluatedLatex(String.raw`\begin{pmatrix}i&1\\2&-1\end{pmatrix}^{-1}`, { shapes: {} })).toBe(
+      String.raw`\begin{pmatrix}\frac{2}{5}-\frac{1}{5}i&\frac{2}{5}-\frac{1}{5}i\\\frac{4}{5}-\frac{2}{5}i&-\frac{1}{5}-\frac{2}{5}i\end{pmatrix}`,
+    );
+  });
+
+  it('복소수가 없으면 우회를 안 타고 기존 결과 그대로다', () => {
+    expect(evaluatedLatex(String.raw`\begin{pmatrix}1&1\\2&-1\end{pmatrix}^{-1}`, { shapes: {} })).toBe(
+      String.raw`\begin{pmatrix}\frac{1}{3}&\frac{1}{3}\\\frac{2}{3}&-\frac{1}{3}\end{pmatrix}`,
+    );
+  });
+
   it('상한(8×8)을 넘는 심볼 행렬은 폭주 대신 원래 식으로 남는다', () => {
     const cell = (i: number, j: number) => `a_{${i}${j}}`;
     const big = (n: number) =>
