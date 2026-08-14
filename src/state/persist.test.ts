@@ -7,7 +7,8 @@ const obj = (id: string, latex: string, extra: Partial<FormulaObject> = {}): For
   id,
   latex,
   mode: 'scoped',
-  resultDetached: false,
+  groupId: id,
+  entered: false,
   enabled: true,
   solveFor: null,
   ...extra,
@@ -26,16 +27,24 @@ describe('직렬화 왕복', () => {
     expect(parseWorkspace(serializeWorkspace(workspace))).toEqual(workspace);
   });
 
-  it('버전 2로 저장한다', () => {
-    expect(JSON.parse(serializeWorkspace(workspace))).toMatchObject({ version: 2 });
+  it('버전 3로 저장한다', () => {
+    expect(JSON.parse(serializeWorkspace(workspace))).toMatchObject({ version: 3 });
   });
 
-  it('resultDetached도 왕복한다', () => {
+  it('groupId/entered도 왕복한다', () => {
     const ws: WorkspaceState = {
-      tabs: [hydrateTab({ id: 't1', name: 'T', objects: [obj('a', '2x', { resultDetached: true })] })],
+      tabs: [
+        hydrateTab({
+          id: 't1',
+          name: 'T',
+          objects: [obj('a', '2x', { groupId: 'shared', entered: true })],
+        }),
+      ],
       activeTabId: 't1',
     };
-    expect(parseWorkspace(serializeWorkspace(ws))?.tabs[0].objects[0].resultDetached).toBe(true);
+    const roundtripped = parseWorkspace(serializeWorkspace(ws))?.tabs[0].objects[0];
+    expect(roundtripped?.groupId).toBe('shared');
+    expect(roundtripped?.entered).toBe(true);
   });
 
   it('enabled도 왕복한다', () => {
@@ -68,9 +77,11 @@ describe('v1 → v2 마이그레이션', () => {
     expect(ws?.activeTabId).toBe(ws?.tabs[0].id);
   });
 
-  it('v1 오브젝트에 없던 resultDetached는 false로 채운다', () => {
+  it('v1 오브젝트에 없던 groupId/entered는 기본값으로 채운다', () => {
     const v1 = JSON.stringify({ version: 1, objects: [{ id: 'x', latex: '2x', mode: 'scoped' }] });
-    expect(parseWorkspace(v1)?.tabs[0].objects[0].resultDetached).toBe(false);
+    const o = parseWorkspace(v1)?.tabs[0].objects[0];
+    expect(o?.groupId).toBe('x'); // 없으면 셀 하나가 자기만의 그룹
+    expect(o?.entered).toBe(false);
   });
 
   it('구 저장본(enabled 없음)은 켜진 채로 채운다', () => {
@@ -93,6 +104,19 @@ describe('v1 → v2 마이그레이션', () => {
       activeTabId: 't',
     });
     expect(parseWorkspace(v2)?.tabs[0].objects[0].solveFor).toBeNull();
+  });
+});
+
+describe('v2 → v3 마이그레이션', () => {
+  it('v2 오브젝트에 없던 groupId/entered는 기본값으로 채운다', () => {
+    const v2 = JSON.stringify({
+      version: 2,
+      tabs: [{ id: 't', name: 'T', objects: [{ id: 'a', latex: '2x', mode: 'scoped' }] }],
+      activeTabId: 't',
+    });
+    const o = parseWorkspace(v2)?.tabs[0].objects[0];
+    expect(o?.groupId).toBe('a'); // 없으면 셀 하나가 자기만의 그룹(자기 id 재사용)
+    expect(o?.entered).toBe(false);
   });
 });
 

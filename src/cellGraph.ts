@@ -1,6 +1,7 @@
 import {
   evaluate,
   collectFreeSymbols,
+  exprKey,
   parse,
   parseSyntax,
   render,
@@ -11,6 +12,7 @@ import {
   type FunctionDef,
 } from './algebra';
 import { buildCellEnv, splitDefinition, splitFunctionDefinition, splitRelation } from './cellEnv';
+import { groupsOf } from './cellGroup';
 import { scanLatex } from './editor/latexScan';
 import { repairLatex } from './editor/wellformed';
 import { SOLVE_ENABLED } from './features';
@@ -211,9 +213,10 @@ function computeFunctionNode(node: Node): Computed {
     // 함수 노드는 항상 이름이 있다(`splitFunctionDefinition` 이 보장) — 방어적으로만.
     return { result: { kind: 'error', message: 'internal error: missing function name' } };
   }
-  const lhs = `${node.defName}\\left(${node.params.join(',')}\\right)`;
+  // 좌변(`f(x) =`)은 붙이지 않는다 — 결과 행은 정리된 우변만 보여준다(셀 그룹 규칙).
+  // 본문을 그대로 되뇌는 것뿐이라 언제나 "안 바뀐" 결과다 — 상시 표시에서 숨을 대상.
   return {
-    result: { kind: 'ok', latex: `${lhs} = ${node.value}`, json: null, definitionName: node.defName },
+    result: { kind: 'ok', latex: node.value, definitionName: node.defName, unchanged: true },
   };
 }
 
@@ -256,7 +259,9 @@ function computeRelationNode(node: Node, env: Env): Computed {
   // 근이 여럿이면(`x^2=4` → 2, -2) 한 줄에 모은다 — 결과 행이 표시용이라 하나로 족하다.
   const symbolLatex = render({ op: 'sym', shape: SCALAR_SHAPE, name: symbol });
   const latex = solved.value.map((root) => `${symbolLatex} = ${render(root)}`).join(',\\ ');
-  return { result: { kind: 'ok', latex, json: null, definitionName: null } };
+  // solve 결과는 항상 보여줄 값이다 — "안 바뀐 식" 판정이 애초에 안 맞는다(등식 자체와
+  // 근의 표현은 형태가 다르다).
+  return { result: { kind: 'ok', latex, definitionName: null, unchanged: false } };
 }
 
 /**
@@ -286,11 +291,11 @@ function computeNode(node: Node, env: Env): Computed {
     return { result: { kind: 'error', message: evaluated.errors[0].message } };
   }
   const latex = render(evaluated.value);
-  // json은 아무도 안 읽는다(EvalResult 정의부 참고) — algebra의 정본은 TypedExpr지
-  // MathJSON이 아니라서 채울 게 없다. null로 정직하게 둔다.
-  return node.defName === null
-    ? { result: { kind: 'ok', latex, json: null, definitionName: null } }
-    : { result: { kind: 'ok', latex: `${node.defName} = ${latex}`, json: null, definitionName: node.defName } };
+  // 좌변(`a =`)은 붙이지 않는다 — 결과 행은 정리된 우변/식 자체만 보여준다.
+  // "안 바뀐 식" 판정은 원본 파스 트리와 최종 평가 트리를 구조 비교한다 — `parse` 가
+  // 이미 정규화를 하므로(`A+A`→`2A`) 그 지점부터 안 바뀐 것만 "unchanged"로 본다.
+  const unchanged = exprKey(parsed.value) === exprKey(evaluated.value);
+  return { result: { kind: 'ok', latex, definitionName: node.defName, unchanged } };
 }
 
 export type EvaluateCellsOptions = {
@@ -328,6 +333,10 @@ export function evaluateCells(
   const results = new Map<string, EvalResult>();
 
   // --- 1단계: 그래프 구조 (안 바뀐 식은 캐시에서 꺼내 파싱을 건너뛴다) ---
+  // 정의(defName 있음)는 셀 그룹 최상단에서만 허용한다 — 그룹 안 셀들은 계산상 서로
+  // 무관해야 하는데(§CLAUDE.md 셀 그룹 규칙), 2번째 이하에서도 정의를 허용하면 그룹
+  // 순서에 따라 이름 공간이 뒤바뀐다.
+  const groupTops = new Set(groupsOf(objects).map((g) => objects[g.start].id));
   const nodes: Node[] = [];
   for (const object of objects) {
     // 꺼진 셀은 그래프에 아예 안 들어간다 — 정의도 안 하고 계산도 안 된다. 지운
@@ -358,6 +367,13 @@ export function evaluateCells(
         deps: structure.deps,
         relation: { lhs: structure.lhs, rhs: structure.rhs },
         solveFor: object.solveFor,
+      });
+      continue;
+    }
+    if (structure.defName !== null && !groupTops.has(object.id)) {
+      results.set(object.id, {
+        kind: 'error',
+        message: 'definitions are only allowed at the top of a cell group',
       });
       continue;
     }

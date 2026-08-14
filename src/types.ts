@@ -18,11 +18,17 @@ export type FormulaObject = {
   latex: string;
   mode: CellMode;
   /**
-   * 결과가 편집돼 독립 식으로 분리됐는지. true면 이 식의 `=` 결과를 표시하지
-   * 않는다(결과가 별개 오브젝트로 이전됐으므로). `latex`가 바뀌면 false로 리셋 —
-   * 재평가된 새 결과는 다시 보여준다.
+   * 셀 그룹 식별자. 같은 값을 가진 **인접한** 오브젝트들이 한 그룹이다
+   * (`src/cellGroup.ts` 의 `groupsOf`). 그룹은 result 필드 편집(`editResult` 액션)
+   * 으로만 생기고 커진다 — `makeObject()` 는 항상 새 uuid를 준다.
    */
-  resultDetached: boolean;
+  groupId: string;
+  /**
+   * 이 셀에서 Enter를 쳐 결과를 확정했는지. 그룹 안에 최대 하나만 true다 — 새로
+   * Enter를 치면 같은 그룹의 다른 셀은 꺼진다. `latex`가 바뀌면(그 셀이든 같은
+   * 그룹의 다른 셀이든) 그룹 전체가 false로 리셋된다.
+   */
+  entered: boolean;
   /**
    * false면 이 셀을 위상정렬·평가에서 통째로 뺀다 — 정의도 안 되고 결과도 안 나온다
    * (`cellGraph.ts` 의 `evaluateCells` 참고). 지운 게 아니라 잠깐 끈 것이라 `latex`는
@@ -33,7 +39,7 @@ export type FormulaObject = {
    * 이 셀이 등식(`2x+1=7`)일 때, 어느 변수에 대해 풀지. `null`이면 결과가 비어 있다
    * (solve 버튼을 아직 안 눌렀다는 뜻). 등식이 아닌 셀에서는 그냥 무시된다.
    * `latex`를 고쳐도 리셋하지 않는다 — solve 대상을 고른 채로 식을 계속 다듬을 수
-   * 있어야 한다(`resultDetached`가 latex 변경에 리셋되는 것과 반대).
+   * 있어야 한다(`entered`가 latex 변경에 리셋되는 것과 반대).
    */
   solveFor: string | null;
 };
@@ -57,8 +63,12 @@ export type EvalResult =
       kind: 'ok';
       /** 표시용 LaTeX */
       latex: string;
-      /** 정본 — MathJSON */
-      json: unknown;
       /** 정의 오브젝트면 정의된 변수 이름, 아니면 null */
       definitionName: string | null;
+      /**
+       * substitute+evaluate가 입력 트리를 구조적으로 하나도 안 바꿨는지
+       * (`exprKey` 비교, `cellGraph.ts` 의 `computeNode` 참고). true면 상시 표시에서
+       * 숨길 대상이다 — `3`을 쳤을 때 결과 줄이 또 뜨는 걸 막는다.
+       */
+      unchanged: boolean;
     };

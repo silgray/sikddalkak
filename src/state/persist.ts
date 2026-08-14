@@ -10,14 +10,17 @@ import { hydrateTab } from './workspace';
  * 스키마 버전 이력:
  * - v1: `{ version:1, objects }` — 단일 문서(탭 이전).
  * - v2: `{ version:2, tabs:[{id,name,objects}], activeTabId }` — 탭 여러 개.
- * 캔버스에서 오브젝트별 좌표가 생기면 v3로 올리고 마이그레이션을 잇는다.
+ * - v3: 오브젝트에 `groupId`/`entered`(셀 그룹) 추가, `resultDetached` 제거. 바깥
+ *   컨테이너 모양(tabs/objects)은 v2와 같아서 같은 파싱 경로를 공유하고
+ *   `normalizeObject` 의 기본값만으로 마이그레이션된다.
+ * 캔버스에서 오브젝트별 좌표가 생기면 v4로 올리고 마이그레이션을 잇는다.
  */
 
 const KEY = 'sikddalkak.doc';
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 type PersistedTab = { id: string; name: string; objects: FormulaObject[] };
-type PersistedV2 = { version: 2; tabs: PersistedTab[]; activeTabId: string };
+type PersistedV3 = { version: 3; tabs: PersistedTab[]; activeTabId: string };
 
 const MODES: readonly CellMode[] = ['scoped', 'symbolic'];
 
@@ -34,8 +37,11 @@ function normalizeObject(o: unknown): FormulaObject | null {
     id: o.id,
     latex: o.latex,
     mode: o.mode as CellMode,
-    // v1에는 없던 필드. 없으면 false.
-    resultDetached: o.resultDetached === true,
+    // v2 이하 저장본엔 없던 필드. 없으면 셀 하나가 자기만의 그룹(id를 그대로 재사용 —
+    // `makeObject()` 와 같은 규약).
+    groupId: typeof o.groupId === 'string' ? o.groupId : o.id,
+    // 마찬가지로 없던 필드. 없으면 확정 표시 없음 — 로드 직후엔 상시 표시 규칙으로 시작.
+    entered: o.entered === true,
     // v2 초기본에도 없던 필드. 없으면(구 저장본) 켜진 채로 — 저장 당시엔 다 계산 대상이었다.
     enabled: o.enabled !== false,
     // 마찬가지로 없던 필드. 없으면 solve 대상 없음(등식이 아니거나 아직 안 고른 상태).
@@ -56,18 +62,9 @@ function normalizeObjects(raw: unknown): FormulaObject[] | null {
 
 /** 탭에 최소 하나의 오브젝트를 보장한다(편집할 셀). */
 function ensureNonEmpty(objects: FormulaObject[]): FormulaObject[] {
-  return objects.length > 0
-    ? objects
-    : [
-        {
-          id: crypto.randomUUID(),
-          latex: '',
-          mode: 'scoped',
-          resultDetached: false,
-          enabled: true,
-          solveFor: null,
-        },
-      ];
+  if (objects.length > 0) return objects;
+  const id = crypto.randomUUID();
+  return [{ id, latex: '', mode: 'scoped', groupId: id, entered: false, enabled: true, solveFor: null }];
 }
 
 /**
@@ -92,8 +89,9 @@ export function parseWorkspace(raw: string | null): WorkspaceState | null {
     return { tabs: [tab], activeTabId: tab.id };
   }
 
-  // --- v2 ---
-  if (parsed.version === SCHEMA_VERSION && Array.isArray(parsed.tabs)) {
+  // --- v2/v3 --- 바깥 컨테이너 모양이 같아서 한 경로를 공유한다. v2→v3 필드
+  // 기본값은 `normalizeObject` 가 채운다(위 주석 참고).
+  if ((parsed.version === 2 || parsed.version === SCHEMA_VERSION) && Array.isArray(parsed.tabs)) {
     const tabs = [];
     for (const t of parsed.tabs) {
       if (!isRecord(t) || typeof t.id !== 'string' || typeof t.name !== 'string') return null;
@@ -113,7 +111,7 @@ export function parseWorkspace(raw: string | null): WorkspaceState | null {
 }
 
 export function serializeWorkspace(state: WorkspaceState): string {
-  const doc: PersistedV2 = {
+  const doc: PersistedV3 = {
     version: SCHEMA_VERSION,
     tabs: state.tabs.map((t) => ({
       id: t.id,
@@ -122,7 +120,8 @@ export function serializeWorkspace(state: WorkspaceState): string {
         id: o.id,
         latex: o.latex,
         mode: o.mode,
-        resultDetached: o.resultDetached,
+        groupId: o.groupId,
+        entered: o.entered,
         enabled: o.enabled,
         solveFor: o.solveFor,
       })),

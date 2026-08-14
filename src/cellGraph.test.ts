@@ -14,9 +14,13 @@ import type { EvalResult, FormulaObject } from './types';
  */
 
 let seq = 0;
+// 기본으로 각자 자기만의 그룹(id 재사용) — 이 파일의 테스트 셀들은 서로 독립된
+// 문서상의 별개 셀을 흉내낸다. 그룹 규칙(정의는 최상단에서만) 테스트는 아래에서
+// groupId를 명시적으로 맞춰 별도로 다룬다.
 function obj(latex: string, enabled = true, solveFor: string | null = null): FormulaObject {
   seq += 1;
-  return { id: `t${seq}`, latex, mode: 'scoped', resultDetached: false, enabled, solveFor };
+  const id = `t${seq}`;
+  return { id, latex, mode: 'scoped', groupId: id, entered: false, enabled, solveFor };
 }
 
 /** 그래프를 입력 순서대로 평가하고 결과를 그 순서 배열로 되돌린다. */
@@ -53,7 +57,8 @@ describe('정의와 변수 바인딩', () => {
 
   it('정의가 다른 정의를 참조한다 (전이 참조)', () => {
     const [, b, third] = run(['a=3', 'b=a+1', 'b x']);
-    expect(latexOf(b)).toBe(norm('b = 4'));
+    // 결과 행에는 좌변(`b =`)을 붙이지 않는다 — 정리된 우변만 보여준다(셀 그룹 규칙).
+    expect(latexOf(b)).toBe('4');
     expect(latexOf(third)).toBe('4x');
   });
 
@@ -88,8 +93,8 @@ describe('그래프 평가 (순서 비의존)', () => {
 
   it('정의 순서가 뒤섞여도 전이 참조가 풀린다', () => {
     const [b, user, a] = run(['b=a+1', 'b x', 'a=3']);
-    expect(latexOf(a)).toBe(norm('a = 3'));
-    expect(latexOf(b)).toBe(norm('b = 4'));
+    expect(latexOf(a)).toBe('3');
+    expect(latexOf(b)).toBe('4');
     expect(latexOf(user)).toBe('4x');
   });
 
@@ -339,9 +344,9 @@ describe('사용자 정의 함수', () => {
     expect(self).toMatchObject({ kind: 'error' });
   });
 
-  it('정의 셀은 정리하지 않고 본문을 그대로 보여준다', () => {
+  it('정의 셀은 정리하지 않고 본문을 그대로 보여준다 (좌변 없이)', () => {
     const [def] = run([String.raw`f\left(x\right)=x+x`]);
-    expect(latexOf(def)).toBe(norm(String.raw`f\left(x\right)=x+x`));
+    expect(latexOf(def)).toBe(norm('x+x'));
   });
 
   it('함수 셀을 고치면 호출 셀도 다시 계산된다 (캐시 지문)', () => {
@@ -351,6 +356,73 @@ describe('사용자 정의 함수', () => {
     expect(
       latexOf(run([String.raw`f\left(x\right)=x^3`, String.raw`f\left(3\right)`])[1]),
     ).toBe('27');
+  });
+});
+
+describe('셀 그룹 — 정의는 그룹 최상단에서만', () => {
+  it('그룹 2번째 이하의 변수 정의는 오류다', () => {
+    const top = obj('2x'); // 그룹 최상단, 정의가 아니다
+    const second: FormulaObject = { ...obj('a=3'), groupId: top.groupId };
+    const { results } = evaluateCells([top, second]);
+    expect(results.get(second.id)).toMatchObject({ kind: 'error' });
+    expect((results.get(second.id) as { message: string }).message).toContain(
+      'top of a cell group',
+    );
+  });
+
+  it('그룹 2번째 이하의 함수 정의도 오류다', () => {
+    const top = obj('2x');
+    const second: FormulaObject = {
+      ...obj(String.raw`f\left(x\right)=x^2`),
+      groupId: top.groupId,
+    };
+    const { results } = evaluateCells([top, second]);
+    expect(results.get(second.id)).toMatchObject({ kind: 'error' });
+  });
+
+  it('그룹 최상단의 정의는 유효하고, 그룹 2번째 셀에서도 참조할 수 있다', () => {
+    const top = obj('a=3');
+    const second: FormulaObject = { ...obj('a x'), groupId: top.groupId };
+    const { results } = evaluateCells([top, second]);
+    expect(latexOf(results.get(top.id)!)).toBe('3');
+    expect(latexOf(results.get(second.id)!)).toBe('3x');
+  });
+
+  it('오류를 낸 위치 의존 정의는 이름 공간에 안 들어간다 — 다른 셀은 미정의 심볼로 본다', () => {
+    const top = obj('2x');
+    const second: FormulaObject = { ...obj('a=3'), groupId: top.groupId };
+    const user = obj('a y'); // 별개 그룹 — top/second와 무관
+    const { results } = evaluateCells([top, second, user]);
+    expect(latexOf(results.get(user.id)!)).toBe('ay'); // a가 정의되지 않은 것처럼
+  });
+});
+
+describe('안 바뀐 식 판정 (unchanged)', () => {
+  it('입력과 평가 결과가 구조적으로 같으면 unchanged: true', () => {
+    const [r] = run(['3']);
+    expect(r).toMatchObject({ kind: 'ok', unchanged: true });
+  });
+
+  it('정의를 치환해 값이 실제로 바뀌면 unchanged: false', () => {
+    const [, r] = run(['a=3', 'a+1']);
+    expect(r).toMatchObject({ kind: 'ok', unchanged: false });
+  });
+
+  it('parse 단계의 정규화(A+A→2A)만 일어난 식은 unchanged: true다 (의도된 동작)', () => {
+    const [r] = run(['A+A']);
+    expect(r).toMatchObject({ kind: 'ok', unchanged: true });
+  });
+
+  it('함수 정의 셀은 항상 unchanged: true다 (본문을 그대로 되뇐다)', () => {
+    const [def] = run([String.raw`f\left(x\right)=x+x`]);
+    expect(def).toMatchObject({ kind: 'ok', unchanged: true });
+  });
+
+  it('solve 결과는 unchanged: false다', () => {
+    if (!SOLVE_ENABLED) return;
+    const object = obj('x^2=4', true, 'x');
+    const { results } = evaluateCells([object]);
+    expect(results.get(object.id)).toMatchObject({ kind: 'ok', unchanged: false });
   });
 });
 

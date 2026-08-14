@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useRef, useState, type Dispatch } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type Dispatch } from 'react';
+import { groupsOf } from '../cellGroup';
 import type { Action, Tab } from '../state/workspace';
 import type { EvalResult } from '../types';
 import { evaluateCellsAsync } from '../worker/client';
@@ -81,9 +82,24 @@ export function CellStack({ tab, dispatch }: Props) {
     let to = drag.insertAt > from ? drag.insertAt - 1 : drag.insertAt;
     // 상시 빈 셀(맨 아래) 아래로는 내리지 않는다 — 빈 셀이 중간에 남지 않게.
     to = Math.max(0, Math.min(to, Math.max(0, tab.objects.length - 2)));
-    if (from !== -1 && to !== from) dispatch({ type: 'moveObject', id: drag.id, toIndex: to });
+    // TODO(2단계): 지금은 개별 셀(.cell) 기준 삽입 지점을 그룹 인덱스로 대충 눌러
+    // 담는다 — 그룹 중간으로 드롭하는 기하는 `.cell-group` 기반 드래그로 다시 짜야
+    // 한다(2단계, CellGroup 도입과 함께). 지금은 그룹이 아직 렌더에 안 붙어 있어
+    // 대부분의 경우(셀 하나 = 그룹 하나) 그대로 맞는다.
+    const groups = groupsOf(tab.objects);
+    const toGroupIdx = groups.findIndex((g) => g.start <= to && to < g.end);
+    const toIndex = toGroupIdx === -1 ? groups.length - 1 : toGroupIdx;
+    if (from !== -1) dispatch({ type: 'moveGroup', id: drag.id, toIndex });
     setDrag(null);
   };
+
+  // 그룹의 마지막 셀만 자기 결과를 보여준다 — 앞선 셀들은 그룹의 파생 과정일 뿐이다.
+  // (셀 그룹의 진짜 표시 규칙 — entered 우선·상시표시 숨김 조건 — 은 `CellGroup`
+  // 컴포넌트가 맡는다. 지금은 그룹 존재 자체가 자연스럽게 동작하게 하는 임시 배선이다.)
+  const groupTails = useMemo(
+    () => new Set(groupsOf(tab.objects).map((g) => tab.objects[g.end - 1].id)),
+    [tab.objects],
+  );
 
   return (
     <div className="stack" ref={containerRef}>
@@ -93,7 +109,7 @@ export function CellStack({ tab, dispatch }: Props) {
           <Cell
             object={object}
             dragging={drag?.id === object.id}
-            result={object.resultDetached ? { kind: 'empty' } : (results.get(object.id) ?? { kind: 'pending' })}
+            result={groupTails.has(object.id) ? (results.get(object.id) ?? { kind: 'pending' }) : { kind: 'empty' }}
             focusToken={tab.focus?.id === object.id ? tab.focus.token : null}
             focusOffset={tab.focus?.id === object.id ? (tab.focus.offset ?? null) : null}
             focusSelection={tab.focus?.id === object.id ? (tab.focus.selection ?? null) : null}
@@ -116,7 +132,7 @@ export function CellStack({ tab, dispatch }: Props) {
               dispatch({ type: 'focus', id: prev.id, offset: Number.MAX_SAFE_INTEGER });
             }}
             onDetachResult={(latex, caret) =>
-              dispatch({ type: 'detachResult', id: object.id, latex, cursor: caret })
+              dispatch({ type: 'editResult', id: object.id, latex, cursor: caret })
             }
             onCommitDistinct={(latex, caret, selectionBefore) =>
               dispatch({ type: 'commitInput', id: object.id, latex, cursor: caret, selectionBefore })

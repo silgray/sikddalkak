@@ -1,3 +1,4 @@
+import { groupAt, groupsOf } from '../cellGroup';
 import type { CellMode, FormulaObject } from '../types';
 import { repairLatex } from '../editor/wellformed';
 
@@ -77,22 +78,35 @@ type ObjectAction =
       cursor?: number;
       selectionBefore?: readonly [number, number];
     }
+  /** Enter로 결과를 확정한다. 그룹 안 다른 셀의 확정은 꺼진다. 포커스는 안 옮긴다. */
   | { type: 'enter'; id: string; latex: string }
   | { type: 'setMode'; id: string; mode: CellMode }
   /** 위상정렬·평가에 포함할지 토글 (`FormulaObject.enabled`). */
   | { type: 'setEnabled'; id: string; enabled: boolean }
   /** 등식 셀의 solve 대상 (`FormulaObject.solveFor`). `null`이면 해제. */
   | { type: 'setSolveFor'; id: string; symbol: string | null }
+  /** 셀 하나를 지운다 (그룹 하위 셀의 작은 × 용). */
   | { type: 'remove'; id: string }
-  /** 드래그 재정렬. toIndex = 이동 후 위치. 표시 순서만 바뀐다(평가는 순서 무관). */
-  | { type: 'moveObject'; id: string; toIndex: number }
+  /** 그룹 전체를 지운다 (그룹 최상단의 큰 × 용). */
+  | { type: 'removeGroup'; id: string }
+  /**
+   * 그룹 재정렬 — 드래그(임의 위치)와 Alt+↑/↓(한 칸)가 공유한다. toIndex는
+   * `groupsOf(objects)` 기준 목표 그룹 인덱스(제거 전 배열 기준). 맨 아래 상시 빈
+   * 셀의 그룹 뒤로는 못 간다.
+   */
+  | { type: 'moveGroup'; id: string; toIndex: number }
+  /** 그룹 밖에 새 빈 셀을 만들고 포커스를 옮긴다 (Ctrl+Enter류). */
+  | { type: 'insertCell'; id: string; position: 'above' | 'below' }
+  /** 셀 하나를 새 그룹으로 복제해 그룹 밖에 놓는다. 포커스·커서는 원본에 유지. */
+  | { type: 'duplicateCell'; id: string; position: 'above' | 'below' }
   /** 셀에 포커스 지시. offset이 있으면 캐럿 위치까지 (셀 간 이동 등). */
   | { type: 'focus'; id: string; offset?: number }
   /**
-   * 결과 행을 편집해 독립 식으로 분리한다. 편집한 latex로 새 오브젝트를 원본
-   * 바로 뒤에 만들고, 원본은 결과 표시를 잃는다(resultDetached).
+   * 결과 행을 편집한다. 편집한 latex로 새 오브젝트를 **같은 그룹의 맨 끝**에 만들고,
+   * 그룹 전체의 확정 표시(`entered`)를 내린다 — 새 파생이 추가됐으니 다시 Enter를
+   * 칠 때까지 조용해진다.
    */
-  | { type: 'detachResult'; id: string; latex: string; cursor?: number };
+  | { type: 'editResult'; id: string; latex: string; cursor?: number };
 
 /** 활성 탭의 히스토리를 다루는 액션. */
 type HistoryAction = { type: 'undo' } | { type: 'redo' };
@@ -111,11 +125,14 @@ const HISTORY_LIMIT = 500;
 const emptyHistory = (): History => ({ past: [], future: [] });
 
 export function makeObject(): FormulaObject {
+  const id = crypto.randomUUID();
   return {
-    id: crypto.randomUUID(),
+    id,
     latex: '',
     mode: 'scoped',
-    resultDetached: false,
+    // 새 셀은 항상 자기만의 그룹으로 시작한다 — 그룹은 editResult로만 커진다.
+    groupId: id,
+    entered: false,
     enabled: true,
     solveFor: null,
   };
@@ -185,14 +202,21 @@ function reduceContent(tab: Tab, action: ObjectAction): Content {
   switch (action.type) {
     case 'editInput':
     case 'commitInput': {
-      const target = tab.objects.find((o) => o.id === action.id);
+      const index = tab.objects.findIndex((o) => o.id === action.id);
       // 값이 그대로면 변화 없음 — objects 참조를 유지해 히스토리·재평가를 막는다.
-      if (target === undefined || target.latex === action.latex) {
+      if (index === -1 || tab.objects[index].latex === action.latex) {
         return { objects: tab.objects, focus: tab.focus };
       }
-      // latex가 바뀌면 분리 상태를 푼다 — 재평가된 새 결과를 다시 보여준다.
+      // latex가 바뀌면 이 그룹의 확정 표시(entered)를 전부 내린다 — 이 파생이 바뀌었으니
+      // 그룹의 확정된 결과(있었다면)는 더 이상 신뢰할 수 없다. 상시 표시 규칙으로 되돌아간다.
+      const group = groupAt(tab.objects, index);
+      const objects = tab.objects.map((o, i) => {
+        if (o.id === action.id) return { ...o, latex: action.latex, entered: false };
+        if (i >= group.start && i < group.end && o.entered) return { ...o, entered: false };
+        return o;
+      });
       return {
-        objects: patch(tab.objects, action.id, { latex: action.latex, resultDetached: false }),
+        objects,
         focus: tab.focus,
         cursorAfter:
           action.cursor !== undefined ? { id: action.id, offset: action.cursor } : undefined,
@@ -217,37 +241,74 @@ function reduceContent(tab: Tab, action: ObjectAction): Content {
       return { objects: patch(tab.objects, action.id, { solveFor: action.symbol }), focus: tab.focus };
 
     case 'enter': {
-      const objects = patch(tab.objects, action.id, { latex: action.latex, resultDetached: false });
-      const index = objects.findIndex((o) => o.id === action.id);
-      const next = objects[index + 1];
-      if (next !== undefined) {
-        // 이미 아래 오브젝트가 있으면 새로 만들지 않고 거기로 이동한다.
-        return {
-          objects,
-          focus: { id: next.id, token: nextToken(tab) },
-          cursorAfter: { id: next.id, offset: 0 },
-        };
-      }
-      const created = makeObject();
-      return {
-        objects: [...objects, created],
-        focus: { id: created.id, token: nextToken(tab) },
-        cursorAfter: { id: created.id, offset: 0 },
-      };
+      // 결과를 확정한다: 이 셀만 entered:true, 같은 그룹의 나머지는 false로 내려
+      // 그룹의 result 필드가 항상 하나만 켜져 있게 한다. 포커스·커서는 안 옮긴다.
+      const index = tab.objects.findIndex((o) => o.id === action.id);
+      if (index === -1) return { objects: tab.objects, focus: tab.focus };
+      const group = groupAt(tab.objects, index);
+      const objects = tab.objects.map((o, i) => {
+        if (i === index) return { ...o, latex: action.latex, entered: true };
+        if (i >= group.start && i < group.end && o.entered) return { ...o, entered: false };
+        return o;
+      });
+      return { objects, focus: tab.focus };
     }
 
     case 'remove':
       // 비거나 마지막이 채워지는 경우는 ensureTrailingEmpty 불변식이 채운다.
       return { objects: tab.objects.filter((o) => o.id !== action.id), focus: tab.focus };
 
-    case 'moveObject': {
-      const from = tab.objects.findIndex((o) => o.id === action.id);
-      if (from === -1) return { objects: tab.objects, focus: tab.focus };
-      const to = Math.max(0, Math.min(action.toIndex, tab.objects.length - 1));
-      if (to === from) return { objects: tab.objects, focus: tab.focus };
-      const objects = [...tab.objects];
-      const [moved] = objects.splice(from, 1);
-      objects.splice(to, 0, moved);
+    case 'removeGroup': {
+      const index = tab.objects.findIndex((o) => o.id === action.id);
+      if (index === -1) return { objects: tab.objects, focus: tab.focus };
+      const group = groupAt(tab.objects, index);
+      const objects = [...tab.objects.slice(0, group.start), ...tab.objects.slice(group.end)];
+      return { objects, focus: tab.focus };
+    }
+
+    case 'moveGroup': {
+      // 원본 moveObject와 같은 splice 관용구를 그룹(블록) 단위로 적용한다 — toIndex는
+      // **제거 이후** 그룹 열 기준 위치다(원본이 `objects.splice(from,1)` 뒤에
+      // `splice(to,0,moved)` 를 하던 것과 동일한 규약).
+      const index = tab.objects.findIndex((o) => o.id === action.id);
+      if (index === -1) return { objects: tab.objects, focus: tab.focus };
+      const groups = groupsOf(tab.objects);
+      const fromGroupIdx = groups.findIndex((g) => g.start <= index && index < g.end);
+      if (fromGroupIdx === -1) return { objects: tab.objects, focus: tab.focus };
+      // 맨 아래 상시 빈 셀은 늘 자기만의 그룹으로 마지막에 있다 — 그 뒤로는 못 간다.
+      const maxIndex = Math.max(0, groups.length - 2);
+      const toGroupIdx = Math.max(0, Math.min(action.toIndex, maxIndex));
+      if (toGroupIdx === fromGroupIdx) return { objects: tab.objects, focus: tab.focus };
+      const blocks = groups.map((g) => tab.objects.slice(g.start, g.end));
+      const [moved] = blocks.splice(fromGroupIdx, 1);
+      blocks.splice(toGroupIdx, 0, moved);
+      return { objects: blocks.flat(), focus: tab.focus };
+    }
+
+    case 'insertCell': {
+      const index = tab.objects.findIndex((o) => o.id === action.id);
+      if (index === -1) return { objects: tab.objects, focus: tab.focus };
+      const group = groupAt(tab.objects, index);
+      const created = makeObject();
+      const insertAt = action.position === 'above' ? group.start : group.end;
+      const objects = [...tab.objects.slice(0, insertAt), created, ...tab.objects.slice(insertAt)];
+      return {
+        objects,
+        focus: { id: created.id, token: nextToken(tab) },
+        cursorAfter: { id: created.id, offset: 0 },
+      };
+    }
+
+    case 'duplicateCell': {
+      const index = tab.objects.findIndex((o) => o.id === action.id);
+      if (index === -1) return { objects: tab.objects, focus: tab.focus };
+      const source = tab.objects[index];
+      const group = groupAt(tab.objects, index);
+      const copyId = crypto.randomUUID();
+      const copy: FormulaObject = { ...source, id: copyId, groupId: copyId, entered: false };
+      const insertAt = action.position === 'above' ? group.start : group.end;
+      const objects = [...tab.objects.slice(0, insertAt), copy, ...tab.objects.slice(insertAt)];
+      // 커서·포커스는 원본에 유지 — 복제는 조용히 옆에 놓인다.
       return { objects, focus: tab.focus };
     }
 
@@ -257,14 +318,18 @@ function reduceContent(tab: Tab, action: ObjectAction): Content {
         focus: { id: action.id, token: nextToken(tab), offset: action.offset },
       };
 
-    case 'detachResult': {
+    case 'editResult': {
       const index = tab.objects.findIndex((o) => o.id === action.id);
       if (index === -1) return { objects: tab.objects, focus: tab.focus };
-      const created = { ...makeObject(), latex: action.latex };
-      const objects = tab.objects.flatMap((o, i) =>
-        // 원본은 결과 표시를 잃고, 편집분이 새 독립 오브젝트로 바로 뒤에 선다.
-        i === index ? [{ ...o, resultDetached: true }, created] : [o],
-      );
+      const group = groupAt(tab.objects, index);
+      const created: FormulaObject = { ...makeObject(), latex: action.latex, groupId: group.groupId };
+      // 편집분은 같은 그룹의 맨 끝에 붙는다. 그룹 전체의 확정 표시를 내려 새 파생이
+      // 반영되기 전까지는 상시 표시 규칙(그룹이 1개일 때만)으로 되돌아가게 한다.
+      const objects = tab.objects.flatMap((o, i) => {
+        if (i < group.start || i >= group.end) return [o];
+        const reset = o.entered ? { ...o, entered: false } : o;
+        return i === group.end - 1 ? [reset, created] : [reset];
+      });
       // 사용자가 편집을 이어가던 흐름을 유지하도록 새 오브젝트의 같은 캐럿 위치로.
       return {
         objects,
