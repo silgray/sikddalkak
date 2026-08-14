@@ -5,6 +5,7 @@ import { fromCeJson } from '../literal/ceJson';
 import { intLit } from '../literal/literal';
 
 
+// TODO: sec/csc/cot 추가
 /** 스칼라 전용으로 취급하는 CE 함수 머리 → 우리 `call` 이름. */
 const SCALAR_FUNCTIONS: Record<string, string> = {
   Sin: 'sin', Cos: 'cos', Tan: 'tan',

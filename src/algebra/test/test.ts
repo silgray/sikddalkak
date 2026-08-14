@@ -118,9 +118,14 @@ const latex_strs: Record<string, TestValues | null> = {
   // "\\frac{\\mathrm{d}}{\\mathrm{d}(x,y)}x": null,
   // "1-2x^2+x+x^3+x^6+x": null,
   // "1+y+xy+2x^2+x+x^3+x^6+e^{x^2}": null,
-  "-3 + x^5 + x^3y + xy^3z^3 + x^3z^3u + y^3z^5u + \\sin(x) + \\frac{1}{x} + \\sum_{k=1}^{4}k^2 + \\left(\\sum_{k=1}^{4}a^kx\\right)^{\\left(\\sum_{k=1}^{4}a^kx\\right)} + a^{\\sum_{k=1}^{4}a^kx} + \\left(\\sum_{k=1}^{4}a^kx\\right)^a + 2x^3y": null,
-  "x^3+y^3+3xy^2+3x^2y": null,
+  // "-3 + x^5 + x^3y + xy^3z^3 + x^3z^3u + y^3z^5u + \\sin(x) + \\frac{1}{x} + \\sum_{k=1}^{4}k^2 + \\left(\\sum_{k=1}^{4}a^kx\\right)^{\\left(\\sum_{k=1}^{4}a^kx\\right)} + a^{\\sum_{k=1}^{4}a^kx} + \\left(\\sum_{k=1}^{4}a^kx\\right)^a + 2x^3y": null,
+  // "x^3+y^3+3xy^2+3x^2y": null,
   // "ba+ab^4": null,
+  // "\\Re": null,
+  // "\\Re(1+2i)": null,
+  // "\\overline{1+2i}": null,
+  "\\mathrm{tr}A": null,
+  "\\mathrm{tr}(A)": null,
 };
 
 const ce = new ComputeEngine();
@@ -136,13 +141,13 @@ function test(latexs: Record<string, TestValues | null>) {
       const preprocessed_latex = latex;
       // const preprocessed_latex = preprocess(latex);
       // 1-a) preprocess: \cdot, \times 토큰 치환
-      // console.log("preprocessed:", preprocessed_latex);
+      console.log("preprocessed:", preprocessed_latex);
 
       // 1-b) parse: 큼지막한 파싱은 일단 ce에 위임
       const parsed_expr = ce.parse(preprocessed_latex, {
         form: ['Number'],
       });
-      // show("parsed:", parsed_expr.latex, (parsed_expr.json));
+      show("parsed:", parsed_expr.latex, (parsed_expr.json));
 
       // 1-c) translate: 파싱 결과를 SyntaxNode 트리로 변환
       const translated_tree = translateToTree(parsed_expr.json);
@@ -159,7 +164,7 @@ function test(latexs: Record<string, TestValues | null>) {
         console.log("elaborated error:", elaborated_expr.errors);
         return;
       }
-      // show("elaborated:", render(elaborated_expr.value), elaborated_expr.value);
+      show("elaborated:", render(elaborated_expr.value), elaborated_expr.value);
 
       // 2. normalize
       sort_keys.forEach(({termKey, mulKey}) => {

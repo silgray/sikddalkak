@@ -139,7 +139,7 @@ const DISABLED_INLINE_SHORTCUTS = new Set<string>([
  * `after` 컨텍스트 값 표 참고.
  */
 const CUSTOM_INLINE_SHORTCUTS: InlineShortcutDefinitions = {
-  // myshortcut: '\\myLatexCommand',
+  tr: '\\operatorname{\\mathrm{tr}}',
 };
 
 /**

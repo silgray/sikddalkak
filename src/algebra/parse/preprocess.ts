@@ -19,14 +19,20 @@ export const CROSS_MARKER = 'algCrossMarker';
  * `\left(\dfrac{\mathrm{d}}{\mathrm{d}x}f\right)^3` 은 본문이 괄호 **안**에 있어 이 패턴에
  * 안 걸린다 — CE가 이미 잘 읽는다.)
  */
-// TODO: fix regex => 미분변수 x_{3}꼴도 가능하게
 const DIFF_POWER_RE =
   /(?:\\left)?\(\s*\\d?frac\{(?:d|\\mathrm\{d\})\}\{(?:d|\\mathrm\{d\})([a-zA-Z])\}\s*(?:\\right)?\)\^\{?(\d+)\}?/g;
 const DIFFD_SYMBOL = 
   /(\\differentialD)/g;
 
+const REAL_RE = 
+  /(\\operatorname\{\\mathrm\{Re\}\})/g;
+const IMAG_RE = 
+  /(\\operatorname\{\\mathrm\{Im\}\})/g;
+
 export function preprocess(latex: string): string {
   return latex
+    .replace(REAL_RE, () => '\\Re')
+    .replace(IMAG_RE, () => '\\Im')
     .replace(DIFFD_SYMBOL, () => '\\mathrm{d}')  // 실측 기반. \differentialD가 포함되어 있으면 뒤의 모든 파싱이 꼬임
     .replace(DIFF_POWER_RE, (_, v: string, n: string) => `\\frac{\\mathrm{d}^{${n}}}{\\mathrm{d}${v}^{${n}}}`)
     .replace(/\\cdot(?![a-zA-Z])/g, ` \\mathrm{${DOT_MARKER}} `)
