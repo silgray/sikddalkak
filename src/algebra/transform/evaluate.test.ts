@@ -116,6 +116,28 @@ describe('전치·내적 (모양 접기)', () => {
   });
 });
 
+// CE 0.90의 `simplify` 는 값을 접지 않는 구간이 있다 — `e^{i\pi}` 가 그렇다(실측).
+// `viaCe` 가 `simplify().evaluate()` 두 패스를 돌려야 접힌다(`delegate.ts` 참고).
+// 주 앱이 구 엔진에서 이 모듈로 옮겨오며(9fa1ba2) 둘째 패스가 빠져 미평가로 남았던 회귀다.
+describe('오일러 항등식 계열 — simplify 만으로는 안 접히는 순수 스칼라', () => {
+  it('e^{i\\pi} = -1', () => {
+    expect(evaluatedLatex(String.raw`e^{i\pi}`, { shapes: {} })).toBe('-1');
+  });
+
+  it('e^{\\frac{\\pi}{6}i} 는 실수부·허수부로 펴진다', () => {
+    expect(evaluatedLatex(String.raw`e^{\frac{\pi}{6}i}`, { shapes: {} })).toBe(
+      String.raw`\frac{\sqrt{3}}{2}+\frac{1}{2}i`,
+    );
+  });
+
+  it('simplify 만으로 접히던 것들은 그대로다 (회귀 방지)', () => {
+    expect(evaluatedLatex(String.raw`\sin\left(\frac{\pi}{6}\right)`, { shapes: {} })).toBe(
+      String.raw`\frac{1}{2}`,
+    );
+    expect(evaluatedLatex('2^{10}', { shapes: {} })).toBe('1024');
+  });
+});
+
 describe('역행렬', () => {
   it('구체 행렬의 역행렬을 정확한 유리수로 계산한다', () => {
     expect(

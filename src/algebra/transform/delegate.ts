@@ -98,6 +98,16 @@ type CeOp = 'expand' | 'simplify' | 'factor';
  *
  * 왕복이 실패하면 **원래 식을 그대로 돌려준다**. CE가 우리가 못 읽는 머리를 내놓는 일이
  * 있는데, 그것 때문에 변환 전체가 실패하는 것보다 "안 바뀜"이 낫다.
+ *
+ * ⚠ **`simplify` 는 `.evaluate()` 까지 이어서 돌린다.** CE 0.90의 `simplify` 는 값을
+ * 접지 않는 구간이 있다 — `e^{i\pi}` 는 `Power(ExponentialE, Multiply(Complex(0,1), Pi))`
+ * 그대로 남고, `.evaluate()` 라야 `-1` 이 된다(실측. `\sin(\frac{\pi}{6})`·`2^{10}` 처럼
+ * simplify만으로 접히는 것들과 갈린다). 제거된 구 엔진(`src/engine/evaluate.ts` 의
+ * `reduce`)도 같은 이유로 `simplify().evaluate()` 두 패스를 돌렸고, 주 앱이 이 모듈로
+ * 옮겨오면서(`9fa1ba2`) 그 둘째 패스가 빠져 `e^{i\pi}` 류가 미평가로 남았다.
+ * **순서가 중요하다** — evaluate를 먼저 돌리면 `\frac{x^2-1}{x-1}` 이 약분되지 않는다.
+ *
+ * expand/factor에는 안 붙인다 — 인수분해 결과를 evaluate로 다시 건드릴 이유가 없다.
  */
 export function viaCe(e: TypedExpr, op: CeOp, env: Env): TypedExpr {
   try {
@@ -111,7 +121,7 @@ export function viaCe(e: TypedExpr, op: CeOp, env: Env): TypedExpr {
         ? ceExpand(source, { strict: true })
         : op === 'factor'
           ? ceFactor(source, { strict: true })
-          : ceSimplify(source, { strict: true }),
+          : ceSimplify(source, { strict: true }).evaluate(),
     );
     const syntax = parseCeJson(result.json);
     if (!syntax.ok) return e;
