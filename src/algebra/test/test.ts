@@ -8,8 +8,6 @@ import { evaluate, substituteDeep } from '../transform/evaluate';
 import { group, show } from './view';
 import { prettify } from '../transform/prettify';
 
-import { sort_keys } from './sort_add';
-
 // const dump = (value: unknown): string => JSON.stringify(value, null, 2);
 
 // `w=Av` 처럼 다른 이름을 참조하는 바인딩은 **그 이름들의 모양이 이미 있는 shapes로**
@@ -126,9 +124,10 @@ const latex_strs: Record<string, TestValues | null> = {
   // "\\overline{1+2i}": null,
   // "\\mathrm{tr}A": null,
   // "\\mathrm{tr}(A)": null,
-  "\\mu_0": null,
-  "\\mu_1": null,
-  "a_{xyzdf}": null,
+  // "\\mu_0": null,
+  // "\\mu_1": null,
+  // "a_{xyzdf}": null,
+  "\\frac{d}{dx}ex": null,
 };
 
 const ce = new ComputeEngine();
@@ -170,78 +169,72 @@ function test(latexs: Record<string, TestValues | null>) {
       show("elaborated:", render(elaborated_expr.value), elaborated_expr.value);
 
       // 2. normalize
-      sort_keys.forEach(({termKey, mulKey}) => {
+      const normalized_expr = normalize(elaborated_expr.value, true);
+      if(!normalized_expr.ok) {
+        console.log("normalized error:", normalized_expr.errors);
+        return;
+      }
+      const prettified_expr = prettify(normalized_expr.value);
+      show("normalized:", render(prettified_expr), prettified_expr);
 
-        const normalized_expr = normalize(elaborated_expr.value, true);
-        if(!normalized_expr.ok) {
-          console.log("normalized error:", normalized_expr.errors);
-          return;
-        }
-        const prettified_expr = prettify(normalized_expr.value, {
-          compareTerms: termKey,
-          compareFactors: mulKey,
-        });
-        show("normalized:", render(prettified_expr), prettified_expr);
-
-      });
 
       // ===========================================
 {
-      // // 3. expression conversion
+      // 3. expression conversion
 
-      // // 3-a) simplify
-      // const simplified_expr = simplify(normalized_expr.value, env);
-      // // console.log("simplified:", dump(simplified_expr));
-      // if(!simplified_expr.ok) {
-      //   console.log("simplified error:", simplified_expr.errors);
-      //   return;
-      // }
-      // show("simplified:", render(simplified_expr.value), simplified_expr.value);
+      // 3-a) simplify
+      const simplified_expr = simplify(normalized_expr.value, env);
+      // console.log("simplified:", dump(simplified_expr));
+      if(!simplified_expr.ok) {
+        console.log("simplified error:", simplified_expr.errors);
+        return;
+      }
+      show("simplified:", render(simplified_expr.value), simplified_expr.value);
 
-      // // 3-b) expand
-      // const expanded_expr = expand(normalized_expr.value, env);
-      // // console.log("expanded:", dump(expanded_expr));
-      // if(!expanded_expr.ok) {
-      //   console.log("expanded error:", expanded_expr.errors);
-      //   return;
-      // }
-      // show("expanded:", render(expanded_expr.value), expanded_expr.value);
-      // const simplified_expanded_expr = simplify(expanded_expr.value, env);
-      // if(!simplified_expanded_expr.ok) {
-      //   console.log("simplified error:", simplified_expanded_expr.errors);
-      //   return;
-      // }
-      // show("simpl(expand):", render(simplified_expanded_expr.value), simplified_expanded_expr.value);
+      // 3-b) expand
+      const expanded_expr = expand(normalized_expr.value, env);
+      // console.log("expanded:", dump(expanded_expr));
+      if(!expanded_expr.ok) {
+        console.log("expanded error:", expanded_expr.errors);
+        return;
+      }
+      show("expanded:", render(expanded_expr.value), expanded_expr.value);
+      const simplified_expanded_expr = simplify(expanded_expr.value, env);
+      if(!simplified_expanded_expr.ok) {
+        console.log("simplified error:", simplified_expanded_expr.errors);
+        return;
+      }
+      show("simpl(expand):", render(simplified_expanded_expr.value), simplified_expanded_expr.value);
       
-      // // 3-c) factor
-      // const factored_expr = factor(normalized_expr.value, env);
-      // if(!factored_expr.ok) {
-      //   console.log("factored error:", factored_expr.errors);
-      //   return;
-      // }
-      // const simplified_factored_expr = simplify(factored_expr.value, env);
-      // show("factored:", render(factored_expr.value), factored_expr.value);
-      // if(!simplified_factored_expr.ok) {
-      //   console.log("simplified error:", simplified_factored_expr.errors);
-      //   return;
-      // }
-      // show("simpl(factor):", render(simplified_factored_expr.value), simplified_factored_expr.value);
+      // 3-c) factor
+      const factored_expr = factor(normalized_expr.value, env);
+      if(!factored_expr.ok) {
+        console.log("factored error:", factored_expr.errors);
+        return;
+      }
+      const simplified_factored_expr = simplify(factored_expr.value, env);
+      show("factored:", render(factored_expr.value), factored_expr.value);
+      if(!simplified_factored_expr.ok) {
+        console.log("simplified error:", simplified_factored_expr.errors);
+        return;
+      }
+      show("simpl(factor):", render(simplified_factored_expr.value), simplified_factored_expr.value);
       
-      // // 3-d) evaluate
-      // const substituted_expr = substituteDeep(normalized_expr.value, env);
-      // // console.log("substituted:", dump(substituted_expr));
-      // if(!substituted_expr.ok) {
-      //   console.log("substituted error:", substituted_expr.errors);
-      //   return;
-      // }
-      // show("substituted:", render(substituted_expr.value), substituted_expr.value);
-      // const evaluated_expr = evaluate(substituted_expr.value, env);
-      // // console.log("evaluated:", dump(evaluated_expr));
-      // if(!evaluated_expr.ok) {
-      //   console.log("evaluated error:", evaluated_expr.errors);
-      //   return;
-      // }
-      // show("evaluated:", render(evaluated_expr.value), evaluated_expr.value);
+      // 3-d) evaluate
+      const substituted_expr = substituteDeep(normalized_expr.value, env);
+      // console.log("substituted:", dump(substituted_expr));
+      if(!substituted_expr.ok) {
+        console.log("substituted error:", substituted_expr.errors);
+        return;
+      }
+      show("substituted:", render(substituted_expr.value), substituted_expr.value);
+      const evaluated_expr = evaluate(substituted_expr.value, env);
+      // console.log("evaluated:", dump(evaluated_expr));
+      if(!evaluated_expr.ok) {
+        console.log("evaluated error:", evaluated_expr.errors);
+        return;
+      }
+      show("evaluated:", render(evaluated_expr.value), evaluated_expr.value);
 }
       
     });

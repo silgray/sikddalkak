@@ -14,7 +14,7 @@ import { createEngine } from './engine';
 const ce = createEngine();
 
 const cache = new Map<string, string>();
-cache.set('\\exponentialE', 'e'); // 초기 캐시, ce가 \exponentialE -> \mathrm{e}로 렌더해서 아예 직접 지정
+cache.set('ExponentialE', 'e'); // 초기 캐시, ce가 \exponentialE -> \mathrm{e}로 렌더해서 아예 직접 지정
 
 export function symbolToLatex(name: string): string {
   const cached = cache.get(name);
