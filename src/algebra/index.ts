@@ -8,6 +8,7 @@ import { expand } from './transform/expand';
 import { factor } from './transform/factor';
 import { simplify } from './transform/simplify';
 import { substitute } from './transform/substitute';
+import { prettify } from './transform/prettify';
 import { SCALAR, formatShape, type Shape } from './shape/shape';
 import { parseSyntax } from './parse/parse';
 export { parseSyntax } from './parse/parse';
@@ -39,7 +40,9 @@ export { OP_PROPERTIES, type BinaryOp, type OpProperties } from './opers';
 export { normalize } from './normalize/normalize';
 export { evaluate, collectFreeSymbols, substituteDeep } from './transform/evaluate';
 export { exprKey } from './expression/key';
-// 자리만 마련해 둔 것 — 아직 아무 호출부에도 안 붙는다 (`transform/prettify.ts` 참고).
+// 렌더 직전 재정렬 (`transform/prettify.ts`). 호출부는 셋 — 이 파일의 `transform()`,
+// `cellGraph.ts` 의 결과 행/solve 근, `worker/readSelection.ts` 의 선택 변환.
+// **트리를 상태로 남기는 자리엔 절대 안 건다** — `exprKey` 지문이 흔들린다.
 export { prettify, type PrettyOrder } from './transform/prettify';
 
 export type TransformOp = 'expand' | 'simplify' | 'factor' | 'substitute';
@@ -88,7 +91,9 @@ export function transform(latex: string, op: TransformOp, env: Env): Result<stri
     if (!parsed.ok) return parsed;
     const rewritten = OPERATIONS[op](parsed.value, env);
     if (!rewritten.ok) return rewritten;
-    return ok(render(rewritten.value));
+    // 렌더 직전 재정렬 — `worker/readSelection.ts` 와 같은 규율이다(두 경로가 갈리면
+    // 같은 변환이 자리에 따라 다른 꼴로 나온다).
+    return ok(render(prettify(rewritten.value)));
   });
 }
 

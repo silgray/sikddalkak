@@ -4,6 +4,7 @@ import {
   exprKey,
   parse,
   parseSyntax,
+  prettify,
   render,
   solveFor as solveEquation,
   substituteDeep,
@@ -258,7 +259,9 @@ function computeRelationNode(node: Node, env: Env): Computed {
 
   // 근이 여럿이면(`x^2=4` → 2, -2) 한 줄에 모은다 — 결과 행이 표시용이라 하나로 족하다.
   const symbolLatex = render({ op: 'sym', shape: SCALAR_SHAPE, name: symbol });
-  const latex = solved.value.map((root) => `${symbolLatex} = ${render(root)}`).join(',\\ ');
+  const latex = solved.value
+    .map((root) => `${symbolLatex} = ${render(prettify(root))}`)
+    .join(',\\ ');
   // solve 결과는 항상 보여줄 값이다 — "안 바뀐 식" 판정이 애초에 안 맞는다(등식 자체와
   // 근의 표현은 형태가 다르다).
   return { result: { kind: 'ok', latex, definitionName: null, unchanged: false } };
@@ -290,7 +293,9 @@ function computeNode(node: Node, env: Env): Computed {
   if (!evaluated.ok) {
     return { result: { kind: 'error', message: evaluated.errors[0].message } };
   }
-  const latex = render(evaluated.value);
+  // `prettify` 는 **렌더 직전에만** 건다 — 사람이 읽기 좋은 순서는 출력용이고, 아래
+  // `unchanged` 나 캐시 지문이 보는 건 정규화 순서 그대로여야 한다(`transform/prettify.ts`).
+  const latex = render(prettify(evaluated.value));
   // 좌변(`a =`)은 붙이지 않는다 — 결과 행은 정리된 우변/식 자체만 보여준다.
   // "안 바뀐 식" 판정은 원본 파스 트리와 최종 평가 트리를 구조 비교한다 — `parse` 가
   // 이미 정규화를 하므로(`A+A`→`2A`) 그 지점부터 안 바뀐 것만 "unchanged"로 본다.

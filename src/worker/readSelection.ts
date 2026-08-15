@@ -2,6 +2,7 @@ import {
   expand,
   factor,
   parse,
+  prettify,
   render,
   simplify,
   substitute,
@@ -90,12 +91,14 @@ export function readSelection(field: 'input' | 'result', selected: string, env: 
     };
   }
 
-  // substitute 필터용으로 미리 한 번.
-  const parsedLatex = render(parsed.value);
+  // substitute 필터용으로 미리 한 번. **`prettify` 를 여기도 걸어야 한다** — 아래
+  // `replaced` 와 같은 순서로 렌더돼야 `replaced === parsedLatex` 비교가 "정말 안 바뀜"
+  // 을 재는 게 된다(한쪽만 걸면 항 순서 차이로 늘 다르게 나온다).
+  const parsedLatex = render(prettify(parsed.value));
   for (const op of TRANSFORM_OPS) {
     const out = OPS[op](parsed.value, env);
     if (!out.ok) continue;
-    const replaced = render(out.value);
+    const replaced = render(prettify(out.value));
     // substitute는 정의된 심볼이 하나도 없으면 그냥 원래 값을 돌려줘서(=실패가 아니라
     // "바뀐 게 없음") 버튼이 늘 뜬다. expand/simplify/factor는 이 필터를 안 건다 —
     // 값은 같아도 꼴이 바뀌는 게 정상 동작이라, 여기에 걸면 사용자가 부탁한 변환이
