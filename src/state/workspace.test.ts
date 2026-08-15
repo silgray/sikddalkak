@@ -264,6 +264,66 @@ describe('그룹 재정렬 (moveGroup)', () => {
     expect(ids[ids.length - 2]).toBe(a);
     expect(active(s).objects[ids.length - 1].latex).toBe('');
   });
+
+  // 사용자 보고: 셀을 클릭해 캐럿을 둔 뒤 Alt+↓ 하면 포커스가 풀리고, 살아남더라도
+  // 캐럿이 맨 앞(행렬이면 첫 칸)으로 튀었다. 원인은 리듀서가 포커스를 아예 안
+  // 옮긴 것 — 재정렬은 DOM 서브트리를 실제로 옮겨 필드를 blur시키는데, 포커스
+  // 이펙트는 token이 바뀔 때만 돈다.
+  it('refocus를 주면 옮긴 뒤 그 셀·그 캐럿으로 포커스를 되돌린다', () => {
+    let { s, b } = seed3();
+    const before = active(s).focus?.token ?? 0;
+    s = workspaceReducer(s, {
+      type: 'moveGroup',
+      id: b,
+      toIndex: 0,
+      refocus: { id: b, offset: 2 },
+    });
+    expect(active(s).focus).toMatchObject({ id: b, offset: 2 });
+    // token이 올라야 MathField의 포커스 이펙트가 실제로 발화한다.
+    expect(active(s).focus!.token).toBeGreaterThan(before);
+  });
+
+  it('결과 행에서 옮기면 그룹 id + field:result 로 되돌아간다', () => {
+    let { s, b } = seed3();
+    const groupId = active(s).objects.find((o) => o.id === b)!.groupId;
+    s = workspaceReducer(s, {
+      type: 'moveGroup',
+      id: b,
+      toIndex: 0,
+      refocus: { id: groupId, offset: 5, field: 'result' },
+    });
+    expect(active(s).focus).toMatchObject({ id: groupId, offset: 5, field: 'result' });
+  });
+
+  it('refocus가 없으면(드래그) 포커스를 안 건드린다', () => {
+    let { s, b } = seed3();
+    const before = active(s).focus;
+    s = workspaceReducer(s, { type: 'moveGroup', id: b, toIndex: 0 });
+    expect(active(s).focus).toBe(before);
+  });
+});
+
+describe('셀 복제 (duplicateCell)', () => {
+  const seed = () => {
+    let s = initialWorkspace();
+    const a = active(s).objects[0].id;
+    s = workspaceReducer(s, { type: 'editInput', id: a, latex: 'a=1', cursor: 3 });
+    return { s, a };
+  };
+
+  it('cursor를 주면 원본 셀의 그 자리로 포커스가 돌아온다', () => {
+    // 복제도 삽입이라 DOM이 밀리고 원본이 blur된다 — moveGroup과 같은 이유.
+    let { s, a } = seed();
+    const before = active(s).focus?.token ?? 0;
+    s = workspaceReducer(s, { type: 'duplicateCell', id: a, position: 'below', cursor: 1 });
+    expect(active(s).focus).toMatchObject({ id: a, offset: 1 });
+    expect(active(s).focus!.token).toBeGreaterThan(before);
+    // 복제본은 원본과 다른 오브젝트이고 같은 내용이다.
+    const copies = active(s).objects.filter((o) => o.latex === 'a=1');
+    expect(copies).toHaveLength(2);
+    expect(copies[0].id).not.toBe(copies[1].id);
+    expect(copies[0].groupId).not.toBe(copies[1].groupId);
+  });
 });
 
 describe('키워드 단위 실행취소 (undo 시점 그룹핑)', () => {

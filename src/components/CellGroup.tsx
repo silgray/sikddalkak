@@ -32,8 +32,19 @@ type Props = {
   onDeleteEmpty: (index: number) => void;
   /** Alt+↑/↓ — 그룹 전체를 위/아래로. 어느 셀에서 눌러도 같은 그룹 이동이라 CellStack이
    * 그룹 하나당 하나만 만들어 그대로 내려준다(onMoveOut/onDeleteEmpty와 달리 셀별로
-   * 안 갈린다). */
-  onMoveGroup: (delta: -1 | 1) => void;
+   * 안 갈린다).
+   *
+   * `refocus` 만 셀별로 갈린다 — 이동 후 어느 필드의 어느 자리로 돌아갈지는 누른
+   * 곳마다 다르므로, 그건 이 컴포넌트가 채워서 올린다. */
+  onMoveGroup: (delta: -1 | 1, refocus: Refocus) => void;
+};
+
+/** 그룹을 옮긴 뒤 되돌아갈 자리. `workspace.ts` 의 `Tab['focus']` 와 같은 규약이다. */
+export type Refocus = {
+  /** 입력 행이면 오브젝트 id, 결과 행이면 그룹 id (`field: 'result'`). */
+  id: string;
+  offset: number;
+  field?: 'input' | 'result';
 };
 
 /**
@@ -158,8 +169,10 @@ export function CellGroup({
             }}
             onDeleteEmpty={() => onDeleteEmpty(index)}
             onInsertCell={(position) => dispatch({ type: 'insertCell', id: object.id, position })}
-            onMoveGroup={onMoveGroup}
-            onDuplicate={(position) => dispatch({ type: 'duplicateCell', id: object.id, position })}
+            onMoveGroup={(delta, caret) => onMoveGroup(delta, { id: object.id, offset: caret })}
+            onDuplicate={(position, caret) =>
+              dispatch({ type: 'duplicateCell', id: object.id, position, cursor: caret })
+            }
           />
         );
       })}

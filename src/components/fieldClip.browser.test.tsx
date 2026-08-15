@@ -32,7 +32,10 @@ async function mount(initial: string, width = 320): Promise<Mounted> {
   document.body.append(host);
   const root = createRoot(host);
   root.render(
-    createElement(FieldClip, { watch: initial }, createElement(MathField, { value: initial })),
+    createElement(FieldClip, {
+      watch: initial,
+      children: createElement(MathField, { value: initial }),
+    }),
   );
   await settle();
   const mf = host.querySelector('math-field') as MathfieldElement;

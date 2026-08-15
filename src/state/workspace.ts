@@ -97,12 +97,27 @@ type ObjectAction =
    * 그룹 재정렬 — 드래그(임의 위치)와 Alt+↑/↓(한 칸)가 공유한다. toIndex는
    * `groupsOf(objects)` 기준 목표 그룹 인덱스(제거 전 배열 기준). 맨 아래 상시 빈
    * 셀의 그룹 뒤로는 못 간다.
+   *
+   * `refocus` 가 있으면 이동 후 그 자리로 포커스·캐럿을 되돌린다(키보드 이동).
+   * 없으면 포커스를 안 건드린다(드래그 — 포커스는 애초에 딴 데 있다).
+   * **키보드 이동엔 반드시 있어야 한다**: 재정렬은 React가 DOM 서브트리를 실제로
+   * 옮기는 일이라 그 순간 mathfield가 blur되는데, 포커스 이펙트는 token이 바뀔
+   * 때만 돌기 때문에 아무도 다시 포커스하지 않는다.
    */
-  | { type: 'moveGroup'; id: string; toIndex: number }
+  | {
+      type: 'moveGroup';
+      id: string;
+      toIndex: number;
+      refocus?: { id: string; offset: number; field?: 'input' | 'result' };
+    }
   /** 그룹 밖에 새 빈 셀을 만들고 포커스를 옮긴다 (Ctrl+Enter류). */
   | { type: 'insertCell'; id: string; position: 'above' | 'below' }
-  /** 셀 하나를 새 그룹으로 복제해 그룹 밖에 놓는다. 포커스·커서는 원본에 유지. */
-  | { type: 'duplicateCell'; id: string; position: 'above' | 'below' }
+  /**
+   * 셀 하나를 새 그룹으로 복제해 그룹 밖에 놓는다. 포커스·커서는 **원본에** 유지 —
+   * 복제는 조용히 옆에 놓인다. `cursor` 는 그 원본으로 돌아갈 캐럿 자리다
+   * (`moveGroup.refocus` 와 같은 이유로 필요하다: 삽입도 DOM을 옮긴다).
+   */
+  | { type: 'duplicateCell'; id: string; position: 'above' | 'below'; cursor?: number }
   /**
    * 셀에 포커스 지시. offset이 있으면 캐럿 위치까지 (셀 간 이동 등). field가
    * 'result'면 id는 오브젝트가 아니라 그룹 id — 위/아래 화살표로 결과 필드에
@@ -290,7 +305,21 @@ function reduceContent(tab: Tab, action: ObjectAction): Content {
       const blocks = groups.map((g) => tab.objects.slice(g.start, g.end));
       const [moved] = blocks.splice(fromGroupIdx, 1);
       blocks.splice(toGroupIdx, 0, moved);
-      return { objects: blocks.flat(), focus: tab.focus };
+      const refocus = action.refocus;
+      return {
+        objects: blocks.flat(),
+        // 실제로 옮겼을 때만 포커스를 다시 지시한다 — 위 클램프/no-op 경로들은
+        // objects 참조까지 유지해 히스토리·재평가를 안 건드린다.
+        focus:
+          refocus === undefined
+            ? tab.focus
+            : {
+                id: refocus.id,
+                token: nextToken(tab),
+                offset: refocus.offset,
+                field: refocus.field,
+              },
+      };
     }
 
     case 'insertCell': {
@@ -316,8 +345,16 @@ function reduceContent(tab: Tab, action: ObjectAction): Content {
       const copy: FormulaObject = { ...source, id: copyId, groupId: copyId, entered: false };
       const insertAt = action.position === 'above' ? group.start : group.end;
       const objects = [...tab.objects.slice(0, insertAt), copy, ...tab.objects.slice(insertAt)];
-      // 커서·포커스는 원본에 유지 — 복제는 조용히 옆에 놓인다.
-      return { objects, focus: tab.focus };
+      // 커서·포커스는 원본에 유지 — 복제는 조용히 옆에 놓인다. 다만 삽입도 DOM
+      // 서브트리를 옮겨 원본이 blur되므로, 캐럿 자리를 받았으면 다시 지시한다
+      // (`moveGroup.refocus` 와 같은 이유).
+      return {
+        objects,
+        focus:
+          action.cursor === undefined
+            ? tab.focus
+            : { id: action.id, token: nextToken(tab), offset: action.cursor },
+      };
     }
 
     case 'focus':

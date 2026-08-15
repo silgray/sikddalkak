@@ -46,10 +46,10 @@ type Props = {
   onDeleteEmpty?: () => void;
   /** Ctrl+Enter(아래)/Ctrl+Shift+Enter(위) — 그룹 밖에 새 빈 셀. */
   onInsertCell?: (position: 'above' | 'below') => void;
-  /** Alt+↑/↓ — 이 셀이 속한 그룹 전체를 위/아래로. */
-  onMoveGroup?: (delta: -1 | 1) => void;
-  /** Shift+Alt+↑/↓ — 이 셀을 복제해 그룹 밖에 놓는다. */
-  onDuplicate?: (position: 'above' | 'below') => void;
+  /** Alt+↑/↓ — 이 셀이 속한 그룹 전체를 위/아래로. `caret` 은 누른 순간의 캐럿. */
+  onMoveGroup?: (delta: -1 | 1, caret: number) => void;
+  /** Shift+Alt+↑/↓ — 이 셀을 복제해 그룹 밖에 놓는다. `caret` 은 위와 같다. */
+  onDuplicate?: (position: 'above' | 'below', caret: number) => void;
 };
 
 /** 선택 변경마다 워커로 CE를 네 번(expand/simplify/factor/substitute) 돌리므로, 타이핑처럼

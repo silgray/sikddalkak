@@ -20,8 +20,8 @@ const settle = () => new Promise((r) => setTimeout(r, 60));
 type Handlers = {
   onEnter: (latex: string) => void;
   onInsertCell: (position: 'above' | 'below') => void;
-  onMoveGroup: (delta: -1 | 1) => void;
-  onDuplicate: (position: 'above' | 'below') => void;
+  onMoveGroup: (delta: -1 | 1, caret: number) => void;
+  onDuplicate: (position: 'above' | 'below', caret: number) => void;
 };
 
 async function mount(initial = 'x'): Promise<{ mf: MathfieldElement; handlers: Handlers; root: Root }> {
@@ -30,8 +30,8 @@ async function mount(initial = 'x'): Promise<{ mf: MathfieldElement; handlers: H
   const handlers: Handlers = {
     onEnter: vi.fn<(latex: string) => void>(),
     onInsertCell: vi.fn<(position: 'above' | 'below') => void>(),
-    onMoveGroup: vi.fn<(delta: -1 | 1) => void>(),
-    onDuplicate: vi.fn<(position: 'above' | 'below') => void>(),
+    onMoveGroup: vi.fn<(delta: -1 | 1, caret: number) => void>(),
+    onDuplicate: vi.fn<(position: 'above' | 'below', caret: number) => void>(),
   };
   const root = createRoot(host);
   root.render(createElement(MathField, { value: initial, ...handlers }));
@@ -90,7 +90,7 @@ describe('MathField — Alt+↑/↓ (그룹 이동·복제)', () => {
     const { mf, handlers } = await mount();
     press(mf, 'ArrowUp', { altKey: true });
     await settle();
-    expect(handlers.onMoveGroup).toHaveBeenCalledWith(-1);
+    expect(handlers.onMoveGroup).toHaveBeenCalledWith(-1, expect.any(Number));
     expect(handlers.onDuplicate).not.toHaveBeenCalled();
   });
 
@@ -98,14 +98,14 @@ describe('MathField — Alt+↑/↓ (그룹 이동·복제)', () => {
     const { mf, handlers } = await mount();
     press(mf, 'ArrowDown', { altKey: true });
     await settle();
-    expect(handlers.onMoveGroup).toHaveBeenCalledWith(1);
+    expect(handlers.onMoveGroup).toHaveBeenCalledWith(1, expect.any(Number));
   });
 
   it('Shift+Alt+↑ 는 onDuplicate("below") — 방향이 반대다(명세)', async () => {
     const { mf, handlers } = await mount();
     press(mf, 'ArrowUp', { altKey: true, shiftKey: true });
     await settle();
-    expect(handlers.onDuplicate).toHaveBeenCalledWith('below');
+    expect(handlers.onDuplicate).toHaveBeenCalledWith('below', expect.any(Number));
     expect(handlers.onMoveGroup).not.toHaveBeenCalled();
   });
 
@@ -113,7 +113,25 @@ describe('MathField — Alt+↑/↓ (그룹 이동·복제)', () => {
     const { mf, handlers } = await mount();
     press(mf, 'ArrowDown', { altKey: true, shiftKey: true });
     await settle();
-    expect(handlers.onDuplicate).toHaveBeenCalledWith('above');
+    expect(handlers.onDuplicate).toHaveBeenCalledWith('above', expect.any(Number));
+  });
+
+  // 사용자 보고의 핵심: 옮기고 나서 캐럿이 있던 자리에 그대로 있어야 한다. 그러려면
+  // 누르는 **그 순간의** 캐럿을 실어 보내야 한다 — 문서에는 마우스·화살표로 옮긴
+  // 캐럿이 안 남기 때문이다(`workspace.ts` 의 `moveGroup.refocus` 참고).
+  it('누른 순간의 캐럿 오프셋을 같이 올려보낸다', async () => {
+    const { mf, handlers } = await mount('x+y+z');
+    mf.position = 3;
+    await settle();
+    press(mf, 'ArrowDown', { altKey: true });
+    await settle();
+    expect(handlers.onMoveGroup).toHaveBeenCalledWith(1, 3);
+
+    mf.position = 1;
+    await settle();
+    press(mf, 'ArrowUp', { altKey: true, shiftKey: true });
+    await settle();
+    expect(handlers.onDuplicate).toHaveBeenCalledWith('below', 1);
   });
 });
 

@@ -244,10 +244,17 @@ type Props = {
   onDeleteEmpty?: () => void;
   /** Ctrl+Enter(아래)/Ctrl+Shift+Enter(위) — 그룹 밖에 새 빈 셀. */
   onInsertCell?: (position: 'above' | 'below') => void;
-  /** Alt+↑/↓ — 이 셀이 속한 그룹 전체를 위/아래로. */
-  onMoveGroup?: (delta: -1 | 1) => void;
-  /** Shift+Alt+↑/↓ — 이 셀을 복제해 그룹 밖에 놓는다(방향은 명세대로 반대). */
-  onDuplicate?: (position: 'above' | 'below') => void;
+  /**
+   * Alt+↑/↓ — 이 셀이 속한 그룹 전체를 위/아래로.
+   *
+   * `caret` 은 **누르는 순간의 캐럿 오프셋**이다. 재정렬은 React가 DOM 서브트리를
+   * 실제로 옮기는 일이라 그 과정에서 필드가 blur되고, 리듀서가 포커스를 다시 지시할
+   * 때 캐럿을 어디에 놓을지 알아야 한다 — 문서(`tab.lastCursor`)에는 마우스 클릭·
+   * 화살표로 옮긴 캐럿이 안 남으므로 여기서 실어 보내는 수밖에 없다.
+   */
+  onMoveGroup?: (delta: -1 | 1, caret: number) => void;
+  /** Shift+Alt+↑/↓ — 복제해 그룹 밖에 놓는다(방향은 명세대로 반대). `caret` 은 위와 같다. */
+  onDuplicate?: (position: 'above' | 'below', caret: number) => void;
   /**
    * 값이 바뀔 때마다가 아니라, 이 토큰이 바뀔 때만 포커스를 준다.
    * 리렌더마다 focus()가 불려 커서가 튀는 것을 막기 위한 장치.
@@ -532,9 +539,9 @@ export function MathField({
           ev.preventDefault();
           ev.stopImmediatePropagation();
           if (ev.shiftKey) {
-            handlers.current.onDuplicate?.(ev.key === 'ArrowUp' ? 'below' : 'above');
+            handlers.current.onDuplicate?.(ev.key === 'ArrowUp' ? 'below' : 'above', mf.position);
           } else {
-            handlers.current.onMoveGroup?.(ev.key === 'ArrowUp' ? -1 : 1);
+            handlers.current.onMoveGroup?.(ev.key === 'ArrowUp' ? -1 : 1, mf.position);
           }
           return;
         }

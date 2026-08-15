@@ -128,10 +128,17 @@ export function CellStack({ tab, dispatch }: Props) {
               }
               dispatch({ type: 'focus', id: prev.id, offset: Number.MAX_SAFE_INTEGER });
             }}
-            onMoveGroup={(delta) => {
+            onMoveGroup={(delta, refocus) => {
               // moveGroup의 toIndex는 "제거 이후" 그룹 열 기준(reducer 클램프가
               // 범위 밖 값을 알아서 정리한다) — Alt+↑/↓ 한 칸도 드래그와 같은 규약.
-              dispatch({ type: 'moveGroup', id: tab.objects[group.start].id, toIndex: gi + delta });
+              // 드래그(위 `dragEnd`)와 달리 `refocus` 를 싣는다 — 키로 옮길 땐 캐럿이
+              // 있던 자리로 돌아와야 이어서 편집할 수 있다.
+              dispatch({
+                type: 'moveGroup',
+                id: tab.objects[group.start].id,
+                toIndex: gi + delta,
+                refocus,
+              });
             }}
           />
         </Fragment>
