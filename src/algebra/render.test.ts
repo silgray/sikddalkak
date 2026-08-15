@@ -209,12 +209,19 @@ describe('괄호는 필요한 곳에만', () => {
   });
 
   it('글자로만 된 명령 뒤에 글자가 바로 오면 공백으로 뗀다 (안 그러면 명령 이름을 먹는다)', () => {
-    // CE는 `e` 를 파싱 단계에서부터 곧장 심볼 `ExponentialE` 로 읽고(실측), 그 이름의
-    // LaTeX은 `\exponentialE` 처럼 글자로만 된 명령이다. 뒤에 곧장 `x` 가 붙으면
-    // `\exponentialEx` 가 되어 존재하지 않는 명령이 되고 파싱이 깨진다(실측:
-    // `\alphax` → unexpected-command). 공백 하나로 떼어내면 다시 읽어도 그대로다.
+    // `\alpha` 처럼 글자로만 된 명령 뒤에 곧장 `x` 가 붙으면 `\alphax` 가 되어 존재하지
+    // 않는 명령이 되고 파싱이 깨진다(실측: unexpected-command). 공백 하나로 떼어내면
+    // 다시 읽어도 그대로다.
+    expect(rendered(String.raw`\alpha x`)).toBe(String.raw`\alpha x`);
+    expectRoundTrip(String.raw`\alpha x`);
+  });
+
+  it('e 는 한 글자로 렌더돼 뒤에 글자가 붙어도 안전하다', () => {
+    // CE는 `e` 를 파싱 단계에서 곧장 심볼 `ExponentialE` 로 읽지만(실측), 이름 사전이
+    // 그걸 한 글자 `e` 로 되돌린다(`ce/symbolName.ts`) — 먹을 명령 이름이 없으니 위
+    // 규칙의 공백도 필요 없다.
     expect(formatTyped(typedOf('ex'))).toBe('(scalarMul ExponentialE x)');
-    expect(rendered('ex')).toBe(String.raw`\exponentialE x`);
+    expect(rendered('ex')).toBe('ex');
     expectRoundTrip('ex');
   });
 });
