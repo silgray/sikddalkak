@@ -640,6 +640,14 @@ export function translateToTree(json: unknown): Result<SyntaxNode> {
   const [head, ...args] = json as [unknown, ...unknown[]];
   if (typeof head !== 'string') return fail('unsupported', 'Unsupported expression head');
 
+  // 여기까지 온 `Subscript` 는 **이름이 될 수 없는 첨자**다.
+  //
+  // 라틴 문자는 CE가 통째로 심볼 이름을 주고(`a_{xyi}` → `"a_xyi"`), 그리스 문자는
+  // `preprocess` 가 같은 모양으로 미리 바꿔둔다(거기 문서 참고). 그 둘 중 어느 쪽도
+  // 아니면 밑이 이름이 아니거나(`1_{xyz}`) 첨자가 식(`\mu_{a+b}`)이라는 뜻이다.
+  if (head === 'Subscript') {
+    return fail('malformed', 'A subscript is only allowed on a variable name');
+  }
   // 괄호는 트리 구조로 이미 표현되므로 껍데기만 벗긴다.
   if (head === 'Delimiter') {
     return args.length >= 1 ? translateToTree(args[0]) : fail('malformed', 'Empty parentheses');

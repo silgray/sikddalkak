@@ -377,6 +377,31 @@ const closeFence: KeyOp = {
   ],
 };
 
+/**
+ * `\` 입력을 통째로 막는다.
+ *
+ * MathLive에서 `\` 는 **LaTeX 모드로 들어가는 유일한 문**이다. 그 모드는 명령어를
+ * 직접 타이핑하는 자리라 이 앱의 입력 모델(인라인 숏컷·키바인딩·툴바)과 겹치고,
+ * 반쯤 친 명령어가 문서에 남으면 구조 규칙도 계산도 다룰 수 없는 꼴이 된다.
+ * 앞서 자동완성 팝오버만 껐지만(`MathField.tsx` 의 `popoverPolicy`), 모드 자체는
+ * 그대로였다 — 여기서 키를 아예 삼킨다.
+ *
+ * 선택이 있든 없든 막는다(`collapsed` 를 안 본다) — 선택 위에서 쳐도 마찬가지다.
+ */
+const blockBackslash: KeyOp = {
+  id: 'block-backslash',
+  summary: '`\\` 는 입력할 수 없다 (LaTeX 모드 차단)',
+  when: (ctx) => ctx.key === '\\',
+  run: () => {
+    // 아무것도 하지 않는다 (입력 차단).
+  },
+  scenarios: [
+    { start: '', key: '\\', expect: '' },
+    { start: 'x+1', key: '\\', expect: 'x+1' },
+    { start: 'x+1', selection: [0, 3], key: '\\', expect: 'x+1' },
+  ],
+};
+
 /** 밑 없는 `^`/`_` 입력은 막는다 (정책: 첨자는 항상 밑이 있어야 한다). */
 const blockBaselessScript: KeyOp = {
   id: 'block-baseless-script',
@@ -558,6 +583,7 @@ export const KEY_OPS: readonly KeyOp[] = [
   wrapSelectionOnClose,
   closeFence,
   deleteFencePair,
+  blockBackslash,
   blockBaselessScript,
   // `demote-script-content` 보다 **앞**에 있어야 한다 — 둘 다 "첨자 내용 맨 앞
   // Backspace" 를 보는데, 내용이 placeholder뿐이면 강등이 아니라 삭제여야 한다.
