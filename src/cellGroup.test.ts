@@ -91,6 +91,52 @@ describe('pickGroupDisplay', () => {
     const results = new Map<string, EvalResult>();
     expect(pickGroupDisplay([c], results)).toEqual({ kind: 'empty' });
   });
+
+  describe('확정 안 한 오류', () => {
+    const err = (message: string, transient?: boolean): EvalResult => ({
+      kind: 'error',
+      message,
+      ...(transient === undefined ? {} : { transient }),
+    });
+
+    it('확정적인 오류는 Enter 없이도 보여준다', () => {
+      // 모양 불일치처럼 더 친다고 저절로 풀리지 않는 문제를, 눌러봐야만 알 수 있으면 안 된다.
+      const c = cell('A+v');
+      const results = new Map<string, EvalResult>([[c.id, err('Cannot add 3x3 and 3x1')]]);
+      expect(pickGroupDisplay([c], results)).toEqual(err('Cannot add 3x3 and 3x1'));
+    });
+
+    it('파싱 실패(transient)는 확정 전까지 숨긴다', () => {
+      // 타이핑 도중 거의 매 키마다 참이라 띄우면 소음이 된다.
+      const c = cell('x+');
+      const results = new Map<string, EvalResult>([[c.id, err('unexpected end', true)]]);
+      expect(pickGroupDisplay([c], results)).toEqual({ kind: 'empty' });
+    });
+
+    it('안 채운 자리(transient)도 마찬가지로 숨긴다', () => {
+      const c = cell(String.raw`x^{\placeholder{}}`);
+      const results = new Map<string, EvalResult>([[c.id, err('incomplete expression', true)]]);
+      expect(pickGroupDisplay([c], results)).toEqual({ kind: 'empty' });
+    });
+
+    it('셀이 여럿이어도 마지막 셀의 확정적인 오류는 보여준다', () => {
+      const objects = group(cell('2x+3x'), cell('A+v'));
+      const results = new Map<string, EvalResult>([
+        [objects[0].id, ok('5x', true)],
+        [objects[1].id, err('Cannot add 3x3 and 3x1')],
+      ]);
+      expect(pickGroupDisplay(objects, results)).toEqual(err('Cannot add 3x3 and 3x1'));
+    });
+
+    it('확정한 셀이 있으면 그쪽이 이긴다 (transient 여부와 무관)', () => {
+      const objects = group(cell('3', { entered: true }), cell('x+'));
+      const results = new Map<string, EvalResult>([
+        [objects[0].id, ok('3', false)],
+        [objects[1].id, err('unexpected end', true)],
+      ]);
+      expect(pickGroupDisplay(objects, results)).toEqual(ok('3', false));
+    });
+  });
 });
 
 describe('groupResultTargetId', () => {

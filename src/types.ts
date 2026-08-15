@@ -46,7 +46,14 @@ export type FormulaObject = {
 
 export type EvalResult =
   | { kind: 'empty' }
-  | { kind: 'error'; message: string }
+  /**
+   * 계산 실패. `transient` 는 **"아직 다 안 쳤을 뿐"** 이라는 뜻이다 — 파싱이 안 되거나
+   * 안 채운 자리(`\placeholder{}`)가 남은 경우로, 타이핑 도중 거의 매 키마다 참이 된다.
+   * 그래서 이런 오류는 Enter로 확정하기 전에는 결과 행에 안 띄운다(`pickGroupDisplay`).
+   * 나머지(모양 불일치·순환 참조·중복 정의·시간 초과 등)는 **눌러봐야 아는 오류가 아니라**
+   * 확정적인 문제라 그대로 보여준다.
+   */
+  | { kind: 'error'; message: string; transient?: boolean }
   /**
    * 계산 중 — 워커(`worker/client.ts`)가 아직 응답하지 않았다. `CellStack.tsx` 가
    * 새 결과를 받기 전까지 **이전 결과**를 그대로 들고 있는 것과는 다르다: 이 상태는

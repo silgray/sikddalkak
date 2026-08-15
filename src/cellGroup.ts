@@ -48,6 +48,12 @@ export function pickGroupDisplay(
 ): EvalResult {
   const enteredIndex = objects.findIndex((o) => o.entered);
   if (enteredIndex !== -1) return results.get(objects[enteredIndex].id) ?? { kind: 'empty' };
+  // 확정 안 했어도 **확정적인 오류는 보여준다** — 모양 불일치·순환 참조·중복 정의처럼
+  // 더 친다고 저절로 풀리지 않는 문제를 Enter를 눌러야만 알 수 있으면 안 된다.
+  // 반대로 `transient`(파싱 실패·안 채운 자리)는 타이핑 도중 거의 매 키마다 참이라
+  // 띄우면 소음이 된다. 그룹의 **마지막** 셀을 보는 건 그게 가장 최근 파생이라서다.
+  const last = results.get(objects[objects.length - 1].id);
+  if (last !== undefined && last.kind === 'error' && last.transient !== true) return last;
   if (objects.length !== 1) return { kind: 'empty' };
   const sole = results.get(objects[0].id);
   return sole !== undefined && sole.kind === 'ok' && !sole.unchanged ? sole : { kind: 'empty' };

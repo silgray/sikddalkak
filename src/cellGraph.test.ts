@@ -431,6 +431,8 @@ describe('에러 처리', () => {
     expect(one(String.raw`x+\placeholder{}`)).toEqual({
       kind: 'error',
       message: 'incomplete expression',
+      // 안 채운 자리는 "아직 다 안 쳤을 뿐" — 확정 전에는 결과 행에 안 띄운다.
+      transient: true,
     });
   });
 

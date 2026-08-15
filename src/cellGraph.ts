@@ -46,7 +46,8 @@ import type { EvalResult, FormulaObject } from './types';
 
 type Structure =
   | { kind: 'empty' }
-  | { kind: 'error'; message: string }
+  /** `transient` 규약은 `types.ts` 의 `EvalResult` 와 같다 — 그대로 실려 나간다. */
+  | { kind: 'error'; message: string; transient?: boolean }
   | {
       kind: 'node';
       /** 이 셀이 정의하는 이름 (정의가 아니면 null) */
@@ -123,7 +124,7 @@ function readStructure(latex: string): Structure {
   // 채우지 않은 칸이 남아 있으면 미완성이다. CE(algebra 내부의 symbolName도 마찬가지)는
   // `\placeholder{}` 를 파싱하지 못해 엉뚱한 메시지를 내므로 여기서 먼저 잡는다.
   if (repaired.includes('\\placeholder')) {
-    return { kind: 'error', message: 'incomplete expression' };
+    return { kind: 'error', message: 'incomplete expression', transient: true };
   }
 
   const def = splitDefinition(repaired);
@@ -208,7 +209,7 @@ function pushTo<T>(map: Map<string, T[]>, key: string, value: T): void {
 function computeFunctionNode(node: Node): Computed {
   const syntax = parseSyntax(node.value);
   if (!syntax.ok) {
-    return { result: { kind: 'error', message: syntax.errors[0].message } };
+    return { result: { kind: 'error', message: syntax.errors[0].message, transient: true } };
   }
   if (node.defName === null) {
     // 함수 노드는 항상 이름이 있다(`splitFunctionDefinition` 이 보장) — 방어적으로만.
@@ -240,7 +241,7 @@ function computeRelationNode(node: Node, env: Env): Computed {
 
   const diff = parse(`${node.relation.lhs}-\\left(${node.relation.rhs}\\right)`, env);
   if (!diff.ok) {
-    return { result: { kind: 'error', message: diff.errors[0].message } };
+    return { result: { kind: 'error', message: diff.errors[0].message, transient: true } };
   }
 
   const bindings = env.bindings ?? {};
@@ -283,7 +284,7 @@ function computeNode(node: Node, env: Env): Computed {
 
   const parsed = parse(node.value, env);
   if (!parsed.ok) {
-    return { result: { kind: 'error', message: parsed.errors[0].message } };
+    return { result: { kind: 'error', message: parsed.errors[0].message, transient: true } };
   }
   const substituted = substituteDeep(parsed.value, env);
   if (!substituted.ok) {
