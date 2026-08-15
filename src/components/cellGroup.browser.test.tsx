@@ -136,7 +136,8 @@ describe('CellGroup — 위/아래 화살표로 결과 필드 오가기', () => 
       type: 'focus',
       id: top.groupId,
       field: 'result',
-      offset: 0,
+      // 위아래 이동은 어느 쪽이든 셀 끝에 선다.
+      offset: Number.MAX_SAFE_INTEGER,
     });
   });
 

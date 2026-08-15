@@ -185,7 +185,13 @@ export function CellGroup({
               // 그룹 맨 아래 셀에서 ↓ 를 누르면, 보이는 결과가 있는 한 그 결과
               // 필드로 들어간다 — 화면상 바로 아래에 있는 그 줄이 다음 정지점이다.
               if (isLast && direction === 'downward' && displayShown) {
-                dispatch({ type: 'focus', id: groupId, field: 'result', offset: 0 });
+                // 위아래 이동은 셀 끝에 선다 (`CellStack` 의 `onMoveOut` 과 같은 규약).
+                dispatch({
+                  type: 'focus',
+                  id: groupId,
+                  field: 'result',
+                  offset: Number.MAX_SAFE_INTEGER,
+                });
                 return;
               }
               onMoveOut(index, direction);

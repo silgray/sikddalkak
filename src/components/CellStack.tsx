@@ -107,15 +107,21 @@ export function CellStack({ tab, dispatch }: Props) {
             onDragMove={dragMove}
             onDragEnd={dragEnd}
             onMoveOut={(index, direction) => {
-              // 경계에서 화살표가 막히면 인접 셀로 — 아래/앞이면 다음 셀 처음,
-              // 위/뒤면 이전 셀 끝. (끝 = 큰 오프셋을 주면 필드가 알아서 클램프)
+              // 경계에서 화살표가 막히면 인접 셀로.
+              //
+              // **↑/↓ 는 어느 쪽이든 셀 끝에 선다.** 위아래 이동은 "그 셀로 자리를
+              // 옮긴다" 는 뜻이지 "글의 처음부터 읽는다" 가 아니라서, 바로 이어 쓰려면
+              // 끝이 맞다. 반면 ←/→ 는 글자 단위 이동의 연장이라 방향을 지킨다 —
+              // →로 넘어갔는데 캐럿이 끝에 서면 왔던 방향으로 되돌아간 꼴이 된다.
+              // (끝 = 큰 오프셋을 주면 필드가 알아서 클램프)
               const delta = direction === 'forward' || direction === 'downward' ? 1 : -1;
               const target = tab.objects[index + delta];
               if (target === undefined) return;
+              const vertical = direction === 'upward' || direction === 'downward';
               dispatch({
                 type: 'focus',
                 id: target.id,
-                offset: delta === 1 ? 0 : Number.MAX_SAFE_INTEGER,
+                offset: vertical || delta === -1 ? Number.MAX_SAFE_INTEGER : 0,
               });
             }}
             onDeleteEmpty={(index) => {
