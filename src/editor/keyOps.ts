@@ -554,6 +554,43 @@ const deletePlaceholderSlot: KeyOp = {
 };
 
 /**
+ * 큰 연산자(`\int`/`\sum`/`\prod`…) **바로 뒤**에서 backspace → 기호를 통째로 지운다.
+ *
+ * MathLive 기본은 여기서 **아무것도 안 한다**(실측: `\int_{0}^{1}` 끝에서
+ * `deleteBackward` 해도 값이 그대로다). 위·아래 범위가 그 atom의 branch라 지울 "마지막
+ * 글자" 가 없어서인데, 그러면 한 번 넣은 `\int` 를 지울 방법이 아예 없어진다 —
+ * 범위 안의 placeholder는 영구라 거기서도 못 지운다(`delete-placeholder-slot`).
+ *
+ * 그래서 기호 뒤에서는 범위까지 **통째로** 지운다. 큰 연산자는 범위가 딸린 기호 하나가
+ * 한 덩어리라, 반쪽만 남기는 게 오히려 이상하다.
+ */
+const deleteExtensibleSymbol: KeyOp = {
+  id: 'delete-extensible-symbol',
+  summary: '큰 연산자 바로 뒤 backspace는 기호와 범위를 통째로 지운다',
+  when: (ctx) => {
+    if (!ctx.collapsed || ctx.key !== 'Backspace') return false;
+    return atomType(atomBefore(ctx)) === 'extensible-symbol';
+  },
+  run: (ctx) => {
+    const symbol = atomBefore(ctx);
+    if (symbol === undefined) return;
+    const bounds = atomBounds(ctx.model, symbol);
+    if (bounds === null) return;
+    ctx.mf.selection = { ranges: [bounds], direction: 'forward' };
+    ctx.mf.insert('', { insertionMode: 'replaceSelection', selectionMode: 'after' });
+    ctx.mf.position = Math.max(0, Math.min(bounds[0], ctx.mf.lastOffset));
+  },
+  scenarios: [
+    { start: String.raw`\int_{0}^{1}`, key: 'Backspace', expect: '' },
+    { start: String.raw`\sum_{i}^{n}`, key: 'Backspace', expect: '' },
+    // 뒤따르는 식은 남는다 — 지우는 건 기호와 그 범위뿐이다.
+    { start: String.raw`\int_{0}^{1}x`, caret: 5, key: 'Backspace', expect: 'x' },
+    // 앞의 식도 남는다.
+    { start: String.raw`2\sum_{i}^{n}`, key: 'Backspace', expect: '2' },
+  ],
+};
+
+/**
  * 첨자 내용 맨 앞에서 backspace → 첨자를 벗기고 내용을 밑 레벨로 내린다.
  * (`e^{|1}` → `e1`) MathLive 기본은 아무것도 안 하고 캐럿만 빠져나온다(실측).
  *
@@ -588,6 +625,10 @@ export const KEY_OPS: readonly KeyOp[] = [
   // `demote-script-content` 보다 **앞**에 있어야 한다 — 둘 다 "첨자 내용 맨 앞
   // Backspace" 를 보는데, 내용이 placeholder뿐이면 강등이 아니라 삭제여야 한다.
   deletePlaceholderSlot,
+  // `delete-placeholder-slot` 뒤여야 한다 — 큰 연산자의 **범위 안**에서 누른 건
+  // 저쪽이 먼저 잡아 삼킨다(범위 placeholder는 영구). 여기 오는 건 기호 **바깥**
+  // 바로 뒤에서 누른 경우뿐이다.
+  deleteExtensibleSymbol,
   demoteScriptContent,
 ];
 
