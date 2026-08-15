@@ -63,6 +63,13 @@ describe('왕복 — 다시 읽으면 같은 연산 트리', () => {
     String.raw`\Im(y)`,
     String.raw`\overline{y}`,
     String.raw`x\overline{y}`,
+    // 후위 켤레 — CE가 `Superstar`/`ConjugateTranspose` 머리로 돌려주므로(실측)
+    // 다시 읽어도 같은 트리다. 괄호가 필요한 자리(합)까지 함께 고정한다.
+    'A^*',
+    String.raw`A^\dagger`,
+    String.raw`\left(A+B\right)^*`,
+    String.raw`\left(A+B\right)^\dagger`,
+    String.raw`A^*B`,
     'a^b',
     '-A',
     'A-BC',

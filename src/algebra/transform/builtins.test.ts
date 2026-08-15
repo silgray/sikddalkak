@@ -41,6 +41,48 @@ describe('Re/Im/conjugate — 복소수 리터럴', () => {
   });
 });
 
+describe('후위 켤레 — A^* (원소별) / A^\\dagger (켤레전치)', () => {
+  const M = String.raw`\begin{pmatrix}1+2i&3\\4&5-6i\end{pmatrix}`;
+
+  it('스칼라에 붙으면 켤레다', () => {
+    expect(evaluatedLatex(String.raw`\left(3+4i\right)^*`)).toBe('3-4i');
+    expect(evaluatedLatex(String.raw`\left(3+4i\right)^\dagger`)).toBe('3-4i');
+  });
+
+  it('행렬 A^* 는 원소별 켤레 — 자리는 그대로다', () => {
+    expect(evaluatedLatex(`${M}^*`)).toBe(String.raw`\begin{pmatrix}1-2i&3\\4&5+6i\end{pmatrix}`);
+  });
+
+  it('행렬 A^\\dagger 는 켤레 + 전치 — 자리가 뒤집힌다', () => {
+    expect(evaluatedLatex(`${M}^\\dagger`)).toBe(
+      String.raw`\begin{pmatrix}1-2i&4\\3&5+6i\end{pmatrix}`,
+    );
+  });
+
+  it('직사각 행렬의 dagger 는 모양이 뒤집힌다 (2x3 → 3x2)', () => {
+    const wide = String.raw`\begin{pmatrix}1&2&3\\4&5&6\end{pmatrix}`;
+    const typed = typedOf(`${wide}^\\dagger`);
+    expect(typed.shape).toEqual(shape(3, 2));
+  });
+
+  it('conj 는 모양을 그대로 물려받는다 (2x3 → 2x3)', () => {
+    const wide = String.raw`\begin{pmatrix}1&2&3\\4&5&6\end{pmatrix}`;
+    const typed = typedOf(`${wide}^*`);
+    expect(typed.shape).toEqual(shape(2, 3));
+  });
+
+  it('평가 전엔 안 접힌다 — 렌더도 후위 그대로 (멱등)', () => {
+    const result = transform(String.raw`\left(3+4i\right)^*`, 'simplify', { shapes: {} });
+    if (!result.ok) throw new Error(result.errors[0].message);
+    expect(result.value).toBe(String.raw`\left(3+4i\right)^*`);
+  });
+
+  it('심볼 행렬은 접히지 않고 후위 표기로 남는다', () => {
+    expect(evaluatedLatex('A^*', TEST_ENV)).toBe('A^*');
+    expect(evaluatedLatex(String.raw`A^\dagger`, TEST_ENV)).toBe(String.raw`A^\dagger`);
+  });
+});
+
 describe('matIdentity 인수 — 모양이 확정되면 직접 계산한다', () => {
   it('det(I_3) = 1', () => {
     const e: TypedExpr = {

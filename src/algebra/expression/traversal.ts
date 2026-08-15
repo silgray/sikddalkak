@@ -143,7 +143,10 @@ export function mapChildren(
         if (!mapped.ok) return mapped;
         args.push(mapped.value);
       }
-      return ok({ op: 'call', shape: SCALAR, name: e.name, args });
+      // 모양은 원래 값을 그대로 지킨다 — 대부분 스칼라지만 `conj`/`dagger`(후위 켤레)는
+      // 인수 모양을 물려받아 비스칼라일 수 있다(`elaborate.ts` 의 `CONJUGATE_FUNCTIONS`).
+      // 위 주석과 같은 이유로 안전하다: 재작성은 심볼을 같은 모양의 값으로만 바꾼다.
+      return ok({ op: 'call', shape: e.shape, name: e.name, args });
     }
 
     // `call` 과 다르다 — 사용자 함수는 인수가 스칼라가 아닐 수 있고(모양은 함수 정의에

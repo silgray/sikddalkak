@@ -29,6 +29,12 @@ const SCALAR_FNS: Record<string, (x: number) => number> = {
   sqrt: Math.sqrt, abs: Math.abs,
 };
 
+/**
+ * 복소수를 봐야만 뜻이 서는 `call` 들 — 이 평가기는 실수만 담으므로(`Matrix` 는
+ * `number[][]`) 퍼즈 대조에서 뺀다(`case 'call'` 참고).
+ */
+const COMPLEX_ONLY_CALLS = new Set(['Re', 'Im', 'conjugate', 'conj', 'dagger']);
+
 const map2 = (a: Matrix, b: Matrix, f: (x: number, y: number) => number): Matrix =>
   a.map((row, i) => row.map((x, j) => f(x, b[i][j])));
 
@@ -237,9 +243,10 @@ export function evalNumeric(e: TypedExpr, assignment: NumericBindings): Result<M
         if (!m.ok) return m;
         return e.name === 'det' ? determinant(m.value) : trace(m.value);
       }
-      // `Re`/`Im`/`conjugate` — 값 도메인이 실수뿐이라(`Matrix` 는 `number[][]`) 대조하지
-      // 않는다. 복소수 리터럴 자체를 이 평가기가 못 담는 것과 같은 이유(`case 'num'` 참고).
-      if (e.name === 'Re' || e.name === 'Im' || e.name === 'conjugate') {
+      // `Re`/`Im`/`conjugate`, 그리고 후위 켤레 `conj`(`^*`)/`dagger`(`^\dagger`) —
+      // 값 도메인이 실수뿐이라(`Matrix` 는 `number[][]`) 대조하지 않는다. 복소수 리터럴
+      // 자체를 이 평가기가 못 담는 것과 같은 이유(`case 'num'` 참고).
+      if (COMPLEX_ONLY_CALLS.has(e.name)) {
         return fail('unsupported', `Numeric check does not cover ${e.name}`);
       }
       const fn = SCALAR_FNS[e.name];

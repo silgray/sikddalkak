@@ -81,8 +81,11 @@ function precedence(e: TypedExpr): number {
     case 'num':
       return literalPrecedence(e.value);
     case 'sym':
-    case 'matrix':
     case 'call':
+      // 후위 켤레(`A^*`/`A^\dagger`)만 지수처럼 뒤에 붙는다 — 나머지 `call` 은
+      // `f(...)` 꼴이라 그 자체로 원자다.
+      return POSTFIX_CALLS.has(e.name) ? POW : ATOM;
+    case 'matrix':
     case 'apply':
     case 'matIdentity':
     case 'frac':
@@ -130,6 +133,17 @@ const CALL_LATEX: Record<string, string> = {
   exp: '\\exp', ln: '\\ln', log: '\\log',
   det: '\\det', Re: '\\Re', Im: '\\Im', tr: '\\operatorname{tr}',
 };
+
+/**
+ * `f(...)` 가 아니라 **뒤에 붙는** `call` — 지수 자리에 오는 켤레 표기다
+ * (`transpose` 의 `^T` 와 같은 자리·같은 우선순위). 다시 읽으면 CE가 각각
+ * `Superstar`/`ConjugateTranspose` 머리로 돌려줘 같은 트리가 된다(실측).
+ */
+const POSTFIX_LATEX: Record<string, string> = {
+  conj: '^*',
+  dagger: '^\\dagger',
+};
+const POSTFIX_CALLS = new Set(Object.keys(POSTFIX_LATEX));
 
 /** `\left(` 나 `\begin{pmatrix}` 로 시작하는가 — CE가 "이름 뒤 자체 구분자"로 읽어
  * `apply` 후보로 삼는 두 모양(`Delimiter`/`Matrix`, `translateToTree.ts` 참고)이다. */
@@ -311,6 +325,13 @@ export function render(e: TypedExpr): string {
       return `${at(e.base, ATOM)}^{${render(e.exponent)}}`;
 
     case 'call': {
+      // 후위 켤레는 인수를 `at(..., ATOM)` 으로 조여 낸다 — `transpose` 의 `^T` 와 같은
+      // 규칙이라 `(A+B)^*` 의 괄호가 유지된다. 다시 읽으면 CE가 같은 머리로 돌려주므로
+      // (실측) 멱등하다.
+      const postfix = POSTFIX_LATEX[e.name];
+      if (postfix !== undefined && e.args.length === 1) {
+        return `${at(e.args[0], ATOM)}${postfix}`;
+      }
       const arg = e.args.map((a) => render(a)).join(',');
       if (e.name === 'sqrt') return `\\sqrt{${arg}}`;
       if (e.name === 'abs') return `\\left|${arg}\\right|`;

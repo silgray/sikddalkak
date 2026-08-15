@@ -39,6 +39,11 @@ const CE_HEAD: Record<string, string> = {
   // `parse/translate.ts` 의 `MATRIX_AWARE_FUNCTIONS` 문서 참고). 파싱은 `OverBar` 를
   // 받고, 계산은 `Conjugate` 로 위임한다.
   conjugate: 'Conjugate',
+  // ⚠ 같은 갈라짐 — `A^*` 는 `Superstar` 로 파싱되지만 CE가 그 머리를 **평가하지
+  // 못한다**(실측: `.evaluate()` 해도 `Superstar` 그대로). 뜻이 같은 `Conjugate` 로
+  // 위임한다. `Conjugate` 는 행렬 리터럴에 원소별로 알아서 퍼진다(실측).
+  conj: 'Conjugate',
+  dagger: 'ConjugateTranspose',
 };
 
 /** 이 파일 전용 CE 인스턴스 (`ce/engine.ts` 참고). */

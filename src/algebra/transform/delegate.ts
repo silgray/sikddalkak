@@ -21,7 +21,12 @@ import type { TypedExpr, Env } from '../expression/node';
  * 행렬이라 아래 `isScalar(e.args)` 검사에서 이미 걸러지지만, `Re`/`Im`/`conjugate` 는
  * 인수가 스칼라(복소수)라 그 검사를 통과해버린다 — 그래서 이름으로 명시적으로 막는다.
  */
-const EVALUATE_ONLY_BUILTINS = new Set(['det', 'tr', 'Re', 'Im', 'conjugate']);
+const EVALUATE_ONLY_BUILTINS = new Set([
+  'det', 'tr', 'Re', 'Im', 'conjugate',
+  // 후위 켤레(`A^*`/`A^\dagger`). 인수가 스칼라면 `Re`/`Im` 과 똑같이 아래 모양 검사를
+  // 통과해버리므로 여기서 이름으로 막는다.
+  'conj', 'dagger',
+]);
 
 /**
  * CE 위임 경계 — expand/simplify/factor 셋이 함께 쓰는 부분.

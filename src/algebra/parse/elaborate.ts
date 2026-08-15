@@ -44,6 +44,14 @@ const TRANSPOSE_MARKS = new Set(['T', 'top', 'intercal', '\\top', '\\intercal'])
 /** `call` 함수 중 정사각 행렬 인수를 받는 것들. 그 밖은 전부 스칼라 전용이다. */
 const MATRIX_ARG_FUNCTIONS = new Set(['det', 'tr']);
 
+/**
+ * 후위 켤레 표기(`A^*`·`A^\dagger`, `parse/translate.ts` 의 `MATRIX_AWARE_FUNCTIONS` 참고).
+ * `det`/`tr` 과 달리 **결과가 스칼라가 아니다** — 인수 모양을 그대로(또는 전치해서)
+ * 물려받으므로 `call` 의 기본 스칼라 경로를 안 탄다. 스칼라 인수도 그대로 받는다
+ * (복소수 하나의 켤레 — CE가 둘 다 같은 머리로 처리한다, 실측).
+ */
+const CONJUGATE_FUNCTIONS = new Set(['conj', 'dagger']);
+
 // ---------------------------------------------------------------------------
 // 사용자 정의 함수 — `apply` 는 이름 뒤 괄호가 함수 적용인지 곱(행렬곱)인지 여기서 정한다
 // ---------------------------------------------------------------------------
@@ -452,6 +460,18 @@ export function elaborate(node: SyntaxNode, env: Env): Result<TypedExpr> {
           );
         }
         return ok({ op: 'call', shape: SCALAR, name: node.name, args: values });
+      }
+      // `A^*`/`A^\dagger` — 모양을 물려받는다(켤레는 그대로, 켤레전치는 뒤집는다).
+      // 계산은 `evaluate` 단계의 `foldBuiltins` 에서만 편다(요청 사항).
+      if (CONJUGATE_FUNCTIONS.has(node.name)) {
+        if (values.length !== 1) {
+          return failShapeMismatch(
+            `${node.name} expects exactly 1 argument (got ${values.length})`,
+          );
+        }
+        const s = values[0].shape;
+        const out = node.name === 'dagger' ? shape(s.cols, s.rows) : s;
+        return ok({ op: 'call', shape: out, name: node.name, args: values });
       }
       const nonScalar = values.find((v) => !isScalar(v.shape));
       if (nonScalar !== undefined) {

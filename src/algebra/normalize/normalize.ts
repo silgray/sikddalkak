@@ -324,7 +324,9 @@ export function normalize(
         if (!r.ok) return r;
         args.push(r.value);
       }
-      return ok({ op: 'call', shape: SCALAR, name: e.name, args });
+      // 아래 `apply` 와 같은 이유로 모양은 원래 값을 지킨다 — 정규화는 모양을 안 바꾸고,
+      // `conj`/`dagger`(후위 켤레)는 스칼라가 아닐 수 있다.
+      return ok({ op: 'call', shape: e.shape, name: e.name, args });
     }
 
     // `call` 과 같은 취급 — 원자 하나로 두고 인수만 재귀한다. 모양은 정규화로

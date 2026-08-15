@@ -61,7 +61,18 @@ export const BLOCKED_KEYBINDINGS: ReadonlySet<string> = new Set<string>([
  * (`node_modules/mathlive/types/options.d.ts` 의 `Keybinding` 참고). 지금은 비어
  * 있다 — 다음 판에 여기 채운다.
  */
-export const CUSTOM_KEYBINDINGS: readonly Keybinding[] = [];
+export const CUSTOM_KEYBINDINGS: readonly Keybinding[] = [
+  /**
+   * Alt+- → `\overline{...}` (켤레 표기). **선택이 있으면 그걸 감싸고, 없으면 빈 칸을
+   * 넣는다** — 조건 분기를 우리가 짤 필요가 없다: `#@` 는 MathLive의 "현재 선택" 자리
+   * 표시자이고, 선택이 없으면 알아서 빈 자리로 떨어진다. MathLive 자신의 기본 바인딩도
+   * 같은 관용구를 쓴다(`/` → `["insert", "\\frac{#@}{#?}"]`, `mathlive.mjs` 실측).
+   *
+   * `keyOps.ts` 레지스트리가 아니라 여기 있는 이유: `dispatchKeyOp` 는 수정자 없는 키
+   * 전용이다(`MathField.tsx` 의 `if (ev.ctrlKey || ev.metaKey || ev.altKey) return;`).
+   */
+  { key: 'alt+-', ifMode: 'math', command: ['insert', '\\overline{#@}'] },
+];
 
 /** `configureInlineShortcuts` 와 짝 — mathfield가 mount된 뒤에만 부를 수 있다. */
 export function configureKeybindings(mf: MathfieldElement): void {

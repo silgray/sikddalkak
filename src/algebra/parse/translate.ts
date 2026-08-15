@@ -15,12 +15,21 @@ const SCALAR_FUNCTIONS: Record<string, string> = {
 };
 
 /**
- * `det`/`tr`/`Re`/`Im`/`conjugate` — 인수가 행렬일 수 있는 CE 함수 머리 → 우리 `call` 이름.
- * `SCALAR_FUNCTIONS` 와 갈라둔 이유: `det`/`tr` 은 정사각 행렬을 받는다(모양 검사는
- * `elaborate.ts` 의 `MATRIX_ARG_FUNCTIONS` 몫이고, 여기서는 이름만 옮긴다).
+ * `det`/`tr`/`Re`/`Im`/`conjugate`/`conj`/`dagger` — 인수가 행렬일 수 있는 CE 함수 머리 →
+ * 우리 `call` 이름. `SCALAR_FUNCTIONS` 와 갈라둔 이유: `det`/`tr` 은 정사각 행렬을 받는다
+ * (모양 검사는 `elaborate.ts` 의 `MATRIX_ARG_FUNCTIONS` 몫이고, 여기서는 이름만 옮긴다).
  *
  * ⚠ `\overline{z}` 는 `OverBar` 로 온다(실측) — `\bar{z}` 는 CE가 `Mean` 으로 주므로
  * (실측) 여기 넣지 않는다.
+ *
+ * ⚠ **후위 `^*`/`^\dagger` 는 CE가 자기 머리로 바꿔서 준다**(실측, `A^T` 가 `Transpose`
+ * 로 오는 것과 같은 방식):
+ *   - `A^*`      → `["Superstar", A]`         → 우리 `conj`   (원소별 켤레, 모양 유지)
+ *   - `A^\dagger` → `["ConjugateTranspose", A]` → 우리 `dagger` (켤레전치, 모양 뒤집힘)
+ * `\ast`·`\star` 도 `ConjugateTranspose` 로 온다(실측) — 셋 다 같은 이름으로 받는다.
+ * `Superstar` 는 CE가 **평가하지 못하므로**(실측: `.evaluate()` 해도 그대로) 계산은
+ * `Conjugate` 로 위임한다 — `OverBar`↔`Conjugate` 와 똑같은 갈라짐이다
+ * (`transform/builtins.ts` 의 `CE_HEAD` 참고).
  */
 const MATRIX_AWARE_FUNCTIONS: Record<string, string> = {
   Determinant: 'det',
@@ -28,6 +37,8 @@ const MATRIX_AWARE_FUNCTIONS: Record<string, string> = {
   Real: 'Re',
   Imaginary: 'Im',
   OverBar: 'conjugate',
+  Superstar: 'conj',
+  ConjugateTranspose: 'dagger',
 };
 
 /**

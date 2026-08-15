@@ -88,6 +88,12 @@ export function HelpPanel() {
               </div>
               <div>
                 <dt>
+                  <kbd>Alt</kbd>+<kbd>-</kbd>
+                </dt>
+                <dd>Overline — wraps the selection, or the item before the caret</dd>
+              </div>
+              <div>
+                <dt>
                   <kbd>)</kbd>
                 </dt>
                 <dd>With no open paren, wraps everything to the left at the same level</dd>
@@ -122,6 +128,33 @@ export function HelpPanel() {
               Selections that cut across matrix cells can’t be transformed — select whole
               matrices instead. Selecting a whole matrix also shows a floating toolbar for
               changing its delimiters.
+            </p>
+          </section>
+          <section>
+            <h2>Matrix notation</h2>
+            <dl>
+              <div>
+                <dt>
+                  A<sup>T</sup>
+                </dt>
+                <dd>Transpose</dd>
+              </div>
+              <div>
+                <dt>
+                  A<sup>*</sup>
+                </dt>
+                <dd>Complex conjugate, entry by entry (positions unchanged)</dd>
+              </div>
+              <div>
+                <dt>
+                  A<sup>†</sup>
+                </dt>
+                <dd>Conjugate transpose — conjugate and transpose together</dd>
+              </div>
+            </dl>
+            <p>
+              The last two compute only when the cell is evaluated, and only once the matrix
+              is a concrete one — on a plain symbol they stay as written.
             </p>
           </section>
           <section>
