@@ -399,9 +399,106 @@ const blockBaselessScript: KeyOp = {
   ],
 };
 
+const PLACEHOLDER_LATEX = '\\placeholder{}';
+
+/**
+ * 캐럿이 든 branch의 내용이 **`\placeholder{}` 하나뿐**인가 — 즉 "비어 있음이
+ * 눈에 보이게 표시된" 상태인가.
+ */
+function branchIsJustPlaceholder(ctx: EditContext): boolean {
+  const branch = branchRangeAt(ctx.model, ctx.model.position);
+  if (branch === null) return false;
+  return ctx.mf.getValue({ ranges: [branch] }, 'latex').trim() === PLACEHOLDER_LATEX;
+}
+
+/**
+ * 이 자리의 placeholder가 **지울 수 없는** 것인가.
+ *
+ * `\int`/`\sum`/`\prod` 계열은 위·아래 범위가 **항상** 있어야 하는 표기라, 범위를
+ * 비웠다고 기호까지 사라지면 안 된다. MathLive는 이 기호들을 `extensible-symbol`
+ * atom 하나로 두고 첨자를 그 atom의 branch로 단다(실측) — 반면 보통 거듭제곱은
+ * 별도 `subsup` atom이다. 그래서 소유 atom의 **타입 하나**로 정확히 갈린다
+ * (`\int \sum \prod \oint \bigcup …` 목록을 따로 들고 다닐 필요가 없다).
+ */
+function isProtectedSlot(ctx: EditContext): boolean {
+  return atomType(owningAtom(ctx)) === 'extensible-symbol';
+}
+
+/** 삭제 방향 키 둘. placeholder 자리에서는 둘 다 "이 자리를 지운다"는 뜻이다. */
+const DELETE_KEYS = new Set(['Backspace', 'Delete']);
+
+/**
+ * 빈 자리(placeholder)에서 한 번 더 지우면 **구조까지** 사라진다 —
+ * `e^{|\placeholder{}}` + Backspace → `e`.
+ *
+ * 정책: 첨자·`\overline` 의 내용을 다 지우면 `rules.ts` 의 `empty-script`/
+ * `empty-wrapper` 가 `\placeholder{}` 를 남긴다(빈 채로 두면 무엇을 지워야 구조가
+ * 사라지는지 화면에서 알 수 없다). 그 placeholder를 지워야 비로소 구조가 없어진다.
+ *
+ * 단 큰 연산자의 범위(`isProtectedSlot`)는 **영구**다 — 지우려 해도 아무 일도 안
+ * 일어나고 캐럿도 그대로 있는다. 그래서 `run` 이 정말 아무것도 안 하는 갈래가 있다.
+ */
+const deletePlaceholderSlot: KeyOp = {
+  id: 'delete-placeholder-slot',
+  summary: 'placeholder만 남은 자리에서 한 번 더 지우면 구조까지 사라진다 (큰 연산자 범위는 예외)',
+  when: (ctx) => {
+    if (!ctx.collapsed || !DELETE_KEYS.has(ctx.key)) return false;
+    if (!atBranchStart(ctx)) return false;
+    const owner = owningAtom(ctx);
+    if (owner === undefined) return false;
+    const kind = atomType(owner);
+    const isScript = kind === 'subsup' || kind === 'extensible-symbol';
+    const isWrapper = owner.command === '\\overline';
+    if (!isScript && !isWrapper) return false;
+    return branchIsJustPlaceholder(ctx);
+  },
+  run: (ctx) => {
+    // 큰 연산자의 범위 — 키를 삼키고 **아무것도 안 한다**. 캐럿을 안 건드리는 게
+    // 요점이라(범위 밖으로 튀면 안 된다) 정말로 빈 몸이어야 한다.
+    if (isProtectedSlot(ctx)) return;
+    // 지울 수 있는 자리 — 구조를 통째로 없앤다. branch 내용(placeholder)은 버린다.
+    const owner = owningAtom(ctx);
+    if (owner === undefined) return;
+    const bounds = atomBounds(ctx.model, owner);
+    if (bounds === null) return;
+    // `\overline` 은 atom 자체가 구조다. 첨자(`subsup`)는 밑이 왼쪽 형제라 atom
+    // 범위에 안 들어가므로, 둘 다 "소유 atom을 지운다" 로 밑은 살고 첨자만 사라진다.
+    ctx.mf.selection = { ranges: [bounds], direction: 'forward' };
+    ctx.mf.insert('', { insertionMode: 'replaceSelection', selectionMode: 'placeholder' });
+    ctx.mf.position = Math.max(0, Math.min(bounds[0], ctx.mf.lastOffset));
+  },
+  scenarios: [
+    // 첨자: placeholder만 남은 자리에서 한 번 더 → 첨자가 통째로 사라진다.
+    { start: String.raw`e^{\placeholder{}}`, caret: 2, key: 'Backspace', expect: 'e' },
+    { start: String.raw`a_{\placeholder{}}`, caret: 2, key: 'Backspace', expect: 'a' },
+    { start: String.raw`e^{\placeholder{}}`, caret: 2, key: 'Delete', expect: 'e' },
+    // \overline 도 같은 규칙.
+    { start: String.raw`\overline{\placeholder{}}`, caret: 1, key: 'Backspace', expect: '' },
+    // 큰 연산자의 범위는 영구 — 아무것도 안 바뀐다.
+    // ⚠ 오프셋 주의: 큰 연산자는 위·아래 첨자가 **한 atom의 두 branch**라 위첨자
+    //   branch가 먼저 온다(실측). `\sum_{…}^{n}` 에서 아래첨자 시작은 3, `\int_{0}^{…}`
+    //   에서 위첨자 시작은 1이다.
+    {
+      start: String.raw`\sum_{\placeholder{}}^{n}x`,
+      caret: 3,
+      key: 'Backspace',
+      expect: String.raw`\sum_{\placeholder{}}^{n}x`,
+    },
+    {
+      start: String.raw`\int_{0}^{\placeholder{}}x`,
+      caret: 1,
+      key: 'Delete',
+      expect: String.raw`\int_{0}^{\placeholder{}}x`,
+    },
+  ],
+};
+
 /**
  * 첨자 내용 맨 앞에서 backspace → 첨자를 벗기고 내용을 밑 레벨로 내린다.
  * (`e^{|1}` → `e1`) MathLive 기본은 아무것도 안 하고 캐럿만 빠져나온다(실측).
+ *
+ * ⚠ 내용이 placeholder 하나뿐인 경우는 여기 오지 않는다 — 그건 "빈 자리" 라
+ * 강등할 내용이 없다. `delete-placeholder-slot` 이 앞서서 잡는다(`KEY_OPS` 순서).
  */
 const demoteScriptContent: KeyOp = {
   id: 'demote-script-content',
@@ -427,6 +524,9 @@ export const KEY_OPS: readonly KeyOp[] = [
   closeFence,
   deleteFencePair,
   blockBaselessScript,
+  // `demote-script-content` 보다 **앞**에 있어야 한다 — 둘 다 "첨자 내용 맨 앞
+  // Backspace" 를 보는데, 내용이 placeholder뿐이면 강등이 아니라 삭제여야 한다.
+  deletePlaceholderSlot,
   demoteScriptContent,
 ];
 

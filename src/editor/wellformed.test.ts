@@ -29,8 +29,12 @@ describe('사용자 보고 파손 경로', () => {
     { name: '짝 없는 여는 괄호', broken: '(a+b', fixed: 'a+b' },
     { name: '반쪽 fence (닫는 쪽 삭제)', broken: String.raw`\left(a+b\right.`, fixed: 'a+b' },
     { name: '반쪽 fence (여는 쪽 삭제)', broken: String.raw`\left.a+b\right)`, fixed: 'a+b' },
-    { name: '빈 지수', broken: 'x^{}', fixed: 'x' },
-    { name: '빈 아래첨자', broken: 'x_{}', fixed: 'x' },
+    // 빈 첨자는 이제 **지우지 않고 채운다** — 빈 채로 두면 무엇을 지워야 첨자가
+    // 사라지는지 화면에서 알 수 없다. 지우는 건 그 placeholder 위에서 한 번 더
+    // 눌렀을 때고, 그건 캐럿 문맥이 필요해 `keyOps.ts` 가 맡는다.
+    { name: '빈 지수', broken: 'x^{}', fixed: String.raw`x^{\placeholder{}}` },
+    { name: '빈 아래첨자', broken: 'x_{}', fixed: String.raw`x_{\placeholder{}}` },
+    { name: '빈 오버라인', broken: String.raw`\overline{}`, fixed: String.raw`\overline{\placeholder{}}` },
   ];
   for (const { name, broken, fixed } of cases) {
     it(name, () => {

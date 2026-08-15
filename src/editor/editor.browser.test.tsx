@@ -498,6 +498,59 @@ describe('MathField 통합 — 고아 fence 교정 파이프라인', () => {
     expect(mf.value).toBe(String.raw`\begin{pmatrix}1\\ 2\\ 5\end{pmatrix}`);
   });
 
+  // placeholder 정책 — 규칙(rules.ts) → 캐럿 보정(이 파일 위 게이트) → 키 연산
+  // (keyOps.ts) 세 층이 실제 키 입력에서 이어 도는지를 통째로 본다.
+  describe('빈 자리에는 placeholder를 남기고, 한 번 더 지워야 구조가 사라진다', () => {
+    it('지수: 내용을 지우면 placeholder, 한 번 더 지우면 지수가 사라진다', async () => {
+      const { mf } = await mountMathField('e^{2}');
+      mf.position = mf.lastOffset - 1; // 지수 내용 뒤
+      pressKey(mf, 'Backspace', 'deleteBackward');
+      await settle();
+      expect(mf.value).toBe(String.raw`e^{\placeholder{}}`);
+
+      pressKey(mf, 'Backspace', 'deleteBackward');
+      await settle();
+      expect(mf.value).toBe('e');
+    });
+
+    it('placeholder 자리에 이어 입력하면 그 자리를 대체한다 (캐럿 보정)', async () => {
+      const { mf } = await mountMathField('e^{2}');
+      mf.position = mf.lastOffset - 1;
+      pressKey(mf, 'Backspace', 'deleteBackward');
+      await settle();
+      mf.executeCommand(['typedText', '3', { simulateKeystroke: true }]);
+      await settle();
+      expect(mf.value).toBe('e^3'); // `e^{3}` 이지 `e^{\placeholder{}3}` 이 아니다
+    });
+
+    it(String.raw`\overline: 내용을 지우면 placeholder, 한 번 더 지우면 사라진다`, async () => {
+      const { mf } = await mountMathField(String.raw`\overline{z}`);
+      mf.position = mf.lastOffset - 1;
+      pressKey(mf, 'Backspace', 'deleteBackward');
+      await settle();
+      expect(mf.value).toBe(String.raw`\overline{\placeholder{}}`);
+
+      pressKey(mf, 'Backspace', 'deleteBackward');
+      await settle();
+      expect(mf.value).toBe('');
+    });
+
+    it('큰 연산자의 범위는 placeholder가 영구다 — 더 지워도 안 사라진다', async () => {
+      const { mf } = await mountMathField(String.raw`\sum_{i}^{n}x`);
+      // 아래첨자 내용(`i`) 뒤. 큰 연산자는 위첨자 branch가 먼저 온다(실측).
+      mf.position = 4;
+      pressKey(mf, 'Backspace', 'deleteBackward');
+      await settle();
+      expect(mf.value).toContain(String.raw`_{\placeholder{}}`);
+
+      const afterFill = mf.value;
+      pressKey(mf, 'Backspace', 'deleteBackward');
+      await settle();
+      expect(mf.value).toBe(afterFill); // 아무 일도 안 일어난다
+      expect(mf.value).toContain(String.raw`\sum`);
+    });
+  });
+
   it('Escape는 비활성화 — 선택 확장도, 원본 LaTeX 모드 전환도 없다', async () => {
     // MathLive 기본 ESC는 선택을 확장하다가 끝에서 원본 LaTeX 모드로 넘어가
     // 렌더가 깨진다. capture 가드가 이를 통째로 막는다.

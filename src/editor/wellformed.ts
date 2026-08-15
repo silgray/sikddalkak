@@ -1,6 +1,6 @@
 import { forEachTokenList, scanLatex } from './latexScan';
 
-export { RULES, findViolations, repairLatex } from './rules';
+export { RULES, PLACEHOLDER_RULES, findViolations, repairLatex } from './rules';
 export type { StructureRule, Violation, RepairResult } from './rules';
 
 /**

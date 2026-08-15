@@ -16,6 +16,12 @@ import {
  *
  * **미완성과 파손을 구분한다.** `\placeholder{}`, 빈 분모, 연산자로 끝나는 식은
  * 미완성이며 정상이다(계산만 에러). 여기서 다루는 건 구조가 파손된 경우뿐이다.
+ *
+ * 다만 **"채워야 할 빈 자리" 는 반드시 `\placeholder{}` 로 보이게 만든다** — 빈 첨자
+ * (`x^{}`)나 빈 `\overline{}` 는 화면상 아무것도 아닌 채로 구조만 남아, 사용자가
+ * 무엇을 지워야 그게 사라지는지 알 수 없다. 그래서 그런 자리는 지우는 대신 채운다
+ * (`PLACEHOLDER_RULES`). 그 다음 한 번 더 지워야 구조가 사라지는데, 그 판정은
+ * 캐럿 문맥이 필요해서 `keyOps.ts` 의 `delete-placeholder-slot` 이 맡는다.
  */
 
 export type Violation = {
@@ -107,30 +113,92 @@ const scriptNeedsBase: StructureRule = {
   ],
 };
 
+/** 빈 그룹(내용 토큰이 하나도 없는 `{}`)인가. */
+function isEmptyGroup(token: Token | undefined): boolean {
+  return (
+    token !== undefined &&
+    token.kind === 'group' &&
+    (token.children === undefined || token.children.length === 0)
+  );
+}
+
+/** 빈 그룹 안을 `\placeholder{}` 로 채우는 splice. */
+function fillGroup(v: Violation): Splice[] {
+  return [{ start: v.start, end: v.end, text: PLACEHOLDER }];
+}
+
+const PLACEHOLDER = '\\placeholder{}';
+
 const emptyScript: StructureRule = {
   id: 'empty-script',
-  summary: '빈 첨자는 남기지 않는다 (x^{} → x)',
+  summary: '빈 첨자는 비워두지 않고 채울 자리를 남긴다 (x^{} → x^{\\placeholder{}})',
   find: (doc) => {
     const out: Violation[] = [];
     forEachTokenList(doc, (tokens) => {
       tokens.forEach((token, i) => {
         if (token.kind !== 'script') return;
+        // 밑이 없으면 그건 미완성이 아니라 파손이다 — `script-needs-base` 몫이라
+        // 여기서 채우면 둘이 같은 자리를 두고 싸운다(splice 겹침).
+        if (!canBeBase(tokens[i - 1])) return;
         const content = scriptContent(tokens, i);
-        if (content === undefined) return; // script-needs-base 쪽에서 처리
-        const isEmptyGroup =
-          content.kind === 'group' && (content.children === undefined || content.children.length === 0);
-        if (isEmptyGroup) {
-          out.push({ ruleId: 'empty-script', start: token.start, end: content.end });
-        }
+        if (!isEmptyGroup(content)) return;
+        // 채울 자리는 그룹 **안**이다 — 중괄호는 그대로 둔다.
+        out.push({
+          ruleId: 'empty-script',
+          start: content!.innerStart ?? content!.start,
+          end: content!.innerEnd ?? content!.end,
+        });
       });
     });
     return out;
   },
-  fix: (_doc, v) => [{ start: v.start, end: v.end, text: '' }],
+  fix: (_doc, v) => fillGroup(v),
   examples: [
-    { before: 'x^{}', after: 'x' },
-    { before: 'x_{}', after: 'x' },
+    { before: 'x^{}', after: String.raw`x^{\placeholder{}}` },
+    { before: 'x_{}', after: String.raw`x_{\placeholder{}}` },
     { before: 'x^{2}', after: 'x^{2}' },
+    // 이미 채워져 있으면 다시 안 건드린다 (고정점).
+    { before: String.raw`x^{\placeholder{}}`, after: String.raw`x^{\placeholder{}}` },
+    // 큰 연산자의 범위도 같은 `^{}`/`_{}` 라 그대로 덮인다.
+    {
+      before: String.raw`\sum_{}^{n}x`,
+      after: String.raw`\sum_{\placeholder{}}^{n}x`,
+    },
+  ],
+};
+
+/** `\overline` 처럼 인수 하나를 감싸는, 비면 안 되는 명령들. */
+const WRAPPING_COMMANDS = new Set(['\\overline']);
+
+const emptyWrapper: StructureRule = {
+  id: 'empty-wrapper',
+  summary: String.raw`빈 \overline{} 는 채울 자리를 남긴다`,
+  find: (doc) => {
+    const out: Violation[] = [];
+    forEachTokenList(doc, (tokens) => {
+      tokens.forEach((token, i) => {
+        if (token.kind !== 'command' || !WRAPPING_COMMANDS.has(token.text)) return;
+        const body = tokens[i + 1];
+        if (!isEmptyGroup(body)) return;
+        out.push({
+          ruleId: 'empty-wrapper',
+          start: body!.innerStart ?? body!.start,
+          end: body!.innerEnd ?? body!.end,
+          detail: token.text,
+        });
+      });
+    });
+    return out;
+  },
+  fix: (_doc, v) => fillGroup(v),
+  examples: [
+    { before: String.raw`\overline{}`, after: String.raw`\overline{\placeholder{}}` },
+    { before: String.raw`x\overline{}`, after: String.raw`x\overline{\placeholder{}}` },
+    { before: String.raw`\overline{z}`, after: String.raw`\overline{z}` },
+    {
+      before: String.raw`\overline{\placeholder{}}`,
+      after: String.raw`\overline{\placeholder{}}`,
+    },
   ],
 };
 
@@ -322,7 +390,7 @@ const matrixTrailingEmptyRow: StructureRule = {
     }
     return out;
   },
-  fix: (_doc, v) => [{ start: v.start, end: v.end, text: '\\placeholder{}' }],
+  fix: (_doc, v) => [{ start: v.start, end: v.end, text: PLACEHOLDER }],
   examples: [
     {
       before: String.raw`\begin{pmatrix}1\\2\\\end{pmatrix}`,
@@ -344,11 +412,24 @@ const matrixTrailingEmptyRow: StructureRule = {
 export const RULES: readonly StructureRule[] = [
   scriptNeedsBase,
   emptyScript,
+  emptyWrapper,
   orphanFence,
   normalizeFlatPair,
   unmatchedDelim,
   matrixTrailingEmptyRow,
 ];
+
+/**
+ * `\placeholder{}` 를 **새로 만들어내는** 규칙들. 이게 걸리면 캐럿을 그 placeholder
+ * 바로 앞에 놔야 한다(MathLive는 placeholder 앞에서 타이핑하면 그 자리를 그대로
+ * 대체한다, 실측) — 그 보정은 `components/MathField.tsx` 의 input 게이트가 한다.
+ * 목록이 코드 두 곳에 흩어지지 않게 여기 둔다.
+ */
+export const PLACEHOLDER_RULES: ReadonlySet<string> = new Set([
+  emptyScript.id,
+  emptyWrapper.id,
+  matrixTrailingEmptyRow.id,
+]);
 
 /** 등록된 모든 규칙의 위반 (경고·테스트용). */
 export function findViolations(latex: string): Violation[] {
