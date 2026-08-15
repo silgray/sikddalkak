@@ -31,6 +31,23 @@ const settle = () =>
     requestAnimationFrame(() => setTimeout(resolve, 10));
   });
 
+/**
+ * 실제 키 입력 한 번 — MathLive의 키바인딩 디스패치를 그대로 탄다.
+ *
+ * ⚠ **호스트(`math-field`)가 아니라 셰도우 DOM 안의 `.ML__keyboard-sink` 로 보내야
+ * 한다**(실측). MathLive가 거기서 듣기 때문에 호스트에 쏘면 키바인딩 표를 아예 안
+ * 거쳐 아무 일도 안 난다 — "막혔다" 를 보는 테스트가 조용히 무의미해진다.
+ * `composed: true` 라야 셰도우 경계를 넘어 호스트의 capture 리스너까지 실제 입력과
+ * 같은 순서로 지나간다.
+ */
+export function pressKey(mf: MathfieldElement, init: KeyboardEventInit): void {
+  const sink = mf.shadowRoot?.querySelector('.ML__keyboard-sink');
+  if (sink === null || sink === undefined) throw new Error('keyboard sink not found');
+  sink.dispatchEvent(
+    new KeyboardEvent('keydown', { bubbles: true, cancelable: true, composed: true, ...init }),
+  );
+}
+
 export async function createField(initialLatex = ''): Promise<FieldHarness> {
   const mf = new MathfieldElement();
   mf.mathVirtualKeyboardPolicy = 'manual';

@@ -12,6 +12,8 @@ import type { Keybinding, MathfieldElement } from 'mathlive';
  * ⚠ 같은 `key`+`ifMode` 를 뒤에 덧붙이면 MathLive가 "Ambiguous key binding" 으로 보고
  * **뒤에 붙인 쪽을 버린다**(실측, console.error). 그래서 기본 바인딩을 다른 동작으로
  * 덮어쓰려면 그 `key` 를 `BLOCKED_KEYBINDINGS` 에도 반드시 넣어야 한다.
+ * (`alt+-` 는 기본 배열에 아예 없으므로 안 넣는다 — 브라우저 테스트의 "차단 목록의
+ * key 가 전부 실재한다" 가 없는 항목을 잡아낸다.)
  */
 
 /**
@@ -36,6 +38,15 @@ export const BLOCKED_KEYBINDINGS: ReadonlySet<string> = new Set<string>([
   // Alt+O / Shift+Alt+O → \emptyset / \varnothing
   'alt+o',
   'shift+alt+o',
+
+  // Alt+\ → \backslash. **키 문자열이 `alt+\` 가 아니다** — MathLive는 이 자리에서
+  // 물리 코드 표기를 쓴다(`mathlive.mjs:12496` 실측: `key: "alt+[Backslash]"`).
+  // `alt+\\` 로 적어두면 배열에 그런 항목이 없어 필터가 조용히 no-op 이 된다.
+  'alt+[Backslash]',
+  // Alt+| → `|`. 이쪽은 문자 표기가 맞다(`mathlive.mjs:12692`). 단 `ifLayout` 로
+  // en-intl 계열에만 걸려 있어 US 레이아웃에선 원래 안 살아난다 — 다른 레이아웃
+  // 사용자를 위해 막아 둔다.
+  'alt+|',
 
   // 행렬 크기는 삽입한 뒤 바뀌지 않는다(정책) — MathLive 기본 행/열 추가·삭제 키를
   // 전부 막는다. 예전엔 `MathField.tsx` 의 `isMatrixResizeKey` 가 DOM 레벨에서 이
@@ -72,6 +83,11 @@ export const CUSTOM_KEYBINDINGS: readonly Keybinding[] = [
    * 전용이다(`MathField.tsx` 의 `if (ev.ctrlKey || ev.metaKey || ev.altKey) return;`).
    */
   { key: 'alt+-', ifMode: 'math', command: ['insert', '\\overline{#@}'] },
+  /**
+   * Alt+D → `\nabla`. MathLive 기본은 `\differentialD` 인데 이 앱에선 안 쓴다 —
+   * 위 `BLOCKED_KEYBINDINGS` 가 기본을 걷어내고 여기서 다시 쓴다.
+   */
+  { key: 'alt+d', ifMode: 'math', command: ['insert', '\\nabla'] },
 ];
 
 /** `configureInlineShortcuts` 와 짝 — mathfield가 mount된 뒤에만 부를 수 있다. */

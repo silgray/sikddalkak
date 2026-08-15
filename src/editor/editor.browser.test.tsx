@@ -2,14 +2,16 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { createElement } from 'react';
 import type { MathfieldElement } from 'mathlive';
-import { createField } from './harness';
+// `pressKey` 는 이 파일 안에 같은 이름의 지역 헬퍼(호스트로 쏘는 keyOp 경로용)가
+// 따로 있어서 이름을 갈라 쓴다 — 이쪽은 셰도우 sink 로 쏘는 "진짜 키 입력" 이다.
+import { createField, pressKey as pressRealKey } from './harness';
 import { MathField } from '../components/MathField';
 import { parseSyntax } from '../algebra';
 import { finalizeGhostFences, modelOf } from './internals';
 import { expandSelectionSemantic, siblingRunRange } from './selection';
 import { KEY_OPS, dispatchKeyOp } from './keyOps';
 import { findViolations, repairLatex } from './wellformed';
-import { BLOCKED_KEYBINDINGS } from './keybindings';
+import { BLOCKED_KEYBINDINGS, CUSTOM_KEYBINDINGS } from './keybindings';
 
 /**
  * 에디터 회귀 스위트 — 실제 MathLive(헤드리스 Chromium)를 구동한다.
@@ -514,42 +516,55 @@ describe('MathField 통합 — 고아 fence 교정 파이프라인', () => {
 
   it('마운트 후 mf.keybindings 에 차단 key 가 하나도 없다', async () => {
     const { mf } = await mountMathField('a');
-    const remaining = mf.keybindings.map((kb) => kb.key).filter((key) => BLOCKED_KEYBINDINGS.has(key));
+    // 일부러 다시 얹은 key(`CUSTOM_KEYBINDINGS`)는 예외 — 차단은 기본 동작을 걷어내기
+    // 위한 것이고, 그 자리를 우리 동작으로 덮어쓰는 게 목적이다.
+    const rewritten = new Set(CUSTOM_KEYBINDINGS.map((kb) => kb.key));
+    const remaining = mf.keybindings
+      .map((kb) => kb.key)
+      .filter((key) => BLOCKED_KEYBINDINGS.has(key) && !rewritten.has(key));
     expect(remaining).toEqual([]);
   });
 
+  it('차단 목록의 key 가 전부 MathLive 기본 배열에 실재한다', async () => {
+    // 위 테스트만으로는 **오타를 못 잡는다** — 없는 문자열은 "이미 없음" 이라 그냥
+    // 통과한다. 실제로 `alt+\\` 를 넣어 두고 Alt+\ 가 안 막히던 버그가 이렇게 샜다
+    // (MathLive의 실제 key 는 `alt+[Backslash]`). `createField` 는 우리
+    // `configureKeybindings` 를 안 거치므로 여기서 얻는 건 손대지 않은 기본 배열이다.
+    const f = await createField('a');
+    const defaults = new Set(f.mf.keybindings.map((kb) => kb.key));
+    const missing = [...BLOCKED_KEYBINDINGS].filter((key) => !defaults.has(key));
+    f.dispose();
+    expect(missing).toEqual([]);
+  });
+
+  // 아래 세 개는 **키바인딩 표를 실제로 타야** 의미가 있다 — `pressKey` 가 셰도우 DOM
+  // 안의 keyboard sink 로 쏜다(`harness.ts` 참고). 예전엔 호스트에 쐈는데, 그러면
+  // MathLive가 이벤트를 아예 못 봐서 "안 들어갔다" 가 늘 참인 무의미한 테스트였다.
   it(String.raw`Ctrl+2 를 눌러도 \sqrt 가 안 들어간다 (기본 키바인딩 차단)`, async () => {
     const { mf } = await mountMathField('a');
     mf.position = mf.lastOffset;
-    mf.dispatchEvent(
-      new KeyboardEvent('keydown', {
-        key: '2',
-        code: 'Digit2',
-        ctrlKey: true,
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
+    pressRealKey(mf, { key: '2', code: 'Digit2', ctrlKey: true });
     await settle();
     expect(mf.value).toBe('a');
-    expect(mf.value).not.toContain('sqrt');
   });
 
-  it(String.raw`Alt+D 를 눌러도 \differentialD 가 안 들어간다 (기본 키바인딩 차단)`, async () => {
+  it(String.raw`Alt+D 는 \differentialD 가 아니라 \nabla 를 넣는다`, async () => {
     const { mf } = await mountMathField('a');
     mf.position = mf.lastOffset;
-    mf.dispatchEvent(
-      new KeyboardEvent('keydown', {
-        key: 'd',
-        code: 'KeyD',
-        altKey: true,
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
+    pressRealKey(mf, { key: 'd', code: 'KeyD', altKey: true });
+    await settle();
+    expect(mf.value).not.toContain('differentialD');
+    expect(mf.value).toContain('nabla');
+  });
+
+  it(String.raw`Alt+\ 를 눌러도 \backslash 가 안 들어간다 (기본 키바인딩 차단)`, async () => {
+    // 회귀 핀: 차단 문자열을 `alt+\` 로 적어 두면 MathLive의 실제 key
+    // (`alt+[Backslash]`)와 안 맞아 필터가 조용히 no-op 이 된다.
+    const { mf } = await mountMathField('a');
+    mf.position = mf.lastOffset;
+    pressRealKey(mf, { key: '\\', code: 'Backslash', altKey: true });
     await settle();
     expect(mf.value).toBe('a');
-    expect(mf.value).not.toContain('differentialD');
   });
 });
 

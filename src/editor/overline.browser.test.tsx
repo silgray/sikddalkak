@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { MathfieldElement } from 'mathlive';
-import { createField } from './harness';
+import { createField, pressKey } from './harness';
 import { configureKeybindings, CUSTOM_KEYBINDINGS } from './keybindings';
 
 /**
@@ -21,18 +21,7 @@ afterEach(() => {
 
 /** 실제 Alt+- 키 입력. MathLive의 키바인딩 디스패치를 그대로 탄다. */
 function pressAltMinus(mf: MathfieldElement): void {
-  const sink = mf.shadowRoot?.querySelector('.ML__keyboard-sink');
-  if (sink === null || sink === undefined) throw new Error('keyboard sink not found');
-  sink.dispatchEvent(
-    new KeyboardEvent('keydown', {
-      key: '-',
-      code: 'Minus',
-      altKey: true,
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-    }),
-  );
+  pressKey(mf, { key: '-', code: 'Minus', altKey: true });
 }
 
 async function field(initial: string) {
