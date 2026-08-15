@@ -10,7 +10,7 @@ export default function App() {
           <HelpPanel />
         </div>
         <p>
-          Type an expression and press <kbd>Enter</kbd> to simplify it.
+          Type an expression and press <kbd>Enter</kbd> to evaluate.
           <br />
           Write <code>a = 3</code> to define a variable other cells can use.
         </p>
