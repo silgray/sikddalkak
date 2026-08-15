@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="178" height="142" viewBox="0 0 178 142">
+  <rect width="178" height="142" fill="#ffffff"/>
+
+  <!-- Eyes -->
+  <circle cx="34" cy="18" r="9.5" fill="#373678"/>
+  <circle cx="113" cy="10" r="9.5" fill="#373678"/>
+
+  <!-- Upper bar, straight-edged with a slight overall tilt -->
+  <path
+    d="M 1 41 L 166 21 L 169 58 L 3 72 Z"
+    fill="#373678"
+  />
+
+  <!-- Triangular mouth/notch -->
+  <path
+    d="M 67 42 L 92 38.8 L 81 56 Z"
+    fill="#ffffff"
+  />
+
+  <!-- Lower bar -->
+  <path
+    d="M 9 107 L 174 95 L 176 126 L 11 140 Z"
+    fill="#373678"
+  />
+</svg>
