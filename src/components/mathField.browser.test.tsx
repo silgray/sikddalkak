@@ -283,6 +283,35 @@ describe('MathField — 셰도우 DOM 스타일', () => {
     expect(parseFloat(style.marginRight)).toBeGreaterThan(0);
   });
 
+  it('☰ 메뉴 버튼이 필드 높이 가운데에 선다', async () => {
+    // MathLive 기본은 `.ML__toggles` 에 `align-self: flex-start` 라 위에 붙는다 —
+    // 행렬처럼 키가 큰 식에서는 버튼만 맨 위에 동떨어져 보인다.
+    // ⚠ 깨지면 MathLive가 `.ML__toggles`/`.ML__container` 이름을 바꾼 것이다.
+    const host = document.createElement('div');
+    host.style.width = '400px';
+    document.body.append(host);
+    const root = createRoot(host);
+    root.render(
+      createElement(MathField, { value: String.raw`\begin{pmatrix}1&2\\3&4\end{pmatrix}` }),
+    );
+    await settle();
+    const mf = host.querySelector('math-field') as MathfieldElement;
+    cleanups.push(() => {
+      root.unmount();
+      host.remove();
+    });
+
+    const container = mf.shadowRoot?.querySelector('.ML__container') as HTMLElement | null;
+    const toggles = mf.shadowRoot?.querySelector('.ML__toggles') as HTMLElement | null;
+    expect(container).not.toBeNull();
+    expect(toggles).not.toBeNull();
+    // 키 큰 식이어야 위/가운데 차이가 드러난다 — 전제를 같이 못 박는다.
+    const cr = container!.getBoundingClientRect();
+    const tr = toggles!.getBoundingClientRect();
+    expect(cr.height).toBeGreaterThan(tr.height + 8);
+    expect(Math.abs(cr.top + cr.height / 2 - (tr.top + tr.height / 2))).toBeLessThan(1);
+  });
+
   it(String.raw`\overline 의 줄이 내용보다 길게 뻗는다 (안쪽 여백)`, async () => {
     // 내용이 줄 끝에 딱 닿으면 답답해 보인다. vlist의 **내용 줄에만** 좌우 패딩을 줘서
     // 줄(width:100%)이 그만큼 길어지게 한다.

@@ -185,6 +185,14 @@ const SHADOW_CSS = `
   padding-left: 0.12em;
   padding-right: 0.12em;
 }
+
+/* ☰ 메뉴 버튼을 필드 높이 가운데로. MathLive 기본은 \`.ML__toggles\` 에
+   \`align-self: flex-start\` 라 위에 붙는데, 행렬처럼 키가 큰 식에서는 버튼만
+   맨 위에 동떨어져 보인다. \`.ML__toggles\` 는 노출된 part가 아니라(part는
+   menu-toggle/virtual-keyboard-toggle 둘뿐) 전역 CSS로는 못 닿는다 — 그래서 여기. */
+.ML__container > .ML__toggles {
+  align-self: center;
+}
 `;
 
 let shadowSheet: CSSStyleSheet | null = null;
