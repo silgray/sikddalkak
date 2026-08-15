@@ -124,8 +124,11 @@ const latex_strs: Record<string, TestValues | null> = {
   // "\\Re": null,
   // "\\Re(1+2i)": null,
   // "\\overline{1+2i}": null,
-  "\\mathrm{tr}A": null,
-  "\\mathrm{tr}(A)": null,
+  // "\\mathrm{tr}A": null,
+  // "\\mathrm{tr}(A)": null,
+  "\\mu_0": null,
+  "\\mu_1": null,
+  "a_{xyzdf}": null,
 };
 
 const ce = new ComputeEngine();

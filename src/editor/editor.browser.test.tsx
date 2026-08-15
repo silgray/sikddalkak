@@ -535,6 +535,33 @@ describe('MathField 통합 — 고아 fence 교정 파이프라인', () => {
       expect(mf.value).toBe('');
     });
 
+    // 사용자 보고: 지수의 placeholder를 지웠더니 아래첨자까지 같이 사라졌다.
+    // MathLive가 위·아래 첨자를 한 `subsup` atom 으로 들고 있어서, atom 통째 삭제가
+    // 반대쪽까지 먹었다.
+    it('지수를 지워도 아래첨자는 살아남는다', async () => {
+      const { mf } = await mountMathField('x_1^{2}');
+      mf.position = mf.lastOffset - 1; // 지수 내용 뒤
+      pressKey(mf, 'Backspace', 'deleteBackward');
+      await settle();
+      expect(mf.value).toBe(String.raw`x_1^{\placeholder{}}`);
+
+      pressKey(mf, 'Backspace', 'deleteBackward');
+      await settle();
+      expect(mf.value).toBe('x_1'); // `x` 로 뭉개지지 않는다
+    });
+
+    it('아래첨자를 지워도 지수는 살아남는다', async () => {
+      const { mf } = await mountMathField('x_1^{2}');
+      mf.position = 3; // 아래첨자 내용(`1`) 뒤 — subsup 은 아래첨자 branch 가 먼저다
+      pressKey(mf, 'Backspace', 'deleteBackward');
+      await settle();
+      expect(mf.value).toBe(String.raw`x_{\placeholder{}}^2`);
+
+      pressKey(mf, 'Backspace', 'deleteBackward');
+      await settle();
+      expect(mf.value).toBe('x^2');
+    });
+
     it('큰 연산자의 범위는 placeholder가 영구다 — 더 지워도 안 사라진다', async () => {
       const { mf } = await mountMathField(String.raw`\sum_{i}^{n}x`);
       // 아래첨자 내용(`i`) 뒤. 큰 연산자는 위첨자 branch가 먼저 온다(실측).

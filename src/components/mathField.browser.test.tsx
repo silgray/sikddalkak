@@ -244,6 +244,21 @@ describe('MathField — 셀 그룹 밖으로 나가면 선택을 해제한다', 
   });
 });
 
+describe('MathField — `\\` 명령어 검색 팝오버는 꺼져 있다', () => {
+  it('`\\` 를 쳐도 제안 팝오버가 안 뜬다', async () => {
+    // MathLive는 `\` 로 latex 모드에 들어가면 명령어 자동완성 창을 띄운다. 이 앱은
+    // 인라인 숏컷·키바인딩으로 입력하므로 그 창이 캐럿 흐름만 끊는다.
+    // 팝오버는 `document` 에 id 하나로 붙는다(mathlive.mjs 실측).
+    const { mf } = await mount('');
+    expect(mf.popoverPolicy).toBe('off');
+    mf.executeCommand(['typedText', '\\', { simulateKeystroke: true }]);
+    await settle();
+    const panel = document.getElementById('mathlive-suggestion-popover');
+    // 아예 안 만들어졌거나, 만들어졌어도 보이지 않아야 한다.
+    expect(panel === null || panel.style.visibility === 'hidden').toBe(true);
+  });
+});
+
 describe('MathField — 셰도우 DOM 스타일', () => {
   it(String.raw`\overline 앞뒤에 여백이 붙는다`, async () => {
     // MathLive는 `\overline` 렌더 박스를 `type: 'ignore'` 로 만들어 원자 간 자동

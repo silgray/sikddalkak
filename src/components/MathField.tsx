@@ -394,6 +394,10 @@ export function MathField({
     mf.value = initialValue.current;
     // 데스크톱에서 가상 키보드가 멋대로 뜨지 않게.
     mf.mathVirtualKeyboardPolicy = 'manual';
+    // `\` 를 치면 뜨던 LaTeX 명령어 검색 팝오버를 끈다. 이 앱의 입력 수단은 인라인
+    // 숏컷(`sqrt`, `sum`…)과 키바인딩이고, 그 목록은 도움말 패널이 맡는다 — 타이핑
+    // 중에 자동완성 창이 끼어들면 캐럿·선택 흐름만 끊긴다.
+    mf.popoverPolicy = 'off';
     // 클립보드로 복사할 때 기본값인 `$$...$$` 감싸기를 뺀다 — LaTeX 문자열 자체가
     // 정본이라(CLAUDE.md 변환 경계 ①) 복사 결과도 그와 같아야 한다.
     mf.onExport = (_from, latex) => latex;

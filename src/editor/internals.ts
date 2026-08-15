@@ -18,6 +18,13 @@ export type InternalAtom = {
   rightDelim?: string;
   /** atom의 LaTeX 커맨드/문자 (`+`, `-`, `\cdot`, `x` 등). 연산자 판별에 쓴다. */
   command?: string;
+  /**
+   * 첨자 branch의 atom 열. ⚠ **위·아래 첨자는 한 atom(`subsup`)이 함께 들고 있다**
+   * (실측) — 한쪽만 지우려면 반대쪽을 여기서 꺼내 되살려야 한다.
+   * 첫 원소는 언제나 `first` 센티넬이라, 내용이 있으면 길이가 1보다 크다.
+   */
+  superscript?: InternalAtom[];
+  subscript?: InternalAtom[];
   /** true로 쓰면 MathLive가 원본 LaTeX 캐시(verbatimLatex)를 버린다. */
   isDirty?: boolean;
 };

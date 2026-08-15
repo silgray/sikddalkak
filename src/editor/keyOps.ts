@@ -428,6 +428,28 @@ function isProtectedSlot(ctx: EditContext): boolean {
 const DELETE_KEYS = new Set(['Backspace', 'Delete']);
 
 /**
+ * 지우는 쪽의 **반대편 첨자**를 다시 붙일 LaTeX (`_1` / `^{2}`). 없으면 빈 문자열.
+ *
+ * ⚠ MathLive는 위·아래 첨자를 **한 `subsup` atom** 이 함께 들고 있다(실측). 그래서
+ * "이 첨자를 지운다" 를 atom 통째 삭제로 구현하면 **반대쪽까지 같이 사라진다**
+ * (사용자 보고: `x_1^{▢}` 에서 지수를 지우면 `_1` 도 없어졌다). 살릴 쪽을 꺼내
+ * 다시 붙여 넣는다.
+ */
+function survivingScriptLatex(ctx: EditContext, owner: InternalAtom, branch: string): string {
+  const otherKey = branch === 'superscript' ? 'subscript' : 'superscript';
+  const atoms = owner[otherKey];
+  // 첫 원소는 `first` 센티넬 — 그것뿐이면 그쪽은 비어 있다.
+  if (atoms === undefined || atoms.length <= 1) return '';
+  const inside = ctx.model.offsetOf(atoms[atoms.length - 1]);
+  if (inside < 0) return '';
+  const range = branchRangeAt(ctx.model, inside);
+  if (range === null) return '';
+  const content = ctx.mf.getValue({ ranges: [range] }, 'latex').trim();
+  if (content === '') return '';
+  return `${otherKey === 'superscript' ? '^' : '_'}{${content}}`;
+}
+
+/**
  * 빈 자리(placeholder)에서 한 번 더 지우면 **구조까지** 사라진다 —
  * `e^{|\placeholder{}}` + Backspace → `e`.
  *
@@ -456,22 +478,35 @@ const deletePlaceholderSlot: KeyOp = {
     // 큰 연산자의 범위 — 키를 삼키고 **아무것도 안 한다**. 캐럿을 안 건드리는 게
     // 요점이라(범위 밖으로 튀면 안 된다) 정말로 빈 몸이어야 한다.
     if (isProtectedSlot(ctx)) return;
-    // 지울 수 있는 자리 — 구조를 통째로 없앤다. branch 내용(placeholder)은 버린다.
     const owner = owningAtom(ctx);
     if (owner === undefined) return;
     const bounds = atomBounds(ctx.model, owner);
     if (bounds === null) return;
+    // 반대쪽 첨자는 살린다 (`survivingScriptLatex` 의 경고 참고). `\overline` 처럼
+    // branch가 하나뿐인 구조는 살릴 게 없어 빈 문자열이 된다.
+    const branch = ctx.model.at(ctx.model.position)?.parentBranch;
+    const keep =
+      atomType(owner) === 'subsup' && typeof branch === 'string'
+        ? survivingScriptLatex(ctx, owner, branch)
+        : '';
     // `\overline` 은 atom 자체가 구조다. 첨자(`subsup`)는 밑이 왼쪽 형제라 atom
     // 범위에 안 들어가므로, 둘 다 "소유 atom을 지운다" 로 밑은 살고 첨자만 사라진다.
     ctx.mf.selection = { ranges: [bounds], direction: 'forward' };
-    ctx.mf.insert('', { insertionMode: 'replaceSelection', selectionMode: 'placeholder' });
-    ctx.mf.position = Math.max(0, Math.min(bounds[0], ctx.mf.lastOffset));
+    ctx.mf.insert(keep, { insertionMode: 'replaceSelection', selectionMode: 'after' });
+    // 살릴 게 없으면 캐럿을 구조가 있던 자리에 둔다. 있으면 MathLive가 새로 넣은
+    // 첨자 뒤에 놔둔 자리를 그대로 쓴다 — 이어서 편집할 자리가 거기다.
+    if (keep === '') ctx.mf.position = Math.max(0, Math.min(bounds[0], ctx.mf.lastOffset));
   },
   scenarios: [
     // 첨자: placeholder만 남은 자리에서 한 번 더 → 첨자가 통째로 사라진다.
     { start: String.raw`e^{\placeholder{}}`, caret: 2, key: 'Backspace', expect: 'e' },
     { start: String.raw`a_{\placeholder{}}`, caret: 2, key: 'Backspace', expect: 'a' },
     { start: String.raw`e^{\placeholder{}}`, caret: 2, key: 'Delete', expect: 'e' },
+    // 회귀(사용자 보고): 위·아래 첨자가 **한 atom** 이라, 지수를 지우면서 아래첨자까지
+    // 같이 사라졌다. 반대쪽은 살아남아야 한다.
+    // ⚠ 오프셋 주의: `subsup` 은 아래첨자 branch 가 먼저 온다(실측 — 큰 연산자와 반대).
+    { start: String.raw`x_1^{\placeholder{}}`, caret: 4, key: 'Backspace', expect: 'x_1' },
+    { start: String.raw`x_{\placeholder{}}^2`, caret: 2, key: 'Backspace', expect: 'x^2' },
     // \overline 도 같은 규칙.
     { start: String.raw`\overline{\placeholder{}}`, caret: 1, key: 'Backspace', expect: '' },
     // 큰 연산자의 범위는 영구 — 아무것도 안 바뀐다.
