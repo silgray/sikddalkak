@@ -11,7 +11,7 @@ import { finalizeGhostFences, modelOf } from './internals';
 import { expandSelectionSemantic, siblingRunRange } from './selection';
 import { KEY_OPS, dispatchKeyOp } from './keyOps';
 import { findViolations, repairLatex } from './wellformed';
-import { BLOCKED_KEYBINDINGS, CUSTOM_KEYBINDINGS } from './keybindings';
+import { BLOCKED_KEYBINDINGS, CUSTOM_KEYBINDINGS, RESERVED_KEYBINDINGS } from './keybindings';
 
 /**
  * 에디터 회귀 스위트 — 실제 MathLive(헤드리스 Chromium)를 구동한다.
@@ -611,10 +611,13 @@ describe('MathField 통합 — 고아 fence 교정 파이프라인', () => {
     // (MathLive의 실제 key 는 `alt+[Backslash]`). `createField` 는 우리
     // `configureKeybindings` 를 안 거치므로 여기서 얻는 건 손대지 않은 기본 배열이다.
     //
-    // `CUSTOM_KEYBINDINGS` 가 다시 쓰는 key 는 뺀다 — 그쪽은 "기본을 끈다" 가 아니라
-    // "이 자리를 우리가 갖는다" 라서, 기본 배열에 없어도 넣어 둘 이유가 있다
-    // (`alt+-` 가 그 경우다, `keybindings.ts` 의 실측 주석 참고).
-    const rewritten = new Set(CUSTOM_KEYBINDINGS.map((kb) => kb.key));
+    // 우리가 자리를 차지한 key 는 뺀다 — 그쪽은 "기본을 끈다" 가 아니라 "이 자리를
+    // 우리가 갖는다" 라서 기본 배열에 없어도 넣어 둘 이유가 있다. 커스텀은 물리 코드
+    // 표기라(`keybindings.ts` 의 ⚠) 문자 표기 쪽은 `RESERVED_KEYBINDINGS` 가 따로 든다.
+    const rewritten = new Set([
+      ...CUSTOM_KEYBINDINGS.map((kb) => kb.key),
+      ...RESERVED_KEYBINDINGS,
+    ]);
     const f = await createField('a');
     const defaults = new Set(f.mf.keybindings.map((kb) => kb.key));
     const missing = [...BLOCKED_KEYBINDINGS].filter(

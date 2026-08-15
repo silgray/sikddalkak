@@ -22,7 +22,10 @@ import type { Keybinding, MathfieldElement } from 'mathlive';
  * 지우면 MathLive 기본 동작이 돌아온다.
  */
 export const BLOCKED_KEYBINDINGS: ReadonlySet<string> = new Set<string>([
-  'alt+-',  // 원인은 모르겠으나, 여기서 막지 않으면 \overline 삽입 단축키가 대부분의 상황에서 먹지 않음. 지우지 말 것.
+  // 기본 배열에는 없다(`RESERVED_KEYBINDINGS` 참고) — 이 자리를 우리가 갖는다는 선언으로
+  // 남겨둔다. \overline 이 "가끔 안 먹던" 진짜 원인은 이게 아니라 커스텀 쪽 `key` 표기였다
+  // (아래 `CUSTOM_KEYBINDINGS` 의 ⚠ 참고).
+  'alt+-',
 
   // Ctrl+2 → \sqrt (Wolfram Mathematica 계열 바인딩)
   'ctrl+[Digit2]',
@@ -74,6 +77,32 @@ export const BLOCKED_KEYBINDINGS: ReadonlySet<string> = new Set<string>([
  * 여기 있는 `key` 는 `BLOCKED_KEYBINDINGS` 에도 있어야 한다(위 경고) — 그래서
  * "차단했는데 아직 살아 있다" 를 보는 브라우저 테스트는 이 목록을 예외로 뺀다.
  */
+/**
+ * 기본 배열에는 없지만 일부러 막아두는 `key`. 아래 `CUSTOM_KEYBINDINGS` 가 **물리 코드
+ * 표기로 다시 쓴** 조합의 문자 표기다 — "차단했는데 기본에 실재하지 않는다" 를 보는
+ * 브라우저 테스트에서 뺀다.
+ */
+export const RESERVED_KEYBINDINGS: ReadonlySet<string> = new Set(['alt+-']);
+
+/**
+ * ⚠ **`key` 는 물리 코드 표기(`alt+[Minus]`)로 쓴다. 문자 표기(`alt+-`)로 쓰면 안 된다.**
+ *
+ * MathLive는 커스텀 바인딩을 **현재 키보드 레이아웃 기준으로 정규화**한다:
+ * `getCodeForKey('-', layout)` 로 "그 레이아웃에서 `-` 를 내는 물리 키" 를 찾아 그걸로
+ * 바꿔친다. 그런데 레이아웃 판정은 **진짜 키 입력(`evt.isTrusted`)에서만** 일어나고
+ * (`onKeystroke` 의 `validateKeyboardLayout`), 그때 정규화 캐시(`_keybindings`)를 비운다.
+ *
+ * 그래서 문자 표기는 이렇게 무너진다: 처음엔 기본 레이아웃(US)으로 정규화돼
+ * `alt+[Minus]` 가 되어 **잘 먹다가**, 사용자가 실제로 타이핑하면 레이아웃이 판정되고
+ * 다시 정규화되면서 그 레이아웃에서 `-` 를 내는 **다른 물리 키**로 바뀐다 — 정작 사용자가
+ * 누르는 Alt+- 의 `code` 는 여전히 `Minus` 라 더는 안 맞는다. "처음 한 번은 되는데 그
+ * 뒤로 안 되는" 증상이 이것이다(합성 이벤트는 `isTrusted` 가 false 라 레이아웃 판정을
+ * 안 거쳐서 테스트로는 절대 안 잡힌다).
+ *
+ * 대괄호 표기는 `normalizeKeybinding` 이 `getCodeForKey` **앞에서** 그대로 돌려주므로
+ * (mathlive.mjs:25436 실측) 레이아웃과 무관하게 고정된다. `alt+[Backslash]` 를 차단할 때
+ * 배운 것과 같은 교훈이다.
+ */
 export const CUSTOM_KEYBINDINGS: readonly Keybinding[] = [
   /**
    * Alt+- → `\overline{...}` (켤레 표기). **선택이 있으면 그걸 감싸고, 없으면 빈 칸을
@@ -84,12 +113,12 @@ export const CUSTOM_KEYBINDINGS: readonly Keybinding[] = [
    * `keyOps.ts` 레지스트리가 아니라 여기 있는 이유: `dispatchKeyOp` 는 수정자 없는 키
    * 전용이다(`MathField.tsx` 의 `if (ev.ctrlKey || ev.metaKey || ev.altKey) return;`).
    */
-  { key: 'alt+-', ifMode: 'math', command: ['insert', '\\overline{#@}'] },
+  { key: 'alt+[Minus]', ifMode: 'math', command: ['insert', '\\overline{#@}'] },
   /**
    * Alt+D → `\nabla`. MathLive 기본은 `\differentialD` 인데 이 앱에선 안 쓴다 —
    * 위 `BLOCKED_KEYBINDINGS` 가 기본을 걷어내고 여기서 다시 쓴다.
    */
-  { key: 'alt+d', ifMode: 'math', command: ['insert', '\\nabla'] },
+  { key: 'alt+[KeyD]', ifMode: 'math', command: ['insert', '\\nabla'] },
 ];
 
 /** `configureInlineShortcuts` 와 짝 — mathfield가 mount된 뒤에만 부를 수 있다. */

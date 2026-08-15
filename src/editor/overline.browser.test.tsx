@@ -33,7 +33,9 @@ async function field(initial: string) {
 
 describe('Alt+- 오버라인 키바인딩', () => {
   it('레지스트리에 있고 insert 명령으로 `#@` 를 쓴다', () => {
-    const overline = CUSTOM_KEYBINDINGS.find((kb) => kb.key === 'alt+-');
+    // ⚠ 물리 코드 표기여야 한다 — 문자 표기(`alt+-`)는 레이아웃 판정 뒤에 무너진다
+    // (`keybindings.ts` 의 ⚠ 참고). 이 단언이 그 회귀를 막는다.
+    const overline = CUSTOM_KEYBINDINGS.find((kb) => kb.key === 'alt+[Minus]');
     expect(overline).toBeDefined();
     expect(overline?.command).toEqual(['insert', '\\overline{#@}']);
   });
