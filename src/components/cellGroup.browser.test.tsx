@@ -288,8 +288,22 @@ describe('CellGroup — 결과 표시 모드 스위치 (정확값 / 근삿값)',
     return { container, cell };
   }
 
-  /** 워커 왕복 — 요청이 나가고 상태가 반영될 때까지. */
-  const workerRoundTrip = () => new Promise((r) => setTimeout(r, 1000));
+  /**
+   * 조건이 참이 될 때까지 기다린다.
+   *
+   * ⚠ 고정 sleep 을 쓰면 안 된다 — 워커 첫 요청은 1.9MB 번들을 받아오느라 ~1초가
+   * 걸리고(실측) 그 뒤로는 수십 ms 다. 고정값은 어느 쪽이든 아슬아슬해진다.
+   */
+  async function waitFor(done: () => boolean, timeoutMs = 8000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (!done()) {
+      if (Date.now() > deadline) throw new Error('waitFor timed out');
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
+
+  const resultField = (c: HTMLElement) =>
+    ([...c.querySelectorAll('math-field')] as MathfieldElement[])[1];
 
   const toggleOf = (c: HTMLElement) => c.querySelector('.result-mode') as HTMLButtonElement;
 
@@ -297,6 +311,15 @@ describe('CellGroup — 결과 표시 모드 스위치 (정확값 / 근삿값)',
     const { container } = await exactResult();
     expect(container.querySelectorAll('.result-mode')).toHaveLength(1);
     expect(container.querySelector('.result .result-mode')).not.toBeNull();
+  });
+
+  it('고른 모드를 낱말로 보여준다 (기호가 아니라)', async () => {
+    const { container } = await exactResult();
+    const label = () => container.querySelector('.result-mode-label')?.textContent;
+    expect(label()).toBe('symbolic');
+    toggleOf(container).click();
+    await settle();
+    expect(label()).toBe('numeric');
   });
 
   it('기본은 정확값 — 화살표가 `=` 이고 결과가 그대로다', async () => {
@@ -311,18 +334,18 @@ describe('CellGroup — 결과 표시 모드 스위치 (정확값 / 근삿값)',
     const { container } = await exactResult();
     toggleOf(container).click();
     await settle();
-    await workerRoundTrip();
+    // 모드는 즉시 바뀌고, 값은 워커가 돌아오면 바뀐다.
     expect(toggleOf(container).getAttribute('aria-checked')).toBe('true');
     expect(container.querySelector('.result-arrow')?.textContent).toBe('≈');
-    const fields = [...container.querySelectorAll('math-field')] as MathfieldElement[];
-    expect(fields[1].value.startsWith('0.333')).toBe(true);
+    await waitFor(() => resultField(container).value !== EXACT);
+    expect(resultField(container).value.startsWith('0.333')).toBe(true);
   });
 
   it('다시 누르면 정확값으로 돌아온다 (문서는 안 바뀐다)', async () => {
     const { container, cell } = await exactResult();
     toggleOf(container).click();
     await settle();
-    await workerRoundTrip();
+    await waitFor(() => resultField(container).value !== EXACT); // 근삿값이 실제로 왔다
     toggleOf(container).click();
     await settle();
     const fields = [...container.querySelectorAll('math-field')] as MathfieldElement[];
