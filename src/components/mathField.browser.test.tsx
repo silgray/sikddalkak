@@ -282,4 +282,36 @@ describe('MathField — 셰도우 DOM 스타일', () => {
     expect(parseFloat(style.marginLeft)).toBeGreaterThan(0);
     expect(parseFloat(style.marginRight)).toBeGreaterThan(0);
   });
+
+  it(String.raw`\overline 의 줄이 내용보다 길게 뻗는다 (안쪽 여백)`, async () => {
+    // 내용이 줄 끝에 딱 닿으면 답답해 보인다. vlist의 **내용 줄에만** 좌우 패딩을 줘서
+    // 줄(width:100%)이 그만큼 길어지게 한다.
+    // ⚠ 깨지면 MathLive가 vlist 구조(.ML__vlist > 내용 줄, 줄 줄)를 바꾼 것이다.
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    root.render(createElement(MathField, { value: String.raw`x\overline{ab}y` }));
+    await settle();
+    const mf = host.querySelector('math-field') as MathfieldElement;
+    cleanups.push(() => {
+      root.unmount();
+      host.remove();
+    });
+
+    const overline = mf.shadowRoot?.querySelector('.overline') as HTMLElement | null;
+    expect(overline).not.toBeNull();
+    const contentBox = overline!.querySelector(
+      '.ML__vlist > span:first-child > span:not(.ML__pstrut)',
+    ) as HTMLElement | null;
+    expect(contentBox, 'vlist 내용 줄을 못 찾았다 — MathLive 구조가 바뀌었나?').not.toBeNull();
+    expect(parseFloat(getComputedStyle(contentBox!).paddingLeft)).toBeGreaterThan(0);
+    expect(parseFloat(getComputedStyle(contentBox!).paddingRight)).toBeGreaterThan(0);
+
+    // 줄은 내용 칸 폭을 따라간다 — 패딩이 붙었으니 글자보다 길다.
+    const line = mf.shadowRoot?.querySelector('.overline-line') as HTMLElement | null;
+    const glyphs = [...contentBox!.querySelectorAll('.ML__mathit')];
+    const glyphWidth = glyphs.reduce((sum, g) => sum + g.getBoundingClientRect().width, 0);
+    expect(glyphs.length).toBeGreaterThan(0);
+    expect(line!.getBoundingClientRect().width).toBeGreaterThan(glyphWidth);
+  });
 });

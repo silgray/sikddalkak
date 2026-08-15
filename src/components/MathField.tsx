@@ -176,6 +176,15 @@ const SHADOW_CSS = `
   margin-left: 0.08em;
   margin-right: 0.08em;
 }
+
+/* 줄 **안쪽** 여백. \\overline 의 vlist는 두 줄이다 — 내용 줄과 줄(overline-line) 줄
+   (실측 구조: .overline > .ML__vlist-t > .ML__vlist-r > .ML__vlist > span×2).
+   줄은 자기 칸의 width:100% 라 vlist 폭을 따라가므로, **내용 쪽에만** 좌우 패딩을
+   주면 vlist가 그만큼 넓어지고 줄이 내용보다 길게 뻗는다 — 내용이 줄 끝에 닿지 않는다. */
+.ML__latex .overline .ML__vlist > span:first-child > span:not(.ML__pstrut) {
+  padding-left: 0.12em;
+  padding-right: 0.12em;
+}
 `;
 
 let shadowSheet: CSSStyleSheet | null = null;
