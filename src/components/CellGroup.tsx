@@ -378,7 +378,7 @@ function ResultModeToggle({
       {/* 손잡이가 미끄러지고 지금 고른 쪽 이름이 그 옆에 뜬다. 이름은 늘 하나만
           보인다 — 두 낱말을 다 띄우면 어느 쪽이 켜진 건지 오히려 헷갈린다. */}
       <span className="result-mode-knob" />
-      <span className="result-mode-label">{numeric ? 'numeric' : 'symbolic'}</span>
+      <span className="result-mode-label">{numeric ? 'decimal' : 'formula'}</span> {/* name changed */}
     </button>
   );
 }

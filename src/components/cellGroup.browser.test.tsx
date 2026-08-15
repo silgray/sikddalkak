@@ -317,10 +317,10 @@ describe('CellGroup — 결과 표시 모드 스위치 (정확값 / 근삿값)',
   it('고른 모드를 낱말로 보여준다 (기호가 아니라)', async () => {
     const { container } = await exactResult();
     const label = () => container.querySelector('.result-mode-label')?.textContent;
-    expect(label()).toBe('symbolic');
+    expect(label()).toBe('formlua');
     toggleOf(container).click();
     await settle();
-    expect(label()).toBe('numeric');
+    expect(label()).toBe('decimal');
   });
 
   it('기본은 정확값 — 화살표가 `=` 이고 결과가 그대로다', async () => {

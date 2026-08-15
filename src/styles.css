@@ -538,7 +538,7 @@ math-field::part(virtual-keyboard-toggle) {
   border: 1px solid var(--line);
   background: transparent;
   border-radius: 6px;
-  padding: 0.2rem 0.5rem;
+  padding: 0.53rem 0.5rem;
   font-size: 0.7rem;
   font-family: inherit;
   cursor: pointer;
