@@ -140,6 +140,7 @@ const DISABLED_INLINE_SHORTCUTS = new Set<string>([
  */
 const CUSTOM_INLINE_SHORTCUTS: InlineShortcutDefinitions = {
   tr: '\\operatorname{\\mathrm{tr}}',
+  tt: '\\dagger',
 };
 
 /**

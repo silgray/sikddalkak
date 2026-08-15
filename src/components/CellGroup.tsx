@@ -87,9 +87,12 @@ export function CellGroup({
   };
 
   const display = pickGroupDisplay(objects, results);
+  const displayShown = display.kind !== 'empty' && display.kind !== 'pending';
   // 결과를 편집하면 이 그룹의 새 셀이 된다 — 확정한 셀이 있으면 그 셀 뒤에, 없으면
   // (상시 표시 중인 단일 셀 그룹) 그 유일한 셀 뒤에.
   const editResultTargetId = groupResultTargetId(objects);
+  const groupId = objects[0].groupId;
+  const resultFocus = focus !== null && focus.id === groupId && focus.field === 'result' ? focus : null;
 
   const applyTransform = (op: SelectionOp) => {
     if (selection === null) return;
@@ -113,6 +116,10 @@ export function CellGroup({
     <div className={['cell-group', dragging && 'cell-group-dragging'].filter(Boolean).join(' ')}>
       {objects.map((object, i) => {
         const index = startIndex + i;
+        const isLast = i === objects.length - 1;
+        // focus.id는 'result' 타깃일 땐 groupId를 가리키므로, 우연히 groupId가
+        // 이 셀 자신의 id와 같아도(단일 셀 그룹 등) 여기서 섞이지 않게 가른다.
+        const cellFocused = focus !== null && focus.id === object.id && focus.field !== 'result';
         return (
           <Cell
             key={object.id}
@@ -120,9 +127,9 @@ export function CellGroup({
             result={results.get(object.id) ?? { kind: 'pending' }}
             isGroupTop={i === 0}
             dragging={dragging}
-            focusToken={focus?.id === object.id ? focus.token : null}
-            focusOffset={focus?.id === object.id ? (focus.offset ?? null) : null}
-            focusSelection={focus?.id === object.id ? (focus.selection ?? null) : null}
+            focusToken={cellFocused ? focus.token : null}
+            focusOffset={cellFocused ? (focus.offset ?? null) : null}
+            focusSelection={cellFocused ? (focus.selection ?? null) : null}
             syncKey={syncKey}
             onEdit={(latex, caret) => dispatch({ type: 'editInput', id: object.id, latex, cursor: caret })}
             onEnter={(latex) => dispatch({ type: 'enter', id: object.id, latex })}
@@ -139,7 +146,15 @@ export function CellGroup({
             onDragStart={i === 0 ? onDragStart : undefined}
             onDragMove={i === 0 ? onDragMove : undefined}
             onDragEnd={i === 0 ? onDragEnd : undefined}
-            onMoveOut={(direction) => onMoveOut(index, direction)}
+            onMoveOut={(direction) => {
+              // 그룹 맨 아래 셀에서 ↓ 를 누르면, 보이는 결과가 있는 한 그 결과
+              // 필드로 들어간다 — 화면상 바로 아래에 있는 그 줄이 다음 정지점이다.
+              if (isLast && direction === 'downward' && displayShown) {
+                dispatch({ type: 'focus', id: groupId, field: 'result', offset: 0 });
+                return;
+              }
+              onMoveOut(index, direction);
+            }}
             onDeleteEmpty={() => onDeleteEmpty(index)}
             onInsertCell={(position) => dispatch({ type: 'insertCell', id: object.id, position })}
             onMoveGroup={onMoveGroup}
@@ -147,16 +162,30 @@ export function CellGroup({
           />
         );
       })}
-      {display.kind !== 'empty' && display.kind !== 'pending' && (
+      {displayShown && (
         <ResultRow
           result={display}
           syncKey={syncKey}
           fieldRef={resultRef}
           selection={selection}
+          focusToken={resultFocus?.token ?? null}
+          focusOffset={resultFocus?.offset ?? null}
           onApply={applyTransform}
           onDetach={detachIfChanged}
           onSelectionChange={trackSelection}
           onTransformShortcut={applyTransform}
+          onMoveOut={(direction) => {
+            const goingUp = direction === 'upward';
+            if (goingUp) {
+              const last = objects[objects.length - 1];
+              dispatch({ type: 'focus', id: last.id, offset: Number.MAX_SAFE_INTEGER });
+              return;
+            }
+            if (direction === 'downward') {
+              // 마치 그룹 맨 아래 셀에서 나가는 것처럼 다음 그룹으로 이어간다.
+              onMoveOut(startIndex + objects.length - 1, direction);
+            }
+          }}
         />
       )}
     </div>
@@ -168,19 +197,25 @@ function ResultRow({
   syncKey,
   fieldRef,
   selection,
+  focusToken,
+  focusOffset,
   onApply,
   onDetach,
   onSelectionChange,
   onTransformShortcut,
+  onMoveOut,
 }: {
   result: Extract<EvalResult, { kind: 'error' | 'boolean' | 'ok' }>;
   syncKey: number;
   fieldRef: React.Ref<MathFieldHandle>;
   selection: SelectionInfo | null;
+  focusToken: number | null;
+  focusOffset: number | null;
   onApply: (op: SelectionOp) => void;
   onDetach: (latex: string, caret?: number) => void;
   onSelectionChange: (selectedLatex: string | null) => void;
   onTransformShortcut: (op: SelectionOp) => void;
+  onMoveOut: (direction: 'forward' | 'backward' | 'upward' | 'downward') => void;
 }) {
   if (result.kind === 'error') {
     return <div className="result result-error">⚠ {result.message}</div>;
@@ -202,10 +237,13 @@ function ResultRow({
         ref={fieldRef}
         value={result.latex}
         syncKey={syncKey}
+        focusToken={focusToken}
+        focusOffset={focusOffset}
         onEdit={onDetach}
         onEnter={(latex) => onDetach(latex)}
         onSelectionChange={onSelectionChange}
         onTransformShortcut={onTransformShortcut}
+        onMoveOut={onMoveOut}
       />
       {selection !== null && (
         <div className="result-actions">

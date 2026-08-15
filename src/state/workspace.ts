@@ -36,12 +36,16 @@ export type Tab = {
    * 포커스(와 선택적으로 캐럿)를 옮길 지시. token은 같은 곳에 다시 지시할 때
    * 구분용. offset이 있으면 포커스 후 캐럿을 그 위치로 놓는다(실행취소 복원).
    * selection이 있으면 캐럿 대신 그 선택 범위를 복구한다 (선택 변환의 undo).
+   * field가 'result'면 id는 오브젝트가 아니라 **그룹 id**(`groupId`)를 가리키고,
+   * 대상은 그 그룹의 result 필드다 — 위/아래 화살표로 결과 필드까지 오갈 때 쓴다
+   * (`CellGroup.tsx`). 없으면(= 'input') 기존처럼 오브젝트 id.
    */
   focus: {
     id: string;
     token: number;
     offset?: number;
     selection?: readonly [number, number];
+    field?: 'input' | 'result';
   } | null;
   history: History;
   /**
@@ -99,8 +103,12 @@ type ObjectAction =
   | { type: 'insertCell'; id: string; position: 'above' | 'below' }
   /** 셀 하나를 새 그룹으로 복제해 그룹 밖에 놓는다. 포커스·커서는 원본에 유지. */
   | { type: 'duplicateCell'; id: string; position: 'above' | 'below' }
-  /** 셀에 포커스 지시. offset이 있으면 캐럿 위치까지 (셀 간 이동 등). */
-  | { type: 'focus'; id: string; offset?: number }
+  /**
+   * 셀에 포커스 지시. offset이 있으면 캐럿 위치까지 (셀 간 이동 등). field가
+   * 'result'면 id는 오브젝트가 아니라 그룹 id — 위/아래 화살표로 결과 필드에
+   * 들어갈 때 쓴다.
+   */
+  | { type: 'focus'; id: string; offset?: number; field?: 'input' | 'result' }
   /**
    * 결과 행을 편집한다. 편집한 latex로 새 오브젝트를 **같은 그룹의 맨 끝**에 만들고,
    * 그룹 전체의 확정 표시(`entered`)를 내린다 — 새 파생이 추가됐으니 다시 Enter를
@@ -315,7 +323,7 @@ function reduceContent(tab: Tab, action: ObjectAction): Content {
     case 'focus':
       return {
         objects: tab.objects,
-        focus: { id: action.id, token: nextToken(tab), offset: action.offset },
+        focus: { id: action.id, token: nextToken(tab), offset: action.offset, field: action.field },
       };
 
     case 'editResult': {
