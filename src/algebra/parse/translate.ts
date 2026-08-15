@@ -57,6 +57,50 @@ const INVERSE_FUNCTIONS: Record<string, string> = {
   Sin: 'arcsin', Cos: 'arccos', Tan: 'arctan',
 };
 
+/**
+ * `f'(x)` / `f''(x)` — 프라임 미분 표기. **한 변수 함수 전용.**
+ *
+ * CE는 이걸 `["Apply",["Derivative","f",n],arg]` 로 준다(실측: `f'''(x)` → n=3,
+ * `f^{\prime}(x)` 도 같은 꼴). 우리 Syntax IR에는 이미 딱 맞는 두 노드가 있으므로
+ * 새 노드를 만들 필요 없이 **`\frac{\mathrm{d}}{\mathrm{d}x}f(x)` 와 같은 트리로
+ * 내려놓는다** — 그러면 elaborate·evaluate·render가 이미 아는 길로 흘러간다.
+ *
+ * 인수는 **심볼이어야 한다.** `f'(x)` 는 "x로 미분" 과 같지만 `f'(2)` 는 "미분한 다음
+ * 2를 넣어라" 라서 같은 트리로 못 적는다(치환을 담을 Syntax 노드가 없다). 조용히 틀린
+ * 답을 내느니 정직하게 거절한다 — 필요해지면 elaborate에 bound 변수를 만들어 붙여야 한다.
+ *
+ * 대상이 아니면 `null` 을 돌려 호출부가 다음 갈래(`InverseFunction`)로 넘어가게 한다.
+ */
+function translatePrimeToTree(
+  name: unknown,
+  callArgs: readonly unknown[],
+): Result<SyntaxNode> | null {
+  if (!Array.isArray(name) || name.length !== 3 || name[0] !== 'Derivative') return null;
+  const fnName = name[1];
+  const order = name[2];
+  if (typeof fnName !== 'string' || typeof order !== 'number' || !Number.isInteger(order)) {
+    return null;
+  }
+  if (order < 1) return null;
+  if (callArgs.length !== 1) {
+    return fail('unsupported', "Prime notation takes exactly one argument (f'(x))");
+  }
+  const arg = translateToTree(callArgs[0]);
+  if (!arg.ok) return arg;
+  if (arg.value.kind !== 'sym') {
+    return fail(
+      'unsupported',
+      "Prime notation needs a variable as its argument — write f'(x), not f'(2)",
+    );
+  }
+  return ok({
+    kind: 'deriv',
+    body: { kind: 'apply', name: fnName, args: [arg.value] },
+    vars: [arg.value.name],
+    order,
+  });
+}
+
 
 /** CE가 곱셈에 쓰는 머리들. 그룹 보존 파싱에서는 `InvisibleOperator` 로 온다. */
 const MULTIPLY_HEADS = new Set(['InvisibleOperator', 'Multiply']);
@@ -773,6 +817,8 @@ export function translateToTree(json: unknown): Result<SyntaxNode> {
   // **여기서 반드시 끊는다** — 아래 홑 대문자 되돌리기로 새면 `Apply` 가 곱으로 둔갑한다.
   if (head === 'Apply') {
     const [name, ...callArgs] = args;
+    const primed = translatePrimeToTree(name, callArgs);
+    if (primed !== null) return primed;
     const inverseOf =
       Array.isArray(name) && name.length === 2 && name[0] === 'InverseFunction'
         ? name[1]
