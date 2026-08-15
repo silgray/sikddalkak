@@ -551,6 +551,54 @@ math-field::part(virtual-keyboard-toggle) {
   width: 1rem;
 }
 
+/* --- 결과 표시 모드 스위치 (정확값 = / 근삿값 ≈) --- */
+
+.result-mode {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex-shrink: 0;
+  padding: 0.1rem 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  font-family: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.result-mode:hover {
+  border-color: var(--muted);
+}
+
+.result-mode-label {
+  color: var(--muted);
+  font-size: 0.7rem;
+  z-index: 1;
+  width: 0.7rem;
+  text-align: center;
+}
+
+/* 켜진 쪽 라벨만 또렷하게. 첫 라벨이 `=`, 마지막이 `≈`. */
+.result-mode:not(.result-mode-numeric) .result-mode-label:first-child,
+.result-mode-numeric .result-mode-label:last-child {
+  color: var(--accent);
+}
+
+/* 손잡이는 두 라벨 사이를 오간다 — 폭이 고정이라 위치를 계산할 필요가 없다. */
+.result-mode-knob {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: background 0.12s ease;
+}
+
+.result-mode-numeric .result-mode-knob {
+  background: var(--accent);
+}
+
 .result-def .result-arrow {
   color: var(--def);
 }

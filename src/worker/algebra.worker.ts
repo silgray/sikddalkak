@@ -1,5 +1,6 @@
 import { evaluateCells } from '../cellGraph';
 import { readSelection } from './readSelection';
+import { approximateResult } from './approximateResult';
 import type { Env } from '../algebra';
 import type { WorkerRequest, WorkerResponse } from './protocol';
 
@@ -40,6 +41,15 @@ ctx.onmessage = (ev) => {
     });
     lastEnv = env;
     ctx.postMessage({ id: req.id, kind: 'done', request: 'evaluate', results: [...results.entries()] });
+    return;
+  }
+  if (req.kind === 'approximate') {
+    ctx.postMessage({
+      id: req.id,
+      kind: 'done',
+      request: 'approximate',
+      latex: approximateResult(req.latex, lastEnv),
+    });
     return;
   }
   const selection = readSelection(req.field, req.latex, lastEnv);

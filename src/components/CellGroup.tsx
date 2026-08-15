@@ -3,7 +3,7 @@ import type { SelectionInfo, SelectionOp } from '../cellSelection';
 import { groupResultTargetId, pickGroupDisplay } from '../cellGroup';
 import type { Action, Tab } from '../state/workspace';
 import type { EvalResult, FormulaObject } from '../types';
-import { readSelectionAsync } from '../worker/client';
+import { approximateAsync, readSelectionAsync } from '../worker/client';
 import { Cell } from './Cell';
 import { FieldClip } from './FieldClip';
 import { MathField, type MathFieldHandle } from './MathField';
@@ -100,6 +100,29 @@ export function CellGroup({
 
   const display = pickGroupDisplay(objects, results);
   const displayShown = display.kind !== 'empty' && display.kind !== 'pending';
+
+  // 결과 행의 표시 모드. `symbolic` 이 정본이고 `numeric` 은 그 위에 얹는 **보기**다 —
+  // 문서(`FormulaObject.latex`)는 어느 쪽에서도 안 바뀐다. 그래서 상태가 여기(로컬)에
+  // 있고 영속되지 않는다. 그룹은 `groupId` 로 키잉돼 있어 재정렬·재계산에는 살아남는다.
+  const [numericMode, setNumericMode] = useState(false);
+  const [numericLatex, setNumericLatex] = useState<string | null>(null);
+  const numericRequestRef = useRef(0);
+
+  const symbolicLatex = display.kind === 'ok' ? display.latex : null;
+
+  useEffect(() => {
+    if (!numericMode || symbolicLatex === null) {
+      setNumericLatex(null);
+      return;
+    }
+    // 응답 순서가 요청 순서와 다를 수 있다 — 최신 요청만 반영한다(`trackSelection` 과
+    // 같은 패턴).
+    const requestId = ++numericRequestRef.current;
+    approximateAsync(symbolicLatex).then((latex) => {
+      if (numericRequestRef.current === requestId) setNumericLatex(latex);
+    });
+  }, [numericMode, symbolicLatex]);
+
   // 결과를 편집하면 이 그룹의 새 셀이 된다 — 확정한 셀이 있으면 그 셀 뒤에, 없으면
   // (상시 표시 중인 단일 셀 그룹) 그 유일한 셀 뒤에.
   const editResultTargetId = groupResultTargetId(objects);
@@ -179,11 +202,14 @@ export function CellGroup({
       {displayShown && (
         <ResultRow
           result={display}
+          numericLatex={numericMode ? numericLatex : null}
           syncKey={syncKey}
           fieldRef={resultRef}
           selection={selection}
           focusToken={resultFocus?.token ?? null}
           focusOffset={resultFocus?.offset ?? null}
+          numericMode={numericMode}
+          onNumericModeChange={setNumericMode}
           onApply={applyTransform}
           onDetach={detachIfChanged}
           onSelectionChange={trackSelection}
@@ -225,6 +251,9 @@ export function CellGroup({
 
 function ResultRow({
   result,
+  numericLatex,
+  numericMode,
+  onNumericModeChange,
   syncKey,
   fieldRef,
   selection,
@@ -241,6 +270,10 @@ function ResultRow({
   onMoveOut,
 }: {
   result: Extract<EvalResult, { kind: 'error' | 'boolean' | 'ok' }>;
+  /** numeric 모드에서 대신 보여줄 LaTeX. 아직 안 왔거나 symbolic 모드면 `null`. */
+  numericLatex: string | null;
+  numericMode: boolean;
+  onNumericModeChange: (numeric: boolean) => void;
   syncKey: number;
   fieldRef: React.Ref<MathFieldHandle>;
   selection: SelectionInfo | null;
@@ -269,15 +302,18 @@ function ResultRow({
       </div>
     );
   }
+  // 수치 결과가 아직 안 왔으면 정확값을 그대로 보여준다 — 토글 순간의 깜빡임 방지.
+  const shownLatex = numericLatex ?? result.latex;
   return (
     <div className={result.definitionName !== null ? 'result result-def' : 'result'}>
-      <span className="result-arrow">=</span>
+      {/* `=` 는 정확값, `≈` 는 근삿값 — 화살표 자체가 지금 모드를 말한다. */}
+      <span className="result-arrow">{numericMode ? '≈' : '='}</span>
       {/* 결과도 입력 행과 같이 셀 안에 가둔다 — 긴 결과가 카드 밖으로 삐져나오면
           안 된다. 넘치면 가려진 쪽에 말줄임표가 뜬다(`FieldClip`). */}
-      <FieldClip watch={result.latex}>
+      <FieldClip watch={shownLatex}>
         <MathField
           ref={fieldRef}
-          value={result.latex}
+          value={shownLatex}
           syncKey={syncKey}
           focusToken={focusToken}
           focusOffset={focusOffset}
@@ -292,11 +328,46 @@ function ResultRow({
           onMoveOut={onMoveOut}
         />
       </FieldClip>
-      {selection !== null && (
-        <div className="result-actions">
-          <TransformButtons selection={selection} onApply={onApply} />
-        </div>
-      )}
+      <div className="result-actions">
+        {selection !== null && <TransformButtons selection={selection} onApply={onApply} />}
+        <ResultModeToggle numeric={numericMode} onChange={onNumericModeChange} />
+      </div>
     </div>
+  );
+}
+
+/**
+ * 결과 표시 모드 스위치 — 정확값(symbolic) ↔ 근삿값(numeric).
+ *
+ * 이 앱의 결과는 일관되게 **정확값**이다(CE의 `.evaluate()` 가 정확값을 보존한다) —
+ * `\frac{1}{3}`·`\sqrt{2}`·`\ln\left(2\right)` 는 그대로 남는다. 숫자가 보고 싶은
+ * 순간에만 이 스위치로 `.N()` 을 얹는다(`algebra/transform/approximate.ts`).
+ * **문서는 어느 쪽에서도 안 바뀐다** — 보기일 뿐이다.
+ *
+ * `mousedown` 에서 `preventDefault` 하는 이유는 `TransformButtons` 와 같다: 결과
+ * 필드의 포커스·선택을 뺏지 않아야 토글 뒤에도 하던 조작을 이어갈 수 있다.
+ */
+function ResultModeToggle({
+  numeric,
+  onChange,
+}: {
+  numeric: boolean;
+  onChange: (numeric: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={numeric}
+      aria-label="Numeric result"
+      className={numeric ? 'result-mode result-mode-numeric' : 'result-mode'}
+      title={numeric ? 'Showing an approximation — switch to exact' : 'Showing the exact value — switch to an approximation'}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => onChange(!numeric)}
+    >
+      <span className="result-mode-label">=</span>
+      <span className="result-mode-knob" />
+      <span className="result-mode-label">≈</span>
+    </button>
   );
 }

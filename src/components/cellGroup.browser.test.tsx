@@ -273,3 +273,62 @@ describe('CellGroup — 결과 필드에서도 셀 조작 단축키가 먹는다
     );
   });
 });
+
+describe('CellGroup — 결과 표시 모드 스위치 (정확값 / 근삿값)', () => {
+  /** 결과가 정확값으로 남는 셀 하나 — 수치 모드로 바뀌는 게 눈에 보이는 값. */
+  const EXACT = String.raw`\frac{1}{3}`;
+
+  async function exactResult() {
+    const cell = { ...makeObject(), latex: EXACT, entered: true };
+    const results = new Map<string, EvalResult>([
+      [cell.id, { kind: 'ok', latex: EXACT, definitionName: null, unchanged: false }],
+    ]);
+    const container = mount([cell], results, vi.fn());
+    await settle();
+    return { container, cell };
+  }
+
+  /** 워커 왕복 — 요청이 나가고 상태가 반영될 때까지. */
+  const workerRoundTrip = () => new Promise((r) => setTimeout(r, 1000));
+
+  const toggleOf = (c: HTMLElement) => c.querySelector('.result-mode') as HTMLButtonElement;
+
+  it('스위치는 결과 행에만 있다 (입력 행엔 없다)', async () => {
+    const { container } = await exactResult();
+    expect(container.querySelectorAll('.result-mode')).toHaveLength(1);
+    expect(container.querySelector('.result .result-mode')).not.toBeNull();
+  });
+
+  it('기본은 정확값 — 화살표가 `=` 이고 결과가 그대로다', async () => {
+    const { container } = await exactResult();
+    expect(toggleOf(container).getAttribute('aria-checked')).toBe('false');
+    expect(container.querySelector('.result-arrow')?.textContent).toBe('=');
+    const fields = [...container.querySelectorAll('math-field')] as MathfieldElement[];
+    expect(fields[1].value).toBe(EXACT);
+  });
+
+  it('누르면 근삿값으로 바뀐다 — 화살표가 `≈` 이고 결과가 소수다', async () => {
+    const { container } = await exactResult();
+    toggleOf(container).click();
+    await settle();
+    await workerRoundTrip();
+    expect(toggleOf(container).getAttribute('aria-checked')).toBe('true');
+    expect(container.querySelector('.result-arrow')?.textContent).toBe('≈');
+    const fields = [...container.querySelectorAll('math-field')] as MathfieldElement[];
+    expect(fields[1].value.startsWith('0.333')).toBe(true);
+  });
+
+  it('다시 누르면 정확값으로 돌아온다 (문서는 안 바뀐다)', async () => {
+    const { container, cell } = await exactResult();
+    toggleOf(container).click();
+    await settle();
+    await workerRoundTrip();
+    toggleOf(container).click();
+    await settle();
+    const fields = [...container.querySelectorAll('math-field')] as MathfieldElement[];
+    expect(fields[1].value).toBe(EXACT);
+    // 입력 셀(=문서)은 어느 쪽에서도 안 건드려진다 — 표시 모드일 뿐이다.
+    expect(fields[0].value).toBe(EXACT);
+    expect(cell.latex).toBe(EXACT);
+  });
+});

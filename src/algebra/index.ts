@@ -33,6 +33,7 @@ export { factor } from './transform/factor';
 export { simplify } from './transform/simplify';
 export { substitute } from './transform/substitute';
 export { solveFor } from './transform/solve';
+export { approximate } from './transform/approximate';
 export { isPureScalar } from './transform/delegate';
 export { evalNumeric, matricesClose, type NumericBindings, type Matrix } from './numeric';
 export { formatSyntax, formatTyped, formatTypedWithShapes } from './debug';

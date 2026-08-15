@@ -1,7 +1,12 @@
 import type { SelectionInfo } from '../cellSelection';
 import type { Env } from '../algebra';
 import type { FormulaObject, EvalResult } from '../types';
-import type { EvaluateRequest, SelectionRequest, WorkerResponse } from './protocol';
+import type {
+  ApproximateRequest,
+  EvaluateRequest,
+  SelectionRequest,
+  WorkerResponse,
+} from './protocol';
 
 /**
  * `algebra.worker.ts` 클라이언트 — 메인 스레드가 쓰는 유일한 창구.
@@ -35,7 +40,13 @@ type PendingSelection = {
   latex: string;
   timer: ReturnType<typeof setTimeout>;
 };
-type Pending = PendingEvaluate | PendingSelection;
+type PendingApproximate = {
+  kind: 'approximate';
+  resolve: (latex: string) => void;
+  latex: string;
+  timer: ReturnType<typeof setTimeout>;
+};
+type Pending = PendingEvaluate | PendingSelection | PendingApproximate;
 
 let worker: Worker | null = null;
 let nextRequestId = 0;
@@ -58,6 +69,8 @@ function handleMessage(ev: MessageEvent<WorkerResponse>): void {
     entry.resolve({ results: new Map(msg.results) });
   } else if (msg.request === 'selection' && entry.kind === 'selection') {
     entry.resolve(msg.selection);
+  } else if (msg.request === 'approximate' && entry.kind === 'approximate') {
+    entry.resolve(msg.latex);
   }
 }
 
@@ -146,6 +159,34 @@ export async function readSelectionAsync(
   });
 }
 
+/**
+ * 결과 행의 numeric 표시 모드 — 이미 계산된 결과 LaTeX을 수치로 편다.
+ *
+ * 타임아웃이나 실패면 **입력을 그대로 돌려준다**. 표시 모드는 편의 기능이라 결과 행을
+ * 오류로 만들지 않는다 — 토글을 켰는데 아무 변화가 없으면 "못 폈다"는 뜻이다.
+ */
+export async function approximateAsync(latex: string): Promise<string> {
+  if (typeof Worker === 'undefined') return approximateFallback(latex);
+
+  const w = ensureWorker();
+  const id = nextRequestId++;
+  return new Promise((resolve) => {
+    const entry: PendingApproximate = {
+      kind: 'approximate',
+      resolve,
+      latex,
+      timer: setTimeout(() => {
+        pending.delete(id);
+        respawn();
+        resolve(latex);
+      }, WORKER_TIMEOUT_MS),
+    };
+    pending.set(id, entry);
+    const req: ApproximateRequest = { id, kind: 'approximate', latex };
+    w.postMessage(req);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Worker 없는 환경(단위 테스트 등) 폴백 — 같은 모듈 함수를 인라인 호출한다.
 //
@@ -169,4 +210,9 @@ async function evaluateCellsFallback(
 async function readSelectionFallback(field: 'input' | 'result', latex: string): Promise<SelectionInfo> {
   const { readSelection } = await import('./readSelection');
   return readSelection(field, latex, fallbackEnv);
+}
+
+async function approximateFallback(latex: string): Promise<string> {
+  const { approximateResult } = await import('./approximateResult');
+  return approximateResult(latex, fallbackEnv);
 }
