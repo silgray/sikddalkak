@@ -135,7 +135,7 @@ describe('MathField — Alt+↑/↓ (그룹 이동·복제)', () => {
   });
 });
 
-describe('MathField — 포커스가 셀 그룹 밖으로 나가면 선택을 원상복구한다', () => {
+describe('MathField — 셀 그룹 밖으로 나가면 선택을 해제한다', () => {
   async function mountGroup() {
     const group = document.createElement('div');
     group.className = 'cell-group';
@@ -173,7 +173,7 @@ describe('MathField — 포커스가 셀 그룹 밖으로 나가면 선택을 �
   // null을 보고할 때가 있다(실측, 포커스 이동 대상과 무관하게) — 그 경로와 여기서
   // 검증하려는 "relatedTarget 컨테인먼트" 로직이 섞이지 않도록, 진짜 `.focus()`
   // 대신 합성 `focusout` 이벤트로 relatedTarget만 직접 주입해 이 로직만 딱 잰다.
-  it('그룹 밖 요소로 포커스가 옮겨가면 onSelectionChange(null)을 부른다', async () => {
+  it('그룹 밖 요소로 포커스가 옮겨가면 선택을 접고 onSelectionChange(null)을 부른다', async () => {
     const { mfA, onSelA, outside } = await mountGroup();
     mfA.focus();
     await settle();
@@ -184,6 +184,37 @@ describe('MathField — 포커스가 셀 그룹 밖으로 나가면 선택을 �
     mfA.dispatchEvent(new FocusEvent('focusout', { relatedTarget: outside }));
     await settle();
     expect(onSelA).toHaveBeenCalledWith(null);
+    // 버튼만 숨기는 게 아니라 **모델의 선택까지** 푼다 — 안 그러면 다시 포커스했을 때
+    // 선택이 되살아나 "해제했는데 안 풀린" 상태가 된다.
+    expect(mfA.selectionIsCollapsed).toBe(true);
+  });
+
+  it('그룹 밖을 클릭하면(포커스 이동이 없어도) 선택이 풀린다', async () => {
+    // 스택 배경 같은 빈 여백을 누르면 포커스가 어디로도 안 옮겨가 focusout 이
+    // 아예 안 난다 — 그래서 document pointerdown 경로가 따로 있다.
+    const { mfA, onSelA, outside } = await mountGroup();
+    mfA.focus();
+    await settle();
+    mfA.selection = { ranges: [[0, 3]], direction: 'forward' };
+    await settle();
+    onSelA.mockClear();
+    outside.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
+    await settle();
+    expect(mfA.selectionIsCollapsed).toBe(true);
+    expect(onSelA).toHaveBeenCalledWith(null);
+  });
+
+  it('같은 그룹 안을 클릭하면 선택이 살아 있다 (변환 버튼 클릭)', async () => {
+    // TransformButtons/SelectionToolbar 는 그룹 DOM 안에 있다 — 그 클릭으로 선택이
+    // 날아가면 변환 자체가 불가능해진다.
+    const { mfA, mfB } = await mountGroup();
+    mfA.focus();
+    await settle();
+    mfA.selection = { ranges: [[0, 3]], direction: 'forward' };
+    await settle();
+    mfB.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
+    await settle();
+    expect(mfA.selectionIsCollapsed).toBe(false);
   });
 
   it('같은 그룹 안 다른 셀로 포커스가 옮겨가면 지우지 않는다', async () => {

@@ -454,27 +454,52 @@ export function MathField({
       // 들어오면 이벤트 없이 선택만 존재해 버튼 상태가 어긋난다 — 즉시 보고해 동기화.
       reportSelection();
     });
+    /** 이 필드가 속한 셀 그룹. 그룹 밖에 단독으로 띄운 경우(테스트)엔 자기 자신. */
+    const scopeOf = (): Element => host.closest('.cell-group') ?? host;
+
+    /**
+     * 선택을 **실제로 푼다** — 버튼만 숨기는 게 아니라 캐럿·선택 범위를 초기화한다.
+     * 모델에 선택이 살아 있으면 다시 포커스했을 때 되살아나, 사용자가 보기엔
+     * "해제했는데 안 풀린" 상태가 된다.
+     */
+    const clearSelection = () => {
+      if (!mf.selectionIsCollapsed) {
+        mf.selection = { ranges: [[0, 0]], direction: 'forward' };
+      }
+      // 선택 변경은 `selection-change` → `reportSelection` 으로도 보고되지만,
+      // 이미 접혀 있던 경우엔 이벤트가 안 나므로 여기서도 한 번 알린다.
+      handlers.current.onSelectionChange?.(null);
+    };
+
     mf.addEventListener('focusout', (ev) => {
       isEditing.current = false;
       // ghost 괄호는 "편집 중인 셀의 순간 상태"다 — 셀을 떠나면 확정한다.
       // LaTeX 표현은 동일하므로 문서·계산에는 영향이 없다 (반투명 표시만 사라진다).
       finalizeGhostFences(mf);
-      // 선택은 기본적으로 blur돼도 안 지운다 — 모델의 선택은 살아 있고(변환 적용
-      // 가능), 창 포커스 전환(alt-tab, relatedTarget이 null)만으로 선택 조작
-      // 버튼이 사라지면 안 된다. 하지만 포커스가 **이 셀 그룹 밖의 다른 곳**으로
+      // 창 포커스 전환(alt-tab, relatedTarget이 null)만으로는 안 푼다 — 돌아왔을 때
+      // 하던 선택이 남아 있어야 한다. 하지만 포커스가 **이 셀 그룹 밖의 다른 곳**으로
       // 확실히 옮겨갔으면(relatedTarget이 있고 그룹 DOM 밖) 그건 사용자가 실제로
-      // 자리를 뜬 것이니 원상복구한다 — TransformButtons/SelectionToolbar는
+      // 자리를 뜬 것이니 해제한다 — TransformButtons/SelectionToolbar는
       // mousedown에서 preventDefault해 포커스를 안 뺏으므로 그 클릭으로는 여기가
       // 안 탄다.
       const related = (ev as FocusEvent).relatedTarget as Node | null;
-      if (related !== null) {
-        const group = host.closest('.cell-group');
-        if (group !== null && !group.contains(related)) {
-          handlers.current.onSelectionChange?.(null);
-        }
-      }
+      if (related !== null && !scopeOf().contains(related)) clearSelection();
     });
     mf.addEventListener('selection-change', reportSelection);
+
+    // 선택 해제의 두 번째 경로 — 셀 그룹 **밖**을 누르거나 거기서 드래그를 시작하면
+    // 해제한다. `focusout` 만으로는 못 잡는다: 그룹 밖 빈 여백(스택 배경 등)을 누르면
+    // 포커스가 어디로도 안 옮겨가 focusout 자체가 안 난다. capture 단계라 대상 쪽이
+    // 이벤트를 삼켜도 우리가 먼저 본다. 선택이 없으면 즉시 빠져나오므로, 필드마다
+    // 하나씩 달려 있어도 부담이 없다.
+    const onOutsidePointerDown = (ev: PointerEvent) => {
+      if (mf.selectionIsCollapsed) return;
+      const target = ev.target as Node | null;
+      if (target !== null && scopeOf().contains(target)) return;
+      clearSelection();
+    };
+    document.addEventListener('pointerdown', onOutsidePointerDown, { capture: true });
+
     // 캐럿이 경계를 넘으려 할 때 — 셀 간 이동의 신호.
     mf.addEventListener('move-out', (ev) => {
       const direction = (ev as CustomEvent<{ direction: string }>).detail?.direction;
@@ -611,6 +636,7 @@ export function MathField({
     ensureGhostLeftSupport();
     mfRef.current = mf;
     return () => {
+      document.removeEventListener('pointerdown', onOutsidePointerDown, { capture: true });
       mf.remove();
       mfRef.current = null;
     };
