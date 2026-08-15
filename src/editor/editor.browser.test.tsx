@@ -525,14 +525,21 @@ describe('MathField 통합 — 고아 fence 교정 파이프라인', () => {
     expect(remaining).toEqual([]);
   });
 
-  it('차단 목록의 key 가 전부 MathLive 기본 배열에 실재한다', async () => {
+  it('기본 동작을 끄려고 넣은 차단 key 는 전부 MathLive 기본 배열에 실재한다', async () => {
     // 위 테스트만으로는 **오타를 못 잡는다** — 없는 문자열은 "이미 없음" 이라 그냥
     // 통과한다. 실제로 `alt+\\` 를 넣어 두고 Alt+\ 가 안 막히던 버그가 이렇게 샜다
     // (MathLive의 실제 key 는 `alt+[Backslash]`). `createField` 는 우리
     // `configureKeybindings` 를 안 거치므로 여기서 얻는 건 손대지 않은 기본 배열이다.
+    //
+    // `CUSTOM_KEYBINDINGS` 가 다시 쓰는 key 는 뺀다 — 그쪽은 "기본을 끈다" 가 아니라
+    // "이 자리를 우리가 갖는다" 라서, 기본 배열에 없어도 넣어 둘 이유가 있다
+    // (`alt+-` 가 그 경우다, `keybindings.ts` 의 실측 주석 참고).
+    const rewritten = new Set(CUSTOM_KEYBINDINGS.map((kb) => kb.key));
     const f = await createField('a');
     const defaults = new Set(f.mf.keybindings.map((kb) => kb.key));
-    const missing = [...BLOCKED_KEYBINDINGS].filter((key) => !defaults.has(key));
+    const missing = [...BLOCKED_KEYBINDINGS].filter(
+      (key) => !defaults.has(key) && !rewritten.has(key),
+    );
     f.dispose();
     expect(missing).toEqual([]);
   });

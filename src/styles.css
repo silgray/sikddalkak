@@ -343,28 +343,17 @@ body {
   min-width: 0;
 }
 
-/* MathLive는 자기 콘텐츠 상자(part 이름 실측: content)에 스스로 overflow-x:hidden을
-   건다 — 그대로 두면 넘친 내용이 거기서 먼저 잘려 우리 쪽(`FieldClip`)에서는
-   `scrollWidth`가 절대 `clientWidth`를 넘지 않는다(실측). 넘침을 우리가 재려면
-   MathLive의 내부 클리핑부터 풀어야 한다 — 실제 화면 클리핑은 `.field-clip-clipped`
-   가 대신 맡는다. */
-.field-clip math-field::part(content) {
-  overflow: visible;
-}
+/* ⚠ MathLive의 콘텐츠 상자(`::part(content)` = `.ML__content`)에 `overflow` 를
+   덮어쓰지 말 것. 거기 걸린 `overflow: hidden` 이 곧 가로 스크롤 컨테이너이고,
+   MathLive가 캐럿을 따라 그걸 직접 스크롤한다(`Mathfield.scrollIntoView`).
+   예전에 여기에 `overflow: visible` 을 걸어 그 컨테이너를 없앴고, 그 바람에
+   `scrollWidth` 가 늘 `clientWidth` 와 같아 넘침을 못 쟀다 — `FieldClip` 문서 참고. */
 
-.field-clip-clipped {
-  overflow-x: hidden;
-}
-
-.field-clip-expanded {
-  overflow-x: auto;
-}
-
-/* 잘렸을 때 좌우 끝에 옅어지는 페이드 + `..` 표식. 카드 배경(`--bg` 위에 옅게
-   덮인 색)과 완전히 같지는 않지만(실측상 2% 정도 차이) 눈에 띌 만큼은 아니다. */
-.field-clip-clipped::before,
-.field-clip-clipped::after {
-  content: '..';
+/* 가려진 쪽에만 옅어지는 페이드 + 말줄임표. 카드 배경(`--bg` 위에 옅게 덮인 색)과
+   완전히 같지는 않지만(실측상 2% 정도 차이) 눈에 띌 만큼은 아니다. */
+.field-clip-more-left::before,
+.field-clip-more-right::after {
+  content: '…';
   position: absolute;
   top: 0;
   bottom: 0;
@@ -377,34 +366,16 @@ body {
   z-index: 2;
 }
 
-.field-clip-clipped::before {
+.field-clip-more-left::before {
   left: 0;
   justify-content: flex-start;
   background: linear-gradient(to right, var(--bg) 55%, transparent);
 }
 
-.field-clip-clipped::after {
+.field-clip-more-right::after {
   right: 0;
   justify-content: flex-end;
   background: linear-gradient(to left, var(--bg) 55%, transparent);
-}
-
-.field-expand-btn {
-  flex-shrink: 0;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--muted);
-  border-radius: 6px;
-  padding: 0.15rem 0.4rem;
-  font-size: 0.75rem;
-  font-family: inherit;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.field-expand-btn:hover {
-  color: var(--fg);
-  border-color: var(--muted);
 }
 
 .mf math-field {
@@ -481,6 +452,12 @@ math-field::part(virtual-keyboard-toggle) {
 .result .mf math-field {
   font-size: 1.05rem;
   /* width: 100%; */
+}
+
+/* 결과 필드도 `FieldClip` 안에 있다 — 남는 폭을 다 쓰게 해야 `.ML__content` 의
+   clientWidth 가 셀 폭이 되고, 그래야 넘침 판정이 실제 화면과 맞는다. */
+.result .mf {
+  width: 100%;
 }
 
 .cell-actions {

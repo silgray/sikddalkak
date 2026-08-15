@@ -1,14 +1,17 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createRoot } from 'react-dom/client';
 import { createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import type { MathfieldElement } from 'mathlive';
+import '../styles.css';
 import { FieldClip } from './FieldClip';
 import { MathField } from './MathField';
 
 /**
- * `FieldClip` 이 실제로 넘친 식을 잘라 보여주고(펼치기 버튼 등장), 펼치면 스크롤이
- * 허용되는지. 넘침 판정은 latex 길이 어림(`FieldClip.tsx` 문서 참고) — 정확한 렌더
- * 폭이 아니라 그 임계값(현재 50자) 언저리를 실제 MathLive 필드로 확인한다.
+ * `FieldClip` 의 넘침 판정 — **실제 렌더 폭**으로 도는지 확인한다.
+ *
+ * 이 스위트가 존재하는 이유: 예전 구현은 latex **글자 수 > 50** 으로 어림했고,
+ * `\begin{pmatrix}…\end{pmatrix}^{-1}`(54자)처럼 구조 문자만 많은 짧은 식이 전부
+ * 넘침으로 잡혀 말줄임표가 튀어나왔다(사용자 보고). 그 회귀를 여기 핀으로 박는다.
  */
 
 const cleanups: (() => void)[] = [];
@@ -16,75 +19,73 @@ afterEach(() => {
   while (cleanups.length > 0) cleanups.pop()?.();
 });
 
-const settle = () => new Promise((r) => setTimeout(r, 60));
+const settle = () => new Promise((r) => setTimeout(r, 80));
 
-async function mount() {
+type Mounted = { mf: MathfieldElement; clip: HTMLElement; root: Root };
+
+/** 폭을 못 박은 셀 안에 `FieldClip`+`MathField` 를 띄운다. */
+async function mount(initial: string, width = 320): Promise<Mounted> {
   const host = document.createElement('div');
+  // `.cell-input` 과 같은 모양 — flex 안에서 남는 폭을 다 쓰는 자리.
+  host.style.width = `${width}px`;
+  host.style.display = 'flex';
   document.body.append(host);
-  let latex = '';
   const root = createRoot(host);
-  const render = () => {
-    root.render(
-      createElement(FieldClip, {
-        watch: latex,
-        children: createElement(MathField, {
-          value: latex,
-          onEdit: (v: string) => {
-            latex = v;
-            render();
-          },
-        }),
-      }),
-    );
-  };
-  render();
-  await new Promise((r) => setTimeout(r, 30));
-  const mf = host.querySelector('math-field') as MathfieldElement;
-  mf.focus();
+  root.render(
+    createElement(FieldClip, { watch: initial }, createElement(MathField, { value: initial })),
+  );
   await settle();
+  const mf = host.querySelector('math-field') as MathfieldElement;
+  const clip = host.querySelector('.field-clip') as HTMLElement;
   cleanups.push(() => {
     root.unmount();
     host.remove();
   });
-  return {
-    host,
-    mf,
-    async type(text: string) {
-      for (const ch of text) {
-        mf.executeCommand(['typedText', ch, { simulateKeystroke: true }]);
-      }
-      await settle();
-      await settle();
-    },
-  };
+  return { mf, clip, root };
 }
 
-describe('FieldClip — 긴 식 축약', () => {
-  it('짧은 식은 안 잘린다 (펼치기 버튼 없음)', async () => {
-    const { host, type } = await mount();
-    await type('x+1');
-    expect(host.querySelector('.field-expand-btn')).toBeNull();
-    expect(host.querySelector('.field-clip-clipped')).toBeNull();
+/** 320px 셀에는 확실히 안 들어가는 식. */
+const LONG = String.raw`x^{10}+9x^{9}+8x^{8}+7x^{7}+6x^{6}+5x^{5}+4x^{4}+3x^{3}+2x^{2}+x+123456`;
+
+const marks = (clip: HTMLElement) => ({
+  left: clip.classList.contains('field-clip-more-left'),
+  right: clip.classList.contains('field-clip-more-right'),
+});
+
+describe('FieldClip — 가려진 쪽에만 말줄임표', () => {
+  it('짧은 식에는 표식이 없다', async () => {
+    const { clip } = await mount('x+1');
+    expect(marks(clip)).toEqual({ left: false, right: false });
   });
 
-  it('임계값을 넘는 긴 식은 잘리고 펼치기 버튼이 뜬다', async () => {
-    const { host, type } = await mount();
-    // 51자 이상 — FieldClip의 CLIP_THRESHOLD(50)를 넘긴다.
-    await type('x^{1}+x^{2}+x^{3}+x^{4}+x^{5}+x^{6}+x^{7}+x^{8}+x9');
-    expect(host.querySelector('.field-clip-clipped')).not.toBeNull();
-    expect(host.querySelector('.field-expand-btn')).not.toBeNull();
+  it('회귀: 글자 수는 많지만 화면엔 짧은 행렬 식에도 표식이 없다', async () => {
+    // 54자 — 옛 임계값(50)을 넘겨 말줄임표가 뜨던 바로 그 식이다.
+    const latex = String.raw`\begin{pmatrix}1+i & 1-i\\ 2i & -2i\end{pmatrix}^{-1}`;
+    expect(latex.length).toBeGreaterThan(50);
+    const { clip } = await mount(latex);
+    expect(marks(clip)).toEqual({ left: false, right: false });
   });
 
-  it('펼치기 버튼을 누르면 가로 스크롤이 허용되고 잘림 표시가 없어진다', async () => {
-    const { host, type } = await mount();
-    await type('x^{1}+x^{2}+x^{3}+x^{4}+x^{5}+x^{6}+x^{7}+x^{8}+x9');
-    const btn = host.querySelector('.field-expand-btn') as HTMLButtonElement;
-    expect(btn).not.toBeNull();
-    btn.click();
+  it('진짜로 넘치면 뒤가 잘려 오른쪽에 표식이 뜬다', async () => {
+    const { clip } = await mount(LONG);
     await settle();
-    expect(host.querySelector('.field-clip-expanded')).not.toBeNull();
-    expect(host.querySelector('.field-clip-clipped')).toBeNull();
-    // 버튼은 넘침 상태에서는 계속 남아 — 다시 눌러 접을 수 있다.
-    expect(host.querySelector('.field-expand-btn')).not.toBeNull();
+    // 아직 스크롤 전 — 앞부분이 보이고 뒤가 잘려 있다.
+    expect(marks(clip)).toEqual({ left: false, right: true });
+  });
+
+  it('캐럿을 옮기면 보이는 창이 따라 움직이고 표식도 뒤집힌다', async () => {
+    const { mf, clip } = await mount(LONG);
+    await settle();
+    // MathLive는 포커스·캐럿 이동마다 `.ML__content` 를 캐럿 쪽으로 스크롤한다
+    // (`Mathfield.scrollIntoView`). 포커스는 캐럿을 끝에 놓으므로 앞이 잘린다.
+    mf.focus();
+    await settle();
+    expect(marks(clip)).toEqual({ left: true, right: false });
+
+    // ⚠ `mf.position = 0` 은 스크롤을 안 옮긴다(실측) — 캐럿만 바꾼다. 실제 키 입력이
+    // 부르는 편집 명령을 써야 `scrollIntoView` 까지 탄다.
+    mf.executeCommand('moveToMathfieldStart');
+    await settle();
+    expect(marks(clip)).toEqual({ left: false, right: true });
   });
 });

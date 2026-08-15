@@ -5,6 +5,7 @@ import type { Action, Tab } from '../state/workspace';
 import type { EvalResult, FormulaObject } from '../types';
 import { readSelectionAsync } from '../worker/client';
 import { Cell } from './Cell';
+import { FieldClip } from './FieldClip';
 import { MathField, type MathFieldHandle } from './MathField';
 import { TransformButtons } from './TransformButtons';
 
@@ -233,18 +234,22 @@ function ResultRow({
   return (
     <div className={result.definitionName !== null ? 'result result-def' : 'result'}>
       <span className="result-arrow">=</span>
-      <MathField
-        ref={fieldRef}
-        value={result.latex}
-        syncKey={syncKey}
-        focusToken={focusToken}
-        focusOffset={focusOffset}
-        onEdit={onDetach}
-        onEnter={(latex) => onDetach(latex)}
-        onSelectionChange={onSelectionChange}
-        onTransformShortcut={onTransformShortcut}
-        onMoveOut={onMoveOut}
-      />
+      {/* 결과도 입력 행과 같이 셀 안에 가둔다 — 긴 결과가 카드 밖으로 삐져나오면
+          안 된다. 넘치면 가려진 쪽에 말줄임표가 뜬다(`FieldClip`). */}
+      <FieldClip watch={result.latex}>
+        <MathField
+          ref={fieldRef}
+          value={result.latex}
+          syncKey={syncKey}
+          focusToken={focusToken}
+          focusOffset={focusOffset}
+          onEdit={onDetach}
+          onEnter={(latex) => onDetach(latex)}
+          onSelectionChange={onSelectionChange}
+          onTransformShortcut={onTransformShortcut}
+          onMoveOut={onMoveOut}
+        />
+      </FieldClip>
       {selection !== null && (
         <div className="result-actions">
           <TransformButtons selection={selection} onApply={onApply} />

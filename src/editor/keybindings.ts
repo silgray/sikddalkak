@@ -12,8 +12,6 @@ import type { Keybinding, MathfieldElement } from 'mathlive';
  * ⚠ 같은 `key`+`ifMode` 를 뒤에 덧붙이면 MathLive가 "Ambiguous key binding" 으로 보고
  * **뒤에 붙인 쪽을 버린다**(실측, console.error). 그래서 기본 바인딩을 다른 동작으로
  * 덮어쓰려면 그 `key` 를 `BLOCKED_KEYBINDINGS` 에도 반드시 넣어야 한다.
- * (`alt+-` 는 기본 배열에 아예 없으므로 안 넣는다 — 브라우저 테스트의 "차단 목록의
- * key 가 전부 실재한다" 가 없는 항목을 잡아낸다.)
  */
 
 /**
@@ -24,6 +22,8 @@ import type { Keybinding, MathfieldElement } from 'mathlive';
  * 지우면 MathLive 기본 동작이 돌아온다.
  */
 export const BLOCKED_KEYBINDINGS: ReadonlySet<string> = new Set<string>([
+  'alt+-',  // 원인은 모르겠으나, 여기서 막지 않으면 \overline 삽입 단축키가 대부분의 상황에서 먹지 않음. 지우지 말 것.
+
   // Ctrl+2 → \sqrt (Wolfram Mathematica 계열 바인딩)
   'ctrl+[Digit2]',
   // Alt+D → \differentialD
@@ -69,8 +69,10 @@ export const BLOCKED_KEYBINDINGS: ReadonlySet<string> = new Set<string>([
 
 /**
  * 추가할 커스텀 키바인딩. `{key, command, ifMode?, ifPlatform?, ifLayout?}` 형식
- * (`node_modules/mathlive/types/options.d.ts` 의 `Keybinding` 참고). 지금은 비어
- * 있다 — 다음 판에 여기 채운다.
+ * (`node_modules/mathlive/types/options.d.ts` 의 `Keybinding` 참고).
+ *
+ * 여기 있는 `key` 는 `BLOCKED_KEYBINDINGS` 에도 있어야 한다(위 경고) — 그래서
+ * "차단했는데 아직 살아 있다" 를 보는 브라우저 테스트는 이 목록을 예외로 뺀다.
  */
 export const CUSTOM_KEYBINDINGS: readonly Keybinding[] = [
   /**
