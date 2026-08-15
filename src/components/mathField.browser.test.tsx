@@ -243,3 +243,28 @@ describe('MathField — 셀 그룹 밖으로 나가면 선택을 해제한다', 
     expect(onSelA).not.toHaveBeenCalledWith(null);
   });
 });
+
+describe('MathField — 셰도우 DOM 스타일', () => {
+  it(String.raw`\overline 앞뒤에 여백이 붙는다`, async () => {
+    // MathLive는 `\overline` 렌더 박스를 `type: 'ignore'` 로 만들어 원자 간 자동
+    // 간격이 아예 안 붙는다 — 앞뒤 글자에 딱 붙어 읽기 어렵다. 셰도우 루트가
+    // `mode: 'open'` 이라 `adoptedStyleSheets` 로 직접 얹어 해결한다.
+    // ⚠ 이 테스트가 깨지면 MathLive가 클래스 이름(`.overline`)을 바꾼 것이다.
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    root.render(createElement(MathField, { value: String.raw`x\overline{z}y` }));
+    await settle();
+    const mf = host.querySelector('math-field') as MathfieldElement;
+    const overline = mf.shadowRoot?.querySelector('.overline') as HTMLElement | null;
+    cleanups.push(() => {
+      root.unmount();
+      host.remove();
+    });
+
+    expect(overline).not.toBeNull();
+    const style = getComputedStyle(overline!);
+    expect(parseFloat(style.marginLeft)).toBeGreaterThan(0);
+    expect(parseFloat(style.marginRight)).toBeGreaterThan(0);
+  });
+});

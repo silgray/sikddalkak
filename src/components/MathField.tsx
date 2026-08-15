@@ -159,6 +159,43 @@ function configureInlineShortcuts(mf: MathfieldElement): void {
 }
 
 /**
+ * 셰도우 DOM 안쪽에 얹는 우리 CSS.
+ *
+ * MathLive의 렌더 결과는 셰도우 루트 안이라 전역 스타일시트가 못 닿고,
+ * 노출된 `::part()` 는 컨테이너 몇 개뿐이다. 대신 셰도우 루트가 `mode: 'open'`
+ * 이라(`mathlive.mjs:40817` 실측) `adoptedStyleSheets` 로 직접 얹을 수 있다.
+ * MathLive 자신도 같은 방식으로 자기 시트를 넣으므로 뒤에 붙이면 우리가 이긴다.
+ *
+ * 시트는 모듈 전역에 **한 장**만 만들어 모든 필드가 공유한다.
+ */
+const SHADOW_CSS = `
+/* \\overline 은 렌더 박스가 type:'ignore' 라 원자 간 자동 간격이 아예 안 붙는다
+   (mathlive.mjs 의 overline render: new Box(stack, {classes:'overline', type:'ignore'})).
+   그래서 앞뒤 글자에 딱 붙어 읽기 어렵다 — 숨 쉴 틈만 준다. */
+.ML__latex .overline {
+  margin-left: 0.08em;
+  margin-right: 0.08em;
+}
+`;
+
+let shadowSheet: CSSStyleSheet | null = null;
+
+function applyShadowStyles(mf: MathfieldElement): void {
+  try {
+    const root = mf.shadowRoot;
+    if (root === null || !('adoptedStyleSheets' in root)) return;
+    if (shadowSheet === null) {
+      shadowSheet = new CSSStyleSheet();
+      shadowSheet.replaceSync(SHADOW_CSS);
+    }
+    if (root.adoptedStyleSheets.includes(shadowSheet)) return;
+    root.adoptedStyleSheets = [...root.adoptedStyleSheets, shadowSheet];
+  } catch {
+    // 셰도우 스타일은 미관 문제라 실패해도 그냥 넘어간다 (내부 API 접근 규율).
+  }
+}
+
+/**
  * ☰ 메뉴에서 쓰지 않는 항목을 걷어낸다.
  * - mode(수식/text/LaTeX)·variant(글꼴)·color·background-color: 안 씀
  * - 행렬 구분 기호 서브메뉴(environment-*): 선택 위 플로팅 툴바로 이전
@@ -626,6 +663,8 @@ export function MathField({
     configureInlineShortcuts(mf);
     // ctrl/alt/shift 키바인딩 On/Off 커스터마이징 — 같은 mount 후 제약(`editor/keybindings.ts`).
     configureKeybindings(mf);
+    // 셰도우 DOM 안쪽 렌더 손질 (append 후여야 셰도우 루트가 있다).
+    applyShadowStyles(mf);
     // ☰ 메뉴에서 안 쓰는 항목 제거 (append 후여야 기본 메뉴가 구성돼 있다).
     pruneMenu(mf);
     // 포커스된 필드가 언마운트될 때의 MathLive 크래시 우회 (editor/internals.ts 참고).
