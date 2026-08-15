@@ -119,6 +119,18 @@ type ObjectAction =
    */
   | { type: 'duplicateCell'; id: string; position: 'above' | 'below'; cursor?: number }
   /**
+   * 그룹 **전체**를 통째로 복제해 옆에 놓는다 — 결과 행에서 Shift+Alt+↑/↓ 를 눌렀을
+   * 때. 입력 행의 `duplicateCell`(셀 하나)과 갈리는 이유: 결과 행은 특정 셀이 아니라
+   * 그룹 전체를 대표하는 자리라, 거기서 "복제" 는 보이는 것 전부를 뜻한다.
+   *
+   * 복제본은 새 `id` 와 **공통의 새 `groupId`** 를 받는다. `entered` 는 그대로 둔다 —
+   * 그래야 복제본의 결과 행이 원본과 똑같이 보인다.
+   *
+   * `cursor` 는 원본 그룹의 result 필드로 돌아갈 캐럿 자리다(`duplicateCell` 과 같은
+   * 이유 — 삽입이 DOM 을 밀어 필드가 blur 된다).
+   */
+  | { type: 'duplicateGroup'; id: string; position: 'above' | 'below'; cursor?: number }
+  /**
    * 셀에 포커스 지시. offset이 있으면 캐럿 위치까지 (셀 간 이동 등). field가
    * 'result'면 id는 오브젝트가 아니라 그룹 id — 위/아래 화살표로 결과 필드에
    * 들어갈 때 쓴다.
@@ -354,6 +366,31 @@ function reduceContent(tab: Tab, action: ObjectAction): Content {
           action.cursor === undefined
             ? tab.focus
             : { id: action.id, token: nextToken(tab), offset: action.cursor },
+      };
+    }
+
+    case 'duplicateGroup': {
+      const index = tab.objects.findIndex((o) => o.id === action.id);
+      if (index === -1) return { objects: tab.objects, focus: tab.focus };
+      const group = groupAt(tab.objects, index);
+      const copyGroupId = crypto.randomUUID();
+      const copies = tab.objects
+        .slice(group.start, group.end)
+        .map((o) => ({ ...o, id: crypto.randomUUID(), groupId: copyGroupId }));
+      const insertAt = action.position === 'above' ? group.start : group.end;
+      const objects = [...tab.objects.slice(0, insertAt), ...copies, ...tab.objects.slice(insertAt)];
+      // 포커스는 원본 그룹의 result 필드에 남는다 — `groupId` 는 안 바뀌므로 그대로 쓴다.
+      return {
+        objects,
+        focus:
+          action.cursor === undefined
+            ? tab.focus
+            : {
+                id: group.groupId,
+                token: nextToken(tab),
+                offset: action.cursor,
+                field: 'result' as const,
+              },
       };
     }
 

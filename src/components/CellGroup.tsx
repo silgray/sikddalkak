@@ -188,6 +188,23 @@ export function CellGroup({
           onDetach={detachIfChanged}
           onSelectionChange={trackSelection}
           onTransformShortcut={applyTransform}
+          focusSelection={resultFocus?.selection ?? null}
+          // 결과 행도 입력 행과 **똑같이** 셀을 조작할 수 있어야 한다. 안 넘기면
+          // `MathField` 의 capture 리스너가 키를 `preventDefault` 로 먹어치우고
+          // 핸들러가 undefined 라 아무 일도 안 일어난다(= 키가 죽는다).
+          onMoveGroup={(delta, caret) =>
+            onMoveGroup(delta, { id: groupId, offset: caret, field: 'result' })
+          }
+          // Shift+Alt+↑/↓ — 결과 행은 그룹 전체를 대표하는 자리라 그룹째 복제한다
+          // (입력 행의 셀 하나 복제와 갈린다).
+          onDuplicate={(position, caret) =>
+            dispatch({ type: 'duplicateGroup', id: objects[0].id, position, cursor: caret })
+          }
+          // Ctrl+(Shift+)Enter — 그룹 밖 새 빈 셀. `insertCell` 이 `groupAt` 으로
+          // 경계를 잡으므로 그룹의 아무 셀 id 나 넘기면 된다.
+          onInsertCell={(position) =>
+            dispatch({ type: 'insertCell', id: objects[objects.length - 1].id, position })
+          }
           onMoveOut={(direction) => {
             const goingUp = direction === 'upward';
             if (goingUp) {
@@ -217,6 +234,10 @@ function ResultRow({
   onDetach,
   onSelectionChange,
   onTransformShortcut,
+  focusSelection,
+  onMoveGroup,
+  onDuplicate,
+  onInsertCell,
   onMoveOut,
 }: {
   result: Extract<EvalResult, { kind: 'error' | 'boolean' | 'ok' }>;
@@ -225,10 +246,14 @@ function ResultRow({
   selection: SelectionInfo | null;
   focusToken: number | null;
   focusOffset: number | null;
+  focusSelection: readonly [number, number] | null;
   onApply: (op: SelectionOp) => void;
   onDetach: (latex: string, caret?: number) => void;
   onSelectionChange: (selectedLatex: string | null) => void;
   onTransformShortcut: (op: SelectionOp) => void;
+  onMoveGroup: (delta: -1 | 1, caret: number) => void;
+  onDuplicate: (position: 'above' | 'below', caret: number) => void;
+  onInsertCell: (position: 'above' | 'below') => void;
   onMoveOut: (direction: 'forward' | 'backward' | 'upward' | 'downward') => void;
 }) {
   if (result.kind === 'error') {
@@ -256,10 +281,14 @@ function ResultRow({
           syncKey={syncKey}
           focusToken={focusToken}
           focusOffset={focusOffset}
+          focusSelection={focusSelection}
           onEdit={onDetach}
           onEnter={(latex) => onDetach(latex)}
           onSelectionChange={onSelectionChange}
           onTransformShortcut={onTransformShortcut}
+          onMoveGroup={onMoveGroup}
+          onDuplicate={onDuplicate}
+          onInsertCell={onInsertCell}
           onMoveOut={onMoveOut}
         />
       </FieldClip>

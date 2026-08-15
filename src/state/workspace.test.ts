@@ -326,6 +326,54 @@ describe('셀 복제 (duplicateCell)', () => {
   });
 });
 
+describe('그룹 복제 (duplicateGroup)', () => {
+  /** 셀 둘짜리 그룹 하나 + 상시 빈 셀. `editResult` 가 그룹을 키우는 유일한 경로다. */
+  const seedGroup = () => {
+    let s = initialWorkspace();
+    const a = active(s).objects[0].id;
+    s = workspaceReducer(s, { type: 'editInput', id: a, latex: '2x+3x', cursor: 5 });
+    s = workspaceReducer(s, { type: 'enter', id: a, latex: '2x+3x' });
+    s = workspaceReducer(s, { type: 'editResult', id: a, latex: '5x', cursor: 2 });
+    const groupId = active(s).objects[0].groupId;
+    return { s, a, groupId };
+  };
+
+  it('그룹 안 셀을 전부 복제하고 공통의 새 groupId 를 준다', () => {
+    let { s, a, groupId } = seedGroup();
+    const before = active(s).objects.filter((o) => o.groupId === groupId);
+    expect(before.length).toBeGreaterThan(1);
+
+    s = workspaceReducer(s, { type: 'duplicateGroup', id: a, position: 'below', cursor: 2 });
+    const after = active(s).objects;
+    const copies = after.filter((o) => o.groupId !== groupId && o.latex !== '');
+    expect(copies).toHaveLength(before.length);
+    // 복제본은 자기들끼리 한 그룹이고, 원본과는 다른 그룹이다.
+    expect(new Set(copies.map((o) => o.groupId)).size).toBe(1);
+    expect(copies[0].groupId).not.toBe(groupId);
+    expect(copies.map((o) => o.latex)).toEqual(before.map((o) => o.latex));
+    // id 는 전부 새로 받는다.
+    expect(new Set(after.map((o) => o.id)).size).toBe(after.length);
+  });
+
+  it('복제본은 원본 바로 아래에 통째로 들어간다 (그룹이 안 쪼개진다)', () => {
+    let { s, a, groupId } = seedGroup();
+    const size = active(s).objects.filter((o) => o.groupId === groupId).length;
+    s = workspaceReducer(s, { type: 'duplicateGroup', id: a, position: 'below', cursor: 0 });
+    const ids = active(s).objects.map((o) => o.groupId);
+    // 원본 블록이 통째로 앞에, 복제 블록이 통째로 뒤에.
+    expect(ids.slice(0, size).every((g) => g === groupId)).toBe(true);
+    expect(new Set(ids.slice(size, size * 2)).size).toBe(1);
+  });
+
+  it('포커스는 원본 그룹의 result 필드로 돌아간다', () => {
+    let { s, a, groupId } = seedGroup();
+    const before = active(s).focus?.token ?? 0;
+    s = workspaceReducer(s, { type: 'duplicateGroup', id: a, position: 'above', cursor: 2 });
+    expect(active(s).focus).toMatchObject({ id: groupId, offset: 2, field: 'result' });
+    expect(active(s).focus!.token).toBeGreaterThan(before);
+  });
+});
+
 describe('키워드 단위 실행취소 (undo 시점 그룹핑)', () => {
   const seed = () => {
     const s = initialWorkspace();

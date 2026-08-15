@@ -28,7 +28,11 @@ function mount(
   objects: FormulaObject[],
   results: Map<string, EvalResult>,
   dispatch: (a: unknown) => void,
-  extra: { focus?: Tab['focus']; onMoveOut?: (index: number, direction: string) => void } = {},
+  extra: {
+    focus?: Tab['focus'];
+    onMoveOut?: (index: number, direction: string) => void;
+    onMoveGroup?: (delta: -1 | 1, refocus: unknown) => void;
+  } = {},
 ) {
   const container = document.createElement('div');
   document.body.append(container);
@@ -47,7 +51,7 @@ function mount(
       onDragEnd: () => {},
       onMoveOut: extra.onMoveOut ?? (() => {}),
       onDeleteEmpty: () => {},
-      onMoveGroup: () => {},
+      onMoveGroup: extra.onMoveGroup ?? (() => {}),
     }),
   );
   cleanups.push(() => {
@@ -194,5 +198,78 @@ describe('CellGroup — 위/아래 화살표로 결과 필드 오가기', () => 
     await settle();
 
     expect(onMoveOut).toHaveBeenCalledWith(1, 'downward'); // startIndex(0) + objects.length-1(1)
+  });
+});
+
+describe('CellGroup — 결과 필드에서도 셀 조작 단축키가 먹는다', () => {
+  /** 입력 셀 둘 + 결과 하나인 그룹. `fields[2]` 가 결과 필드다. */
+  async function twoCellGroup(extra: Parameters<typeof mount>[3] = {}) {
+    const top = { ...makeObject(), latex: '2x+3x' };
+    const bottom = { ...makeObject(), latex: '5x+1', entered: true, groupId: top.groupId };
+    const results = new Map<string, EvalResult>([
+      [top.id, { kind: 'ok', latex: '5x', definitionName: null, unchanged: true }],
+      [bottom.id, { kind: 'ok', latex: '5x+1', definitionName: null, unchanged: false }],
+    ]);
+    const dispatch = vi.fn();
+    const container = mount([top, bottom], results, dispatch, extra);
+    await settle();
+    const fields = [...container.querySelectorAll('math-field')] as MathfieldElement[];
+    return { top, bottom, dispatch, fields, result: fields[2] };
+  }
+
+  const press = (mf: MathfieldElement, key: string, mods: Partial<KeyboardEventInit> = {}) =>
+    mf.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...mods }));
+
+  // 예전엔 `ResultRow` 가 이 핸들러들을 안 넘겨서, `MathField` 의 capture 리스너가
+  // 키를 preventDefault 로 먹어치우고는 아무 일도 안 했다(= 키가 죽었다).
+  it('Alt+↓ 는 그룹 이동을 올려보낸다 — 되돌아갈 자리는 result 필드', async () => {
+    const onMoveGroup = vi.fn();
+    const { top, result } = await twoCellGroup({ onMoveGroup });
+    result.focus();
+    await settle();
+    press(result, 'ArrowDown', { altKey: true });
+    await settle();
+    expect(onMoveGroup).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ id: top.groupId, field: 'result' }),
+    );
+  });
+
+  it('Shift+Alt+↑ 는 그룹 **전체**를 복제한다 (셀 하나가 아니라)', async () => {
+    const { top, dispatch, result } = await twoCellGroup();
+    result.focus();
+    await settle();
+    press(result, 'ArrowUp', { altKey: true, shiftKey: true });
+    await settle();
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'duplicateGroup', id: top.id, position: 'below' }),
+    );
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'duplicateCell' }),
+    );
+  });
+
+  it('Ctrl+Enter 는 그룹 밖에 새 빈 셀을 만든다', async () => {
+    const { bottom, dispatch, result } = await twoCellGroup();
+    result.focus();
+    await settle();
+    press(result, 'Enter', { ctrlKey: true });
+    await settle();
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'insertCell',
+      id: bottom.id, // 그룹의 아무 셀이면 되지만 배선상 마지막 셀이 온다
+      position: 'below',
+    });
+  });
+
+  it('Ctrl+Shift+Enter 는 위쪽에 만든다', async () => {
+    const { dispatch, result } = await twoCellGroup();
+    result.focus();
+    await settle();
+    press(result, 'Enter', { ctrlKey: true, shiftKey: true });
+    await settle();
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'insertCell', position: 'above' }),
+    );
   });
 });
