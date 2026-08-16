@@ -317,7 +317,7 @@ describe('CellGroup — 결과 표시 모드 스위치 (정확값 / 근삿값)',
   it('고른 모드를 낱말로 보여준다 (기호가 아니라)', async () => {
     const { container } = await exactResult();
     const label = () => container.querySelector('.result-mode-label')?.textContent;
-    expect(label()).toBe('formlua');
+    expect(label()).toBe('formula');
     toggleOf(container).click();
     await settle();
     expect(label()).toBe('decimal');
