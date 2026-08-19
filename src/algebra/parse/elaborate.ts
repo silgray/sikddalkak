@@ -38,8 +38,16 @@ import {
 
 
 
-/** 전치 표기로 인정하는 지수 심볼. */
-const TRANSPOSE_MARKS = new Set(['T', 'top', 'intercal', '\\top', '\\intercal']);
+/**
+ * 전치 표기로 인정하는 지수 심볼.
+ *
+ * ⚠ **소문자 `t` 도 전치다** — 사용자가 실제로 입력할 수 있는 표기가 `T`/`t` 뿐이라서다
+ * (`\top`·`\intercal` 은 처리는 되지만 mathfield 에서 칠 방법이 없다).
+ * 대가로 **비스칼라 밑에서는 `t` 가 변수로 안 읽힌다** — `A` 가 행렬이고 `t=2` 가
+ * 정의돼 있어도 `A^t` 는 `A²` 가 아니라 `Aᵀ` 다. 스칼라 밑은 영향이 없다
+ * (`elaboratePow` 가 스칼라면 그냥 지수연산으로 흘린다).
+ */
+const TRANSPOSE_MARKS = new Set(['T', 't', 'top', 'intercal', '\\top', '\\intercal']);
 
 /** `call` 함수 중 정사각 행렬 인수를 받는 것들. 그 밖은 전부 스칼라 전용이다. */
 const MATRIX_ARG_FUNCTIONS = new Set(['det', 'tr']);
