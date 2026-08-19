@@ -97,14 +97,24 @@ body {
   z-index: 10;
   width: min(30rem, 88vw);
   max-height: 70vh;
-  overflow-y: auto;
-  padding: 1rem 1.25rem;
+  /* README 링크(`.help-more`)를 늘 바닥에 붙이는 자리 — 스크롤은 `.help-panel-body`
+     하나만 지고, 이 컨테이너 자체는 스크롤하지 않는다. */
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--bg);
   box-shadow: 0 8px 28px color-mix(in srgb, var(--fg) 18%, transparent);
   font-size: 0.82rem;
   line-height: 1.55;
+}
+
+.help-panel-body {
+  /* flex item 기본 min-height 는 auto(내용 높이) 라 그것만으로는 안 줄어들어
+     overflow-y:auto 가 무력해진다 — 0 으로 낮춰야 부모의 max-height 에 맞춰 스크롤된다. */
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1rem 1.25rem;
 }
 
 .help-panel h2 {
@@ -115,7 +125,7 @@ body {
   color: var(--muted);
 }
 
-.help-panel section:first-child h2 {
+.help-panel-body section:first-child h2 {
   margin-top: 0;
 }
 
@@ -152,6 +162,26 @@ body {
   padding: 0 0.35em;
   font-size: 0.9em;
   font-family: inherit;
+}
+
+/* README 로 나가는 줄. `.help-panel-body` 밖에 있어 스크롤과 무관하게 늘 보인다.
+   앱에서 링크를 쓰는 자리가 여기 하나뿐이라 전역 `a` 규칙을 두지 않고 패널 안으로
+   가둔다 — 기본 파란 밑줄은 다크 테마에서 대비가 깨진다. */
+.help-more {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0.7rem 1.25rem 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.help-panel a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.help-panel a:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
 }
 
 .tabbar {

@@ -1,8 +1,16 @@
 import { useState } from 'react';
 
 /**
- * 상단 도움말: 단축키와 기능(선택 변환, 모드) 설명. `?` 버튼으로 접고 편다.
- * UI는 영어 (MathLive 폰트가 한글 글리프를 렌더하지 못하는 제약과 톤 일치).
+ * 상단 도움말: 눈으로 봐서는 뜻을 알 수 없는 UI 컨트롤과 기본 단축키만. `?` 버튼으로
+ * 접고 편다. UI는 영어 (MathLive 폰트가 한글 글리프를 렌더하지 못하는 제약과 톤 일치).
+ *
+ * **여기는 짧게 유지한다.** 지원 표기법·인라인 숏컷·단축키 전체는 README 하나에 모여
+ * 있고(맨 아래 링크), 같은 사실을 두 곳에 적으면 한쪽만 고쳤을 때 어긋난다. 단축키
+ * 목록은 README 의 `### Edit` 표와 **같은 여섯 개**다 — 늘릴 거면 양쪽을 같이 고칠 것.
+ *
+ * 스크롤 영역(`.help-panel-body`)과 README 링크(`.help-more`)를 별개 div로 가른다 —
+ * 패널을 얼마나 내리든 링크가 늘 바닥에 붙어 있게 하려면 스크롤 컨테이너 밖에 있어야
+ * 한다(`styles.css`의 `.help-panel`이 flex column, `.help-panel-body`만 `overflow-y`).
  */
 export function HelpPanel() {
   const [open, setOpen] = useState(false);
@@ -13,181 +21,92 @@ export function HelpPanel() {
         type="button"
         className="help-toggle"
         aria-expanded={open}
-        title={open ? 'Hide help' : 'Shortcuts & features'}
+        title={open ? 'Hide help' : 'Shortcuts & interface'}
         onClick={() => setOpen((v) => !v)}
       >
         ?
       </button>
       {open && (
         <div className="help-panel">
-          <section>
-            <h2>Shortcuts</h2>
-            <dl>
-              <div>
-                <dt>
-                  <kbd>Enter</kbd>
-                </dt>
-                <dd>Confirm the result — stays shown until you edit the group. Focus doesn’t move</dd>
-              </div>
-              <div>
-                <dt>
-                  <kbd>Ctrl</kbd>+<kbd>Enter</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd>
-                </dt>
-                <dd>New empty cell below / above, outside the current group, and focus it</dd>
-              </div>
-              <div>
-                <dt>
-                  <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd>
-                </dt>
-                <dd>Move this cell’s whole group up / down</dd>
-              </div>
-              <div>
-                <dt>
-                  <kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd>
-                </dt>
-                <dd>Duplicate this cell into its own group, placed below / above (cursor stays put)</dd>
-              </div>
-              <div>
-                <dt>
-                  <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>
-                </dt>
-                <dd>Undo / redo — whole keywords (cos, sin, …) and numbers undo in one step</dd>
-              </div>
-              <div>
-                <dt>
-                  <kbd>Shift</kbd>+<kbd>←</kbd>/<kbd>→</kbd>
-                </dt>
-                <dd>Extend selection one item at a time — fractions and matrices select whole</dd>
-              </div>
-              <div>
-                <dt>
-                  <kbd>Ctrl</kbd>+<kbd>D</kbd>
-                </dt>
-                <dd>
-                  Grow selection by structure: innermost group → enclosing element → whole
-                  expression
-                </dd>
-              </div>
-              <div>
-                <dt>
-                  <kbd>↑</kbd>/<kbd>↓</kbd>
-                </dt>
-                <dd>At the edge of a cell, move to the previous / next cell</dd>
-              </div>
-              <div>
-                <dt>
-                  <kbd>Backspace</kbd>
-                </dt>
-                <dd>In an empty cell, deletes it and moves to the end of the cell above</dd>
-              </div>
-              <div>
-                <dt>
-                  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd>/<kbd>S</kbd>/<kbd>F</kbd>
-                </dt>
-                <dd>Apply expand / simplify / factor to the selection</dd>
-              </div>
-              <div>
-                <dt>
-                  <kbd>Alt</kbd>+<kbd>-</kbd>
-                </dt>
-                <dd>Overline — wraps the selection, or the item before the caret</dd>
-              </div>
-              <div>
-                <dt>
-                  <kbd>)</kbd>
-                </dt>
-                <dd>With no open paren, wraps everything to the left at the same level</dd>
-              </div>
-              <div>
-                <dt>Drag ⠿</dt>
-                <dd>Reorder whole groups (results follow their definitions, not their position)</dd>
-              </div>
-            </dl>
-          </section>
-          <section>
-            <h2>Selection transforms</h2>
-            <p>Select part of an expression (drag, Shift+arrows, or Ctrl+D) and buttons appear:</p>
-            <dl>
-              <div>
-                <dt>expand</dt>
-                <dd>Multiply out products and powers; computes selected matrix products</dd>
-              </div>
-              <div>
-                <dt>simplify</dt>
-                <dd>Algebraic cleanup — cancellation, trig identities</dd>
-              </div>
-              <div>
-                <dt>factor</dt>
-                <dd>
-                  Pull out common factors (including non-polynomial ones like cos&nbsp;x) and
-                  factor polynomials
-                </dd>
-              </div>
-            </dl>
-            <p>
-              Selections that cut across matrix cells can’t be transformed — select whole
-              matrices instead. Selecting a whole matrix also shows a floating toolbar for
-              changing its delimiters.
-            </p>
-          </section>
-          <section>
-            <h2>Matrix notation</h2>
-            <dl>
-              <div>
-                <dt>
-                  A<sup>T</sup>
-                </dt>
-                <dd>Transpose</dd>
-              </div>
-              <div>
-                <dt>
-                  A<sup>*</sup>
-                </dt>
-                <dd>Complex conjugate, entry by entry (positions unchanged)</dd>
-              </div>
-              <div>
-                <dt>
-                  A<sup>†</sup>
-                </dt>
-                <dd>Conjugate transpose — conjugate and transpose together</dd>
-              </div>
-            </dl>
-            <p>
-              The last two compute only when the cell is evaluated, and only once the matrix
-              is a concrete one — on a plain symbol they stay as written.
-            </p>
-          </section>
-          <section>
-            <h2>Cells &amp; groups</h2>
-            <dl>
-              <div>
-                <dt>a = 3</dt>
-                <dd>
-                  Defines a variable other cells can use (order doesn’t matter). Only valid as the
-                  top cell of a group
-                </dd>
-              </div>
-              <div>
-                <dt>Result row</dt>
-                <dd>
-                  Editable — the first change turns it into a new cell in the same group, right
-                  below. Each group has one result row, at the bottom
-                </dd>
-              </div>
-              <div>
-                <dt>● / ○ toggle</dt>
-                <dd>Excludes the cell from calculation (dims it) without deleting it</dd>
-              </div>
-              <div>
-                <dt>× (top of group)</dt>
-                <dd>Deletes the whole group</dd>
-              </div>
-              <div>
-                <dt>× (sub-cell, dimmer)</dt>
-                <dd>Deletes just that one cell</dd>
-              </div>
-            </dl>
-          </section>
+          <div className="help-panel-body">
+            <section>
+              <h2>Shortcuts</h2>
+              <dl>
+                <div>
+                  <dt>
+                    <kbd>Enter</kbd>
+                  </dt>
+                  <dd>Evaluate the current expression</dd>
+                </div>
+                {/* 아래/위를 한 줄에 묶으면 `dt` 가 고정폭 11rem(`styles.css`)을 넘겨
+                    이 행만 `dd` 가 오른쪽으로 밀린다 — 실측 210px. 두 줄로 가른다. */}
+                <div>
+                  <dt>
+                    <kbd>Ctrl</kbd>+<kbd>Enter</kbd>
+                  </dt>
+                  <dd>Insert a new empty cell below</dd>
+                </div>
+                <div>
+                  <dt>
+                    <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd>
+                  </dt>
+                  <dd>Insert a new empty cell above</dd>
+                </div>
+                <div>
+                  <dt>
+                    <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd>
+                  </dt>
+                  <dd>Move the cell up / down</dd>
+                </div>
+                <div>
+                  <dt>
+                    <kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd>
+                  </dt>
+                  <dd>Duplicate the cell below / above</dd>
+                </div>
+                <div>
+                  <dt>
+                    <kbd>Ctrl</kbd>+<kbd>D</kbd>
+                  </dt>
+                  <dd>Grow the selection</dd>
+                </div>
+                <div>
+                  <dt>
+                    <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd>/<kbd>S</kbd>/<kbd>F</kbd>
+                  </dt>
+                  <dd>Apply expand / simplify / factor to the selection</dd>
+                </div>
+              </dl>
+            </section>
+            <section>
+              <h2>Interface</h2>
+              <dl>
+                <div>
+                  <dt>⠿</dt>
+                  <dd>Drag to reorder cells</dd>
+                </div>
+                <div>
+                  <dt>● / ○</dt>
+                  <dd>Exclude the cell from calculation without deleting it</dd>
+                </div>
+                <div>
+                  <dt>×</dt>
+                  <dd>Delete the cell</dd>
+                </div>
+                <div>
+                  <dt>formula / decimal</dt>
+                  <dd>
+                    Show the exact value or an approximation
+                  </dd>
+                </div>
+              </dl>
+            </section>
+          </div>
+          <p className="help-more">
+            <a href="https://github.com/silgray/sikddalkak#readme" target="_blank" rel="noreferrer">
+              Full notation and shortcut reference →
+            </a>
+          </p>
         </div>
       )}
     </div>
