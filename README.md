@@ -1,127 +1,201 @@
-# sikddalkak
+<div align="center">
+
+## sikddalkak
+https://silgray.github.io/sikddalkak/
 
 A symbolic calculator notebook. Write formulas, stack them as cells, and let
 named variables flow between them.
 
-## Demo
+</div>
 
-<!-- GIF: type an expression, define a variable, reference it in the next cell -->
+## Main feature
 
-<!-- GIF: select part of an expression and apply expand / simplify / factor -->
+1. **Write an expression** — type any mathematical expression.
+2. **Press Enter to evaluate** — hit Enter to evaluate it instantly.
+3. **See the result** — the result appears immediately.
 
-## Features
+Results are exact. $\frac{1}{3}+\frac{1}{6}$ stays $\frac{1}{2}$ and $\sqrt{2}$
+stays $\sqrt{2}$ — nothing is rounded behind your back. The toggle on the result
+row picks how that value is shown:
 
-- **Visual math input** — powered by [MathLive](https://cortexjs.io/mathlive/),
-  so you type and edit formulas the way you'd write them on paper.
-- **Cell stack notebook** — cells reference each other by variable name, not
-  position. Define `a = 3` in one cell and use `a` in any other, in any order.
-- **Selection transforms** — select any part of an expression and apply
-  `expand`, `simplify`, or `factor` to just that part.
-- **Shape-aware algebra** — every symbol has a shape (scalar, vector, matrix),
-  so the engine never applies scalar commutativity where it doesn't hold.
-  `ABA` stays `ABA`, it doesn't collapse into `A²B`.
+- **formula** — the exact mathematical value.
+- **decimal** — a numeric approximation.
 
-## Getting started
+It only changes the view; the expression itself is never rewritten.
 
-```bash
-npm install
-npm run dev
-```
+Write `a = 3` or `f(x) = x^2` in a cell and any other cell can use it, in any
+order. Evaluating substitutes those symbols recursively first and computes the
+whole thing in one pass. Cyclic definitions are reported instead of looping
+forever.
 
-Opens at `http://localhost:5173`.
+The result row is editable. The first time you change it, it becomes a new cell
+of its own right below — so you can keep working from a result without losing
+the step that produced it.
 
-## Supported notation
+### Manipulating Expressions
+
+1. **Select part of an expression** — highlight anything from a single term to the whole expression.
+2. **Transform it** — simplify, expand, or factor just the selection.
+    - **Simplify** — reduce an expression to its simplest equivalent form.
+    - **Expand** — expand products and powers into a sum of terms.
+    - **Factor** — factor an expression into a product of simpler terms.
+
+Every transform preserves shape — a scalar stays a scalar, a matrix expression
+keeps its dimensions — and with it the order of non-commutative products.
+$ABA$ never collapses into $A^2B$.
+
+#### Simplify
+
+Combines like terms and cancels what it can, without expanding what you wrote.
+
+$$\frac{x^2-1}{x+1} \to x-1 \qquad AA^{-1} \to I \qquad AAAA \to A^4$$
+
+#### Expand
+
+Distributes products over sums, then combines like terms.
+
+$$(x+1)^2 \to x^2+2x+1 \qquad (A+B)^2 \to A^2 + AB + BA + B^2$$
+
+#### Factor
+
+Pulls out common factors and factors polynomials. Where a product is
+non-commutative, only the front and back of each term are pulled out.
+
+$$x^2-1 \to (x+1)(x-1) \qquad AB+AC \to A(B+C)$$
+
+## Supported notations
 
 ### Arithmetic
 
 | Notation | Meaning |
 |---|---|
-| `+`, `-` | addition, subtraction |
-| `\cdot`, `\times`, juxtaposition | multiplication — kept distinct so the engine can tell scalar product, dot product, and cross product apart once it knows the operands' shapes |
-| `\frac{p}{q}` | fraction, kept as written (not rewritten as `p \cdot q^{-1}`) |
-| `x^n` | power |
+| $+$, $-$ | addition, subtraction |
+| $\cdot$, $\times$ | multiplication |
+| $\frac{p}{q}$ | fraction |
+| $x^n$ | power |
+
 
 ### Functions
 
-Built-in scalar functions: `\sin`, `\cos`, `\tan`, `\sin^{-1}`/`\cos^{-1}`/`\tan^{-1}`
-(arcsin/arccos/arctan), `\sinh`, `\cosh`, `\tanh`, `\exp`, `\ln`, `\log`, `\sqrt`,
-`|x|` (abs), `\det`, `\mathrm{tr}`, `\mathrm{Re}`, `\mathrm{Im}`, conjugate, dagger.
+| Notation | Meaning |
+|---|---|
+| $\sin,~ \cos,~ \tan$ | trigonometric |
+| $\sin^{-1},~ \cos^{-1},~ \tan^{-1},~ \arcsin,~\arccos,~\arctan$ | inverse trigonometric |
+| $\sinh,~ \cosh,~ \tanh$ | hyperbolic |
+|  $\exp,~ \ln,~ \log$ | exponential and logarithmic |
 
-User-defined functions: write `f(x) = x^2`, then call it as `f(3)` or `f(A)`.
-Function bodies are shape-polymorphic — `f(A)` squares a scalar if `A` is a
-scalar, or computes a matrix power if `A` is a square matrix.
+### Vector
 
-### Matrix notation
+| Notation | Meaning |
+| --- | --- |
+| $v \cdot w$ | dot product |
+| $v \times w$ | cross product |
+
+A vector is a column vector by default — write $v^T$ for a row vector.
+
+### Matrix
 
 | Notation | Meaning |
 |---|---|
-| `A^T` | transpose |
-| `A^*` | complex conjugate, entry by entry |
-| `A^\dagger` (also `A^\ast`, `A^\star`) | conjugate transpose |
-| `A^{-1}` | inverse |
-| `A \cdot B` | dot / matrix product (explicit) |
-| `A \times B` | cross product |
-| `AB` (juxtaposition) | product — resolved to scalar multiplication or matrix product once the operands' shapes are known |
+| $\det(A)$ | determinant |
+| $\mathrm{tr}(A)$ | trace |
+| $A^T$, $A^t$ | transpose |
+| $A^*$ | complex conjugate, entry by entry |
+| $A^\dagger$ | conjugate transpose |
+| $A^{-1}$ | inverse |
+| $I$ | identity matrix |
 
-Conjugate and conjugate-transpose only compute once the cell is evaluated and
-the matrix is concrete — on a plain symbol they stay exactly as written.
+$\cdot$ and $\times$ are the same two symbols as in Arithmetic — what they mean
+is decided by the shapes of their operands, so there is no separate notation to
+remember.
+
+### Complex numbers
+
+| Notation | Meaning |
+|---|---|
+| $\mathrm{Re}(z),~ \mathrm{Im}(z)$ | real / imaginary part |
+| $\overline{z}$ | complex conjugate |
 
 ### Calculus
 
 | Notation | Meaning |
 |---|---|
-| `\frac{d}{dx}f`, `f'(x)`, `f''(x)` | derivative, including higher orders |
-| `\frac{d}{d(x,y,z)}` | multivariable derivative |
-| `\frac{d^3}{dx^3}` | higher-order derivative |
-| `\sum_{k=lo}^{hi}`, `\prod_{k=lo}^{hi}` | sum / product (bounds optional) |
-| `\int_{lo}^{hi} \ldots \, dx` | definite or indefinite integral |
+| $\displaystyle \frac{df}{dx}, \frac{d}{dx}f, f'(x), f''(x)$ | derivative, including higher orders |
+| $\displaystyle \frac{d}{d(x,y,z)}$ | multivariable derivative |
+| $\displaystyle \frac{d^3}{dx^3}, \left(\frac{d}{dx}\right)^3$ | higher-order derivative |
+| $\displaystyle \int_{a}^{b} f(x) \, dx$ | definite or indefinite integral |
+| $\displaystyle \sum_{n=1}^{10}a_n,\quad \prod_{n=1}^{10}a_n$ | sum / product |
 
-### Cells & variables
-
-Write `a = 3` to define a variable — any other cell can use `a`, regardless of
-where it sits in the stack. Cells are organized into groups; groups can be
-reordered by drag, and results always follow their definitions, not their
-position on screen.
-
-## Selection transforms
-
-Select part of an expression — by dragging, `Shift`+arrows, or `Ctrl`+`D` to
-grow the selection by structure — and `expand` / `simplify` / `factor` buttons
-appear:
-
-- **expand** — multiplies out products and powers, and computes selected
-  matrix products.
-- **simplify** — algebraic cleanup: cancellation, trig identities.
-- **factor** — pulls out common factors (including non-polynomial ones like
-  `\cos x`) and factors polynomials.
-
-Selections can't cut across matrix cells — select the whole matrix instead.
-Selecting a whole matrix also shows a floating toolbar for changing its
-delimiters.
 
 ## Keyboard shortcuts
 
+### Edit
+
 | Shortcut | Action |
 |---|---|
-| `Enter` | Confirm the result — stays shown until you edit the group. Focus doesn't move |
-| `Ctrl`+`Enter` / `Ctrl`+`Shift`+`Enter` | New empty cell below / above, outside the current group, and focus it |
-| `Alt`+`↑`/`↓` | Move this cell's whole group up / down |
-| `Shift`+`Alt`+`↑`/`↓` | Duplicate this cell into its own group, placed below / above (cursor stays put) |
-| `Ctrl`+`Z` / `Ctrl`+`Shift`+`Z` | Undo / redo — whole keywords (`cos`, `sin`, …) and numbers undo in one step |
-| `Shift`+`←`/`→` | Extend selection one item at a time — fractions and matrices select whole |
-| `Ctrl`+`D` | Grow selection by structure: innermost group → enclosing element → whole expression |
-| `↑`/`↓` | At the edge of a cell, move to the previous / next cell |
-| `Backspace` | In an empty cell, deletes it and moves to the end of the cell above |
+| `Enter` | Evaluate current expression |
+| `Ctrl`+`Enter` / `Ctrl`+`Shift`+`Enter` | Insert a new empty cell below / above |
+| `Alt`+`↑`/`↓` | Move the cell up / down |
+| `Shift`+`Alt`+`↑`/`↓` | Duplicate the cell below / above |
+| `Ctrl`+`D` | Grow selection |
 | `Ctrl`+`Shift`+`E`/`S`/`F` | Apply expand / simplify / factor to the selection |
-| `Alt`+`-` | Overline — wraps the selection, or the item before the caret |
-| `)` | With no open paren, wraps everything to the left at the same level |
-| Drag ⠿ | Reorder whole groups (results follow their definitions, not their position) |
 
-## Development
+### Input
 
-```bash
-npm test              # unit tests (vitest, jsdom)
-npm run test:browser  # browser tests (playwright/Chromium, real MathLive)
-npm run typecheck     # tsc -b --noEmit
-npm run build         # typecheck + vite build
-```
+#### Structures
+
+| Type | Result |
+|---|---|
+| `sqrt`, `cbrt`, `nthroot` | $\sqrt{\square}$, $\sqrt[3]{\square}$, $\sqrt[\square]{\square}$ |
+| `sum`, `prod` | $\displaystyle\sum_{\square}^{\square}$, $\displaystyle\prod_{\square}^{\square}$ |
+| `int`, `defint` | $\displaystyle\int_{\square}^{\square}$ |
+<!-- | `lim`, `liminf`, `limsup` | $\lim_{\square \to \square}$, $\liminf_{\square}$, $\limsup_{\square}$ | -->
+<!-- | `ceil`, `floor` | $\lceil \square \rceil$, $\lfloor \square \rfloor$ | -->
+<!-- | `''`, `'''` | $x''$, $x'''$ | -->
+
+#### Operators and relations
+
+| Type | Result |
+|---|---|
+| `xx`, `times` | $\times$ |
+| `*` | $\cdot$ |
+| `**` | $*$ (for $A^*$) |
+| `tt` | $\dagger$ (for $A^\dagger$)|
+<!-- | `xx`, `times` | $\times$ | | `+-` | $\pm$ |
+| `*` | $\cdot$ | | `!=` | $\ne$ |
+| `**` | $*$ (literal, for $A^*$) | | `<=`, `>=` | $\le$, $\ge$ |
+| `tt` | $\dagger$ | | `<<`, `>>` | $\ll$, $\gg$ |
+| `//` | $/$ | | `~~` | $\approx$ |
+| `\\` | $\backslash$ | | `~=` | $\cong$ |
+| `\|\|` | $\Vert$ | | `-=` | $\equiv$ |
+| `(+)`, `(.)` | $\oplus$, $\odot$ | | `:=` | $\mathrel{:=}$ |
+| `union` | $\cup$ | | `prop` | $\propto$ |
+| `of` | $\circ$ | | `_\|_` | $\bot$ |
+| `asterisk` | $\ast$ | | `approaches` | $\to$ | -->
+
+#### Functions
+
+| Type | Shortcut | Result |
+|---|---|---|
+| `sin`, `cos`, `tan`, `sec`, `csc`, `cot` |-| $\sin$, $\cos$, $\tan$, $\sec$, $\csc$, $\cot$ |
+| `arcsin`, `arccos`, `arctan` |-| $\arcsin$, $\arccos$, $\arctan$ |
+| `sinh`, `cosh`, `tanh`, `coth`, `sech` |-| $\sinh$, $\cosh$, $\tanh$, $\coth$, $\operatorname{sech}$ |
+| `ln`, `log`, `lg`, `exp` |-| $\ln$, $\log_{\square}$, $\lg$, $\exp$ |
+| `det`, `tr` |-| $\det$, $\mathrm{tr}$ |
+| `Re`, `Im` |-| $\operatorname{Re}$, $\operatorname{Im}$ |
+| `conj` | `Alt`+`-` | $\overline{z}$ |
+<!-- | `max`, `min`, `argmax`, `argmin` |-| $\max$, $\min$, $\operatorname{arg\,max}$, $\operatorname{arg\,min}$ |
+| `gcd`, `lcm`, `mod`, `(mod` |-| $\gcd$, $\operatorname{lcm}$, $\bmod$, $\pmod{\square}$ |
+| `erf`, `erfc`, `bessel`, `mean`, `median` |-| $\operatorname{erf}$, $\operatorname{erfc}$, $\operatorname{bessel}$, $\operatorname{mean}$, $\operatorname{median}$ | -->
+
+#### Greek letters and symbols
+
+| Type | Shortcut | Result |
+|---|---|---|
+| `alpha` … `omega` |-| $\alpha$, $\beta$, $\gamma$, $\delta$, $\epsilon$, $\zeta$, $\eta$, $\theta$, $\iota$, $\kappa$, $\lambda$, $\mu$, $\nu$, $\xi$, $\pi$, $\rho$, $\sigma$, $\tau$, $\upsilon$, $\phi$, $\chi$, $\psi$, $\omega$ |
+| `Delta`, `Gamma`, `Theta`, `Lambda`, `Xi`, `Pi`, `Sigma`, `Phi`, `Psi`, `Omega` |-| $\Delta$, $\Gamma$, $\Theta$, $\Lambda$, $\Xi$, $\Pi$, $\Sigma$, $\Phi$, $\Psi$, $\Omega$ |
+| `varepsilon`, `vartheta`, `varphi` |-| $\varepsilon$, $\vartheta$, $\varphi$ |
+| `nabla`, `grad` | `Alt`+`D` | $\nabla$ |
+| `del` |-| $\partial$ |
+| `infinity` |-| $\infty$ |
+| `deg` (after a digit) |-| $^\circ$ |
