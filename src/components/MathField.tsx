@@ -225,6 +225,9 @@ function pruneMenu(mf: MathfieldElement): void {
   try {
     // 행/열 추가·삭제는 뺀다 — 행렬 크기는 삽입한 뒤 바뀌지 않는다(정책).
     // 크기를 잘못 골랐으면 행렬을 지우고 다시 삽입한다. `insert-matrix` 는 남긴다.
+    // `insert`(구조/미적분 삽입 서브메뉴)도 뺀다 — 거기 항목들이 넣는 표기 상당수가
+    // 이 앱의 파서에 없다(`\bigm|_{x=...}` 값매김 막대 등, 실측). 골라도 못 읽는 항목을
+    // 메뉴에 둘 이유가 없다. id는 정확 일치라(아래 필터) `insert-matrix` 는 안 걸린다.
     const REMOVE = new Set([
       'mode',
       'variant',
@@ -236,6 +239,7 @@ function pruneMenu(mf: MathfieldElement): void {
       'add-column-after',
       'delete-row',
       'delete-column',
+      'insert',
     ]);
     type Item = { id?: string; type?: string; submenu?: Item[] };
     const items = (mf.menuItems as Item[]).filter((item) => {

@@ -50,6 +50,16 @@ function press(mf: MathfieldElement, key: string, mods: Partial<KeyboardEventIni
   mf.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...mods }));
 }
 
+describe('MathField — ☰ 메뉴 정리', () => {
+  it('Insert 서브메뉴는 없고 Insert matrix는 남는다', async () => {
+    const { mf } = await mount();
+    type Item = { id?: string };
+    const ids = (mf.menuItems as Item[]).map((item) => item.id);
+    expect(ids).not.toContain('insert');
+    expect(ids).toContain('insert-matrix');
+  });
+});
+
 describe('MathField — Enter 계열 단축키', () => {
   it('맨 Enter는 onEnter만 부른다', async () => {
     const { mf, handlers } = await mount();
