@@ -246,6 +246,17 @@ describe('캐시 정합성', () => {
     const [, after] = run(['x=3', String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}\left(x^2\right)`]);
     expect(after).toMatchObject({ kind: 'error' });
   });
+
+  it("f'(x) 셀이 f보다 먼저 계산돼 에러여도, f가 나중에 추가되면 다시 계산돼 값이 나온다", () => {
+    // `f'(x)` 는 `f`가 정의 안 됐으면 elaborate가 "정의된 함수가 아니다" 로 정직하게
+    // 오류를 낸다 — 이때 `parse` 자체가 실패하므로 `dependencyNames`가 `collectFreeSymbols`
+    // 를 못 쓰고 `parseSyntax` 폴백(`collectSyntaxSymbols`)으로 넘어가야 `f` 에 대한
+    // 의존 간선이 살아남는다. 안 그러면 이 캐시 지문이 f 정의 추가 후에도 안 바뀐다.
+    const before = run([String.raw`f'(3)`])[0];
+    expect(before).toMatchObject({ kind: 'error' });
+    const [, after] = run([String.raw`f\left(x\right)=x^2`, String.raw`f'(3)`]);
+    expect(latexOf(after)).toBe('6');
+  });
 });
 
 describe('사용자 정의 함수', () => {
@@ -284,6 +295,30 @@ describe('사용자 정의 함수', () => {
       String.raw`\dfrac{\mathrm{d}}{\mathrm{d}x}\left(f\left(x\right)\right)`,
     ]);
     expect(latexOf(rows[1])).toBe('2x');
+  });
+
+  // 상세 계약(고차·다변수·오류 메시지 등)은 src/algebra/parse/funcDeriv.test.ts 가
+  // 이미 촘촘히 덮는다 — 여기선 셀 층을 거쳐도 잘 이어지는지만 확인한다.
+  describe("함수의 도함수 — f'(a), df/dx(a)", () => {
+    it("f'(3y) 는 본문을 먼저 미분한 뒤 대입한다", () => {
+      const rows = run([String.raw`f\left(z\right)=z^3`, String.raw`f'(3y)`]);
+      expect(latexOf(rows[1])).toBe(norm('27y^{2}'));
+    });
+
+    it('본문에 없는 변수로 미분하면 0이다', () => {
+      const rows = run([String.raw`f\left(z\right)=z^3`, String.raw`\frac{df}{dx}(y)`]);
+      expect(latexOf(rows[1])).toBe('0');
+    });
+
+    it('인수를 생략하면 매개변수 자신을 대입한 것과 같다', () => {
+      const rows = run([String.raw`f\left(z\right)=z^3`, String.raw`\frac{df}{dz}`]);
+      expect(latexOf(rows[1])).toBe(norm('3z^{2}'));
+    });
+
+    it('다변수 함수에 프라임을 쓰면 오류다', () => {
+      const rows = run([String.raw`g\left(x,y\right)=x^2y`, String.raw`g'(1,2)`]);
+      expect(rows[1]).toMatchObject({ kind: 'error' });
+    });
   });
 
   describe('모양 다형 — 호출부 인수 모양에 따라 갈린다', () => {

@@ -1,6 +1,7 @@
 import {
   evaluate,
   collectFreeSymbols,
+  collectSyntaxSymbols,
   exprKey,
   parse,
   parseSyntax,
@@ -101,8 +102,13 @@ function hasTopLevelRelation(latex: string): boolean {
  * 이름 자체가 사라지지는 않는다. 오히려 **모양 없는 파싱이 더 관대해서**(행렬 전용
  * 모양 불일치 오류가 안 걸린다) 이 단계에서 실패하는 일은 거의 없다.
  *
- * 여기서 실패하면(정말 파싱이 안 되는 식) 의존 없음으로 본다 — 실제 오류 판정은
- * 아래 `computeNode` 가 진짜 환경으로 다시 파싱할 때 낸다.
+ * **`parse` 가 실패하면 `parseSyntax`(Syntax IR, elaborate 이전)로 한 번 더 시도한다.**
+ * `f'(x)` 처럼 `f` 가 아직 정의 안 됐으면 `parse`(elaborate 포함)는 "정의된 함수가
+ * 아니다" 로 정직하게 오류를 내는데, 그 오류 때문에 의존 간선까지 못 뽑으면 나중에
+ * `f` 가 정의돼도 이 셀의 캐시 지문이 안 바뀌어 옛 오류가 그대로 굳는다(캐시 무효화가
+ * 이 간선에 걸려 있다, `collectSyntaxSymbols` 문서 참고). `parseSyntax` 마저 실패하면
+ * (정말 문법이 깨진 식) 의존 없음으로 본다 — 실제 오류 판정은 아래 `computeNode` 가
+ * 진짜 환경으로 다시 파싱할 때 낸다.
  *
  * `exclude` 는 함수 정의의 매개변수를 뺄 때 쓴다 — `f(x)=x^2` 의 `x` 는 지역 이름이라
  * 셀 사이 의존 간선이 아니다. 함수 자신의 이름은 안 뺀다 — `f(x)=f(x-1)+1` 처럼
@@ -111,8 +117,12 @@ function hasTopLevelRelation(latex: string): boolean {
 const BLIND_ENV: Env = { shapes: {} };
 function dependencyNames(latex: string, exclude: readonly string[] = []): readonly string[] {
   const parsed = parse(latex, BLIND_ENV);
-  if (!parsed.ok) return [];
-  const names = collectFreeSymbols(parsed.value);
+  const names = parsed.ok
+    ? collectFreeSymbols(parsed.value)
+    : (() => {
+        const syntax = parseSyntax(latex);
+        return syntax.ok ? collectSyntaxSymbols(syntax.value) : [];
+      })();
   return exclude.length === 0 ? names : names.filter((n) => !exclude.includes(n));
 }
 

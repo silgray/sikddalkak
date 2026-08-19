@@ -12,6 +12,7 @@ import { prettify } from './transform/prettify';
 import { SCALAR, formatShape, type Shape } from './shape/shape';
 import { parseSyntax } from './parse/parse';
 export { parseSyntax } from './parse/parse';
+export { collectSyntaxSymbols } from './parse/collectSymbols';
 import { withCeBudget } from './ce/budget';
 import type { SyntaxNode } from './parse/node';
 
