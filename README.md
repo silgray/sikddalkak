@@ -1,11 +1,8 @@
-<!-- <div align="center"> -->
-
 ## sikddalkak
 A symbolic calculator notebook. Write formulas, stack them as cells, and let
 named variables flow between them.
 
 https://silgray.github.io/sikddalkak/
-<!-- </div> -->
 
 ## Main feature
 
@@ -13,19 +10,14 @@ https://silgray.github.io/sikddalkak/
 2. **Press Enter to evaluate** — hit Enter to evaluate it instantly.
 3. **See the result** — the result appears immediately.
 
-Results are exact. $\frac{1}{3}+\frac{1}{6}$ stays $\frac{1}{2}$ and $\sqrt{2}$
-stays $\sqrt{2}$ — nothing is rounded behind your back. The toggle on the result
-row picks how that value is shown:
-
+### Evaluation
+Evaluation has two modes.
 - **formula** — the exact mathematical value.
 - **decimal** — a numeric approximation.
 
-It only changes the view; the expression itself is never rewritten.
-
-Write `a = 3` or `f(x) = x^2` in a cell and any other cell can use it, in any
-order. Evaluating substitutes those symbols recursively first and computes the
-whole thing in one pass. Cyclic definitions are reported instead of looping
-forever.
+Define symbols. Write `a = 3` or `f(x) = x^2` in a cell and any other cell can use it.
+Evaluating substitutes those symbols recursively first and computes the
+whole thing in one pass. Cyclic definitions are reported.
 
 The result row is editable. The first time you change it, it becomes a new cell
 of its own right below — so you can keep working from a result without losing
@@ -33,15 +25,14 @@ the step that produced it.
 
 ### Manipulating Expressions
 
-1. **Select part of an expression** — highlight anything from a single term to the whole expression.
-2. **Transform it** — simplify, expand, or factor just the selection.
+1. Select part of an expression. 
+2. Transform it.
     - **Simplify** — reduce an expression to its simplest equivalent form.
     - **Expand** — expand products and powers into a sum of terms.
     - **Factor** — factor an expression into a product of simpler terms.
 
-Every transform preserves shape — a scalar stays a scalar, a matrix expression
-keeps its dimensions — and with it the order of non-commutative products.
-$ABA$ never collapses into $A^2B$.
+Every manipulation considers the order of non-commutative products.
+Matrix multiplication $ABA$ never collapses into $A^2B$.
 
 #### Simplify
 
@@ -70,7 +61,7 @@ $$x^2-1 \to (x+1)(x-1) \qquad AB+AC \to A(B+C)$$
 |---|---|
 | $+$, $-$ | addition, subtraction |
 | $\cdot$, $\times$ | multiplication |
-| $\frac{p}{q}$ | fraction |
+| $\frac{b}{a}$ | fraction |
 | $x^n$ | power |
 
 
@@ -104,10 +95,6 @@ A vector is a column vector by default — write $v^T$ for a row vector.
 | $A^{-1}$ | inverse |
 | $I$ | identity matrix |
 
-$\cdot$ and $\times$ are the same two symbols as in Arithmetic — what they mean
-is decided by the shapes of their operands, so there is no separate notation to
-remember.
-
 ### Complex numbers
 
 | Notation | Meaning |
@@ -119,17 +106,11 @@ remember.
 
 | Notation | Meaning |
 |---|---|
-| $\displaystyle \frac{d}{dx}f, \frac{d^3}{dx^3}, \left(\frac{d}{dx}\right)^3$ | derivative of an expression, including higher orders |
+| $\displaystyle \frac{df}{dx}, \frac{d}{dx}f, f'(x), f''(x)$ | derivative, including higher orders |
 | $\displaystyle \frac{d}{d(x,y,z)}$ | multivariable derivative |
-| $\displaystyle f'(a),~ f''(a),~ \frac{df}{dx}(a),~ \frac{\partial f}{\partial x}(a,b),~ \frac{df}{d(x,y)}(a,b)$ | derivative of a **defined function**, evaluated at the arguments |
+| $\displaystyle \frac{d^3}{dx^3}, \left(\frac{d}{dx}\right)^3$ | higher-order derivative |
 | $\displaystyle \int_{a}^{b} f(x) \, dx$ | definite or indefinite integral |
 | $\displaystyle \sum_{n=1}^{10}a_n,\quad \prod_{n=1}^{10}a_n$ | sum / product |
-
-A function derivative differentiates the body of the definition and *then* substitutes
-the arguments: with $f(z)=z^3$, $f'(3y)$ is $27y^2$ and $\frac{df}{dx}(y)$ is $0$
-(the body has no $x$). Omitting the argument list keeps the parameter names, so
-$\frac{df}{dz}$ is $3z^2$. $\partial$ and $d$ mean the same thing here. Prime notation
-only works on one-variable functions — use $\frac{\partial f}{\partial x}(a,b)$ otherwise.
 
 
 ## Keyboard shortcuts
@@ -154,9 +135,6 @@ only works on one-variable functions — use $\frac{\partial f}{\partial x}(a,b)
 | `sqrt`, `cbrt`, `nthroot` | $\sqrt{\square}$, $\sqrt[3]{\square}$, $\sqrt[\square]{\square}$ |
 | `sum`, `prod` | $\displaystyle\sum_{\square}^{\square}$, $\displaystyle\prod_{\square}^{\square}$ |
 | `int`, `defint` | $\displaystyle\int_{\square}^{\square}$ |
-<!-- | `lim`, `liminf`, `limsup` | $\lim_{\square \to \square}$, $\liminf_{\square}$, $\limsup_{\square}$ | -->
-<!-- | `ceil`, `floor` | $\lceil \square \rceil$, $\lfloor \square \rfloor$ | -->
-<!-- | `''`, `'''` | $x''$, $x'''$ | -->
 
 #### Operators and relations
 
@@ -164,19 +142,8 @@ only works on one-variable functions — use $\frac{\partial f}{\partial x}(a,b)
 |---|---|
 | `xx`, `times` | $\times$ |
 | `*` | $\cdot$ |
-| `**` | $*$ (for $A^*$) |
+| `**` | $*$ (for $A^\ast$) |
 | `tt` | $\dagger$ (for $A^\dagger$)|
-<!-- | `xx`, `times` | $\times$ | | `+-` | $\pm$ |
-| `*` | $\cdot$ | | `!=` | $\ne$ |
-| `**` | $*$ (literal, for $A^*$) | | `<=`, `>=` | $\le$, $\ge$ |
-| `tt` | $\dagger$ | | `<<`, `>>` | $\ll$, $\gg$ |
-| `//` | $/$ | | `~~` | $\approx$ |
-| `\\` | $\backslash$ | | `~=` | $\cong$ |
-| `\|\|` | $\Vert$ | | `-=` | $\equiv$ |
-| `(+)`, `(.)` | $\oplus$, $\odot$ | | `:=` | $\mathrel{:=}$ |
-| `union` | $\cup$ | | `prop` | $\propto$ |
-| `of` | $\circ$ | | `_\|_` | $\bot$ |
-| `asterisk` | $\ast$ | | `approaches` | $\to$ | -->
 
 #### Functions
 
@@ -203,3 +170,4 @@ only works on one-variable functions — use $\frac{\partial f}{\partial x}(a,b)
 | `nabla`, `grad` | `Alt`+`D` | $\nabla$ |
 | `del` |-| $\partial$ |
 | `infinity` |-| $\infty$ |
+| `deg` (after a digit) |-| $^\circ$ |
