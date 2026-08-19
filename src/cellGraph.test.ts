@@ -83,6 +83,21 @@ describe('정의와 변수 바인딩', () => {
   });
 });
 
+describe('fold 순서 충돌 — 셀 층까지 이어지는지', () => {
+  // src/algebra/transform/evaluate.test.ts 의 회귀와 같은 시나리오를 셀 두 개로 —
+  // A 정의 셀 + 그걸 쓰는 계산 셀. `evaluate` 가 고쳐졌어도 `cellGraph.ts` 의
+  // substituteDeep → evaluate 배선이 그대로 이어붙이는지가 여기 요점이다.
+  it('((A+I)^\\dagger)^2 가 완전히 접힌 리터럴 행렬로 나온다', () => {
+    const [, result] = run([
+      String.raw`A=\begin{pmatrix}1+i&2\\3&-3i\end{pmatrix}`,
+      String.raw`\left(\left(A+I\right)^{\dagger}\right)^2`,
+    ]);
+    expect(latexOf(result)).toBe(
+      norm(String.raw`\begin{pmatrix}9-4i&9+6i\\6+4i&-2+6i\end{pmatrix}`),
+    );
+  });
+});
+
 describe('그래프 평가 (순서 비의존)', () => {
   // 캔버스에는 "위/아래"가 없으므로 의존성이 배열 순서가 아니라 이름으로 결정된다.
 

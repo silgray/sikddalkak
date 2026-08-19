@@ -80,6 +80,56 @@ describe('구체 행렬 산술', () => {
   });
 });
 
+describe('fold 순서 충돌 — 안쪽 내장 함수가 접혀야 바깥 거듭제곱이 접힌다', () => {
+  /**
+   * `evaluate` 의 네 fold 패스(`foldFunctions`/`foldMatrices`/`foldBuiltins`/
+   * `foldCalculus`) 는 **한 바퀴로 안 끝나는 트리가 있다** — `foldMatrices` 만 자체
+   * 재귀라, `foldBuiltins` 가 그 뒤에 자식으로 접어준 리터럴(`dagger` 값)을
+   * `foldMatrices` 가 다시 못 본다(`matPow(call(dagger,[...]), 2)` 가 그 예). 사용자
+   * 실측 회귀 — `evaluate.ts` 의 `foldRound` 문서가 이 예시를 그대로 설명한다.
+   * 세 테스트가 함께 통과해야 "패스 순서를 바꾼 게 아니라 반복으로 충돌을 없앴다"가
+   * 증명된다 — 안쪽/바깥쪽 어느 조합이든 접혀야 한다.
+   */
+  it('((A+I)^\\dagger)^2 — 안쪽 dagger가 접힌 뒤에야 바깥 제곱이 값으로 접힌다', () => {
+    const built = buildEnv({ A: String.raw`\begin{pmatrix}1+i&2\\3&-3i\end{pmatrix}` });
+    expect(built.unresolved).toEqual([]);
+    const sub = substituteDeep(
+      typedOf(String.raw`\left(\left(A+I\right)^{\dagger}\right)^2`, built.env),
+      built.env,
+    );
+    if (!sub.ok) throw new Error(sub.errors[0].message);
+    const result = evaluate(sub.value, built.env);
+    if (!result.ok) throw new Error(result.errors[0].message);
+    expect(render(result.value)).toBe(
+      String.raw`\begin{pmatrix}9-4i&9+6i\\6+4i&-2+6i\end{pmatrix}`,
+    );
+  });
+
+  it('반대 방향도 접힌다 — \\det((A+I)^\\dagger) (행렬 산술이 안쪽, 내장 함수가 바깥)', () => {
+    const built = buildEnv({ A: String.raw`\begin{pmatrix}1+i&2\\3&-3i\end{pmatrix}` });
+    const sub = substituteDeep(
+      typedOf(String.raw`\det\left(\left(A+I\right)^\dagger\right)`, built.env),
+      built.env,
+    );
+    if (!sub.ok) throw new Error(sub.errors[0].message);
+    const result = evaluate(sub.value, built.env);
+    if (!result.ok) throw new Error(result.errors[0].message);
+    expect(render(result.value)).toBe('-1+5i');
+  });
+
+  it('세 겹 교대도 고정점까지 반복해 접힌다 — tr(((A+I)^\\dagger)^2)', () => {
+    const built = buildEnv({ A: String.raw`\begin{pmatrix}1+i&2\\3&-3i\end{pmatrix}` });
+    const sub = substituteDeep(
+      typedOf(String.raw`\operatorname{tr}\left(\left(\left(A+I\right)^\dagger\right)^2\right)`, built.env),
+      built.env,
+    );
+    if (!sub.ok) throw new Error(sub.errors[0].message);
+    const result = evaluate(sub.value, built.env);
+    if (!result.ok) throw new Error(result.errors[0].message);
+    expect(render(result.value)).toBe('7+2i');
+  });
+});
+
 describe('심볼이 섞이면 재배열 없이 그대로', () => {
   it('심볼 행렬의 곱은 접히지 않는다 (ABA ≠ A²B)', () => {
     expect(evaluatedLatex('ABA')).toBe('ABA');

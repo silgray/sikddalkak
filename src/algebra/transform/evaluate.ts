@@ -14,26 +14,24 @@ import { SCALAR, isSquare, shape } from '../shape/shape';
 import { ONE, ZERO } from '../literal/literal';
 
 /**
+ * fold 시퀀스를 고정점까지 돌릴 때의 상한. `substituteDeep` 의 `MAX_SUBSTITUTION_DEPTH`
+ * 와 같은 취지 — 진동해도 앱이 안 멈추게 막는 안전장치일 뿐, 정상 입력은 두세 바퀴
+ * 안에 끝난다(`foldRound` 문서의 `matPow(call(...), n)` 예시가 두 바퀴).
+ */
+const MAX_FOLD_ROUNDS = 8;
+
+/**
  * 셀 하나를 값으로 접는다. **치환은 안 한다** — 어떤 이름을 무엇으로 바꿀지는 호출자
  * (그래프 층) 몫이다. 이 함수가 아는 건 식 하나와 그 모양 환경뿐이다.
  *
- * 파이프라인: `normalize` (입력 형태 불문 항상 평탄화된 상태로) → `foldFunctions`
- * (`functions.ts`, 사용자 정의 함수 호출을 값으로) → `foldMatrices`(리터럴 행렬 산술)
- * → `foldBuiltins`(`builtins.ts`, `det`/`tr`/`Re`/`Im`/`conjugate` 를 값으로) →
- * `foldCalculus`(`calculus.ts`, 미분/적분/`\sum`/`\prod` 를 값으로) → `simplify`
- * (순수 스칼라는 CE로, 마지막에 거듭제곱 접기까지). 맨 앞의 `normalize` 는 `foldMatrices`
- * 가 n-항 `matMul`/`scalarMul` 이 평탄화돼 있다고 가정하기 때문이다 — `substituteDeep`
- * 처럼 트리를 다시 조립하는 경로를 거친 입력도 안전하게 받으려면 여기서 한 번 더 다져야
- * 한다.
+ * `foldRound`(아래) 한 바퀴가 `normalize → foldFunctions → foldMatrices → foldBuiltins
+ * → foldCalculus` 다 — 그 안의 순서 제약은 그 함수 문서에 있다. **`evaluate` 는 그
+ * 한 바퀴를 `exprKey` 가 안 바뀔 때까지 반복한 뒤** 마지막에 `simplify`(순수 스칼라는
+ * CE로, 거듭제곱 접기까지)를 한 번 돈다. 반복이 필요한 이유는 `foldRound` 문서 참고.
  *
- * **`foldFunctions` 가 `foldMatrices` 보다 먼저인 이유**: `A\cdot f(x)` 에서 `f(x)` 가
- * 행렬 리터럴로 펴지는 게 `foldMatrices` 가 `A` 와 합쳐 접을 수 있으려면 그보다 **먼저**
- * 끝나 있어야 한다 — 순서를 바꾸면 `f(x)` 가 여전히 미펼쳐진 채라 `foldMatrices` 가
- * 이웃 리터럴을 못 알아본다. **`foldBuiltins` 가 `foldMatrices` 뒤인 이유는 거꾸로다** —
- * `\det(A)` 가 값으로 접히려면 `A` 가 그 전에 구체 `matrix` 리터럴이 돼 있어야 한다.
- *
- * 이 호출 하나가 **CE 예산의 단위**다(`ce/budget.ts`) — 안에서 CE를 몇 번 부르든 합쳐서
- * 상한을 넘지 않는다. CE 0.90의 적분이 안 끝나는 입력이 있어서, 없으면 앱이 통째로 멈춘다.
+ * 이 호출 하나가 **CE 예산의 단위**다(`ce/budget.ts`) — 안에서 CE를 몇 번 부르든, 몇
+ * 바퀴를 돌든 합쳐서 상한을 넘지 않는다(`withCeBudget` 은 재진입하면 바깥 deadline을
+ * 그대로 쓴다). CE 0.90의 적분이 안 끝나는 입력이 있어서, 없으면 앱이 통째로 멈춘다.
  */
 export function evaluate(e: TypedExpr, env: Env): Result<TypedExpr> {
   return withCeBudget(() => {
@@ -43,16 +41,60 @@ export function evaluate(e: TypedExpr, env: Env): Result<TypedExpr> {
     if (badExponent !== null) {
       return fail('unsupported', `A matrix can only be raised to an integer power: ${badExponent}`);
     }
-    const expanded = foldFunctions(normalized.value, env);
-    if (!expanded.ok) return expanded;
-    const folded = foldMatrices(expanded.value);
-    if (!folded.ok) return folded;
-    const builtins = foldBuiltins(folded.value, env);
-    if (!builtins.ok) return builtins;
-    const calculated = foldCalculus(builtins.value, env);
-    if (!calculated.ok) return calculated;
-    return simplify(calculated.value, env);
+
+    let current = normalized.value;
+    let key = exprKey(current);
+    for (let round = 0; round < MAX_FOLD_ROUNDS; round += 1) {
+      const next = foldRound(current, env, round === 0);
+      if (!next.ok) return next;
+      const nextKey = exprKey(next.value);
+      if (nextKey === key) break; // 더 접을 게 없다 — 고정점
+      current = next.value;
+      key = nextKey;
+    }
+    // 상한에 닿았으면(진동) 지금까지 접힌 상태로 계속 진행한다 —
+    // `substituteDeep` 이 순환에서 하는 것과 같은 처리(무한 루프만 막으면 된다).
+    return simplify(current, env);
   });
+}
+
+/**
+ * fold 네 패스를 한 바퀴 — `foldFunctions`(`functions.ts`, 사용자 정의 함수 호출을
+ * 값으로) → `foldMatrices`(리터럴 행렬 산술) → `foldBuiltins`(`builtins.ts`,
+ * `det`/`tr`/`Re`/`Im`/`conjugate`/`dagger` 를 값으로) → `foldCalculus`(`calculus.ts`,
+ * 미분/적분/`\sum`/`\prod` 를 값으로).
+ *
+ * **`foldFunctions` 가 `foldMatrices` 보다 먼저인 이유**: `A\cdot f(x)` 에서 `f(x)` 가
+ * 행렬 리터럴로 펴지는 게 `foldMatrices` 가 `A` 와 합쳐 접을 수 있으려면 그보다 **먼저**
+ * 끝나 있어야 한다. **`foldBuiltins` 가 `foldMatrices` 뒤인 이유는 거꾸로다** —
+ * `\det(A)` 가 값으로 접히려면 `A` 가 그 전에 구체 `matrix` 리터럴이 돼 있어야 한다.
+ *
+ * ⚠ **이 순서만으로는 한 바퀴에 안 끝나는 트리가 있다.** `foldFunctions`/`foldBuiltins`/
+ * `foldCalculus` 셋은 자식을 `evaluate` 로 완전히 접은 뒤 자기를 접는 진짜 DFS 라
+ * (`functions.ts`/`builtins.ts`/`calculus.ts` 전부 자식에 재귀 `evaluate` 를 부른다),
+ * **`foldMatrices` 만 자체 재귀**라 앞선 패스가 이미 만들어둔 리터럴만 본다.
+ * `matPow(call(dagger,[add(A,I)]), 2)` 를 예로 들면: 이 바퀴의 `foldMatrices` 는 밑이
+ * 아직 `call` 이라 손 못 대고 지나가고, 뒤이은 `foldBuiltins` 가 `mapChildren` 으로
+ * 그 `call` 자식까지 내려가 리터럴로 접어 `matPow(리터럴, 2)` 를 만들어 놓지만
+ * — `foldMatrices` 는 **이미 지나갔다**, 그 리터럴의 거듭제곱을 실제로 계산할
+ * 사람이 없다. `evaluate` 가 이 함수를 `exprKey` 고정점까지 반복하는 이유가 이거다
+ * (두 번째 바퀴의 `foldMatrices` 가 그제서야 `literal^2` 를 계산한다).
+ *
+ * `alreadyNormal` 이 `false` 면(두 바퀴째부터) 다시 정규화한다 — `foldBuiltins`/
+ * `foldCalculus` 가 CE 결과를 `elaborate` 로 되받는데, elaborate 출력은 곱을 둘씩만
+ * 중첩해 담은 **비정규** 트리다(CLAUDE.md §parse/elaborate — 정규화는 `normalize` 몫).
+ * `foldMatrices` 는 n-항 `matMul`/`scalarMul` 평탄화를 전제한다.
+ */
+function foldRound(e: TypedExpr, env: Env, alreadyNormal: boolean): Result<TypedExpr> {
+  const base = alreadyNormal ? ok(e) : normalize(e);
+  if (!base.ok) return base;
+  const expanded = foldFunctions(base.value, env);
+  if (!expanded.ok) return expanded;
+  const folded = foldMatrices(expanded.value);
+  if (!folded.ok) return folded;
+  const builtins = foldBuiltins(folded.value, env);
+  if (!builtins.ok) return builtins;
+  return foldCalculus(builtins.value, env);
 }
 
 /**

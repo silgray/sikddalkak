@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { evaluate } from './evaluate';
+import { foldMatrices } from './matrixFold';
 import { transform } from '../index';
 import { render } from '../render';
 import { typedOf, TEST_ENV } from '../testEnv';
@@ -80,6 +81,19 @@ describe('후위 켤레 — A^* (원소별) / A^\\dagger (켤레전치)', () => 
   it('심볼 행렬은 접히지 않고 후위 표기로 남는다', () => {
     expect(evaluatedLatex('A^*', TEST_ENV)).toBe('A^*');
     expect(evaluatedLatex(String.raw`A^\dagger`, TEST_ENV)).toBe(String.raw`A^\dagger`);
+  });
+
+  it('foldMatrices 를 지나가도 dagger 의 모양이 뭉개지지 않는다 (회귀)', () => {
+    // `matrixFold.ts` 의 `call` 케이스가 예전엔 `shape: SCALAR` 를 박아버렸다 —
+    // `foldBuiltins` 가 곧바로 값으로 접어 대개 가려지지만, `evaluate` 가 fold
+    // 시퀀스를 고정점까지 반복하면서 접히지 않은 `dagger` 노드(심볼 밑)를
+    // `foldMatrices` 가 여러 번 다시 지나가게 됐다 — 그때마다 모양이 scalar 로
+    // 굳으면 안 된다. `normalize.ts` 의 같은 케이스가 `shape: e.shape` 를 쓰는 것과
+    // 맞춘 것이 이 테스트의 계약이다.
+    const typed = typedOf(String.raw`A^\dagger`, TEST_ENV);
+    const folded = foldMatrices(typed);
+    if (!folded.ok) throw new Error(folded.errors[0].message);
+    expect(folded.value.shape).toEqual(TEST_ENV.shapes.A);
   });
 });
 

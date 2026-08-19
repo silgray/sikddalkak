@@ -433,7 +433,12 @@ export function foldMatrices(e: TypedExpr): Result<TypedExpr> {
         if (!r.ok) return r;
         args.push(r.value);
       }
-      return ok({ op: 'call', shape: SCALAR, name: e.name, args });
+      // `shape: SCALAR` 로 박으면 안 된다 — `conj`/`conjugate` 는 인수 모양을 그대로
+      // 물려받고 `dagger` 는 뒤집는다(`elaborate.ts`). 대부분은 뒤이은 `foldBuiltins`
+      // 가 곧바로 값으로 접어버려 가려지지만, 접히지 않고 남는 심볼 인수(`A^\dagger`,
+      // `A` 가 미지수)라면 여기서 모양이 뭉개진다 — `normalize.ts` 의 같은 케이스가
+      // `shape: e.shape` 를 쓰는 것과 맞춘다.
+      return ok({ op: 'call', shape: e.shape, name: e.name, args });
     }
 
     // 사용자 정의 함수 자체는 여기서 전개하지 않는다 — 그건 `foldCalculus` 뒤에 오는
