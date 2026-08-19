@@ -56,8 +56,13 @@ export function exprKey(e: TypedExpr): string {
     // `call` 처럼 맨 이름으로 접두하지 않는다 — 사용자가 `abs` 같은 내장 함수 이름과
     // 겹치는 이름으로 함수를 정의할 수 있어서(`call`의 `name` 은 SCALAR_FUNCTIONS 값
     // 중 하나뿐이다), 그대로 두면 서로 다른 두 op가 같은 키를 낼 수 있다.
-    case 'apply':
-      return `apply(${e.name},${e.args.map(exprKey).join(',')})`;
+    //
+    // `deriv` 도 접두에 넣는다 — 안 넣으면 `f(3)` 과 `f'(3)` 이 같은 키를 내 단사성이
+    // 깨진다.
+    case 'apply': {
+      const deriv = e.deriv === null ? '' : `D[${e.deriv.vars.join(',')}]${e.deriv.order}`;
+      return `apply(${e.name}${deriv},${e.args.map(exprKey).join(',')})`;
+    }
     case 'frac':
       return `f(${exprKey(e.numerator)},${exprKey(e.denominator)})`;
     case 'matIdentity':
@@ -98,6 +103,17 @@ function compareOptional(
   if (a === null) return -1;
   if (b === null) return 1;
   return cmp(a, b);
+}
+
+/** `apply.deriv` 비교 — `compareOptional` 과 같은 모양이지만 `TypedExpr` 가 아니라서 갈라둔다. */
+function compareApplyDeriv(
+  a: { readonly vars: readonly string[]; readonly order: number } | null,
+  b: { readonly vars: readonly string[]; readonly order: number } | null,
+): number {
+  if (a === null && b === null) return 0;
+  if (a === null) return -1;
+  if (b === null) return 1;
+  return compareArray(a.vars, b.vars, compareStr) || (a.order - b.order);
 }
 
 /** `Shape` 의 한 축. `'unknown'` 은 임의로 숫자보다 앞에 둔다 — 대소 자체엔 의미가 없다. */
@@ -225,10 +241,19 @@ export function compareExpr(a: TypedExpr, b: TypedExpr): number {
       const bb = b as typeof a;
       return compareExpr(a.base, bb.base) || compareExpr(a.exponent, bb.exponent);
     }
-    case 'call':
-    case 'apply': {
+    case 'call': {
       const bb = b as typeof a;
       return compareStr(a.name, bb.name) || compareArray(a.args, bb.args, compareExpr);
+    }
+    // `exprKey` 의 `apply` 접두와 같은 이유로 `deriv` 도 비교한다 — 안 넣으면 `f(3)` 과
+    // `f'(3)` 이 같다고 나온다.
+    case 'apply': {
+      const bb = b as typeof a;
+      return (
+        compareStr(a.name, bb.name) ||
+        compareArray(a.args, bb.args, compareExpr) ||
+        compareApplyDeriv(a.deriv, bb.deriv)
+      );
     }
     case 'frac': {
       const bb = b as typeof a;

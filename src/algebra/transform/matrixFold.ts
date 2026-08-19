@@ -447,7 +447,7 @@ export function foldMatrices(e: TypedExpr): Result<TypedExpr> {
         if (!r.ok) return r;
         args.push(r.value);
       }
-      return ok({ op: 'apply', shape: e.shape, name: e.name, args });
+      return ok({ op: 'apply', shape: e.shape, name: e.name, args, deriv: e.deriv });
     }
 
     case 'frac': {

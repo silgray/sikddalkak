@@ -119,11 +119,17 @@ remember.
 
 | Notation | Meaning |
 |---|---|
-| $\displaystyle \frac{df}{dx}, \frac{d}{dx}f, f'(x), f''(x)$ | derivative, including higher orders |
+| $\displaystyle \frac{d}{dx}f, \frac{d^3}{dx^3}, \left(\frac{d}{dx}\right)^3$ | derivative of an expression, including higher orders |
 | $\displaystyle \frac{d}{d(x,y,z)}$ | multivariable derivative |
-| $\displaystyle \frac{d^3}{dx^3}, \left(\frac{d}{dx}\right)^3$ | higher-order derivative |
+| $\displaystyle f'(a),~ f''(a),~ \frac{df}{dx}(a),~ \frac{\partial f}{\partial x}(a,b),~ \frac{df}{d(x,y)}(a,b)$ | derivative of a **defined function**, evaluated at the arguments |
 | $\displaystyle \int_{a}^{b} f(x) \, dx$ | definite or indefinite integral |
 | $\displaystyle \sum_{n=1}^{10}a_n,\quad \prod_{n=1}^{10}a_n$ | sum / product |
+
+A function derivative differentiates the body of the definition and *then* substitutes
+the arguments: with $f(z)=z^3$, $f'(3y)$ is $27y^2$ and $\frac{df}{dx}(y)$ is $0$
+(the body has no $x$). Omitting the argument list keeps the parameter names, so
+$\frac{df}{dz}$ is $3z^2$. $\partial$ and $d$ mean the same thing here. Prime notation
+only works on one-variable functions — use $\frac{\partial f}{\partial x}(a,b)$ otherwise.
 
 
 ## Keyboard shortcuts
@@ -197,4 +203,3 @@ remember.
 | `nabla`, `grad` | `Alt`+`D` | $\nabla$ |
 | `del` |-| $\partial$ |
 | `infinity` |-| $\infty$ |
-| `deg` (after a digit) |-| $^\circ$ |

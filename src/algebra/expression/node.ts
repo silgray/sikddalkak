@@ -53,8 +53,31 @@ export type TypedExpr =
    *
    * **전개는 `evaluate` 에서만 한다** — `deriv`/`integral`/`sum` 과 같은 규율이다.
    * 그 전까지 이 노드는 `f(x)` 그대로 남고, `render` 도 `f\left(x\right)` 를 낸다.
+   *
+   * ## `deriv` — 함수의 도함수 표기 (`f'(3y)`, `\frac{df}{dx}(y)`)
+   *
+   * `null` 이면 평범한 호출. 아니면 **`vars` 로 `order` 번 미분한 뒤 매개변수에 `args`
+   * 를 대입**한다는 뜻이다 (`f(z)=z^3` 에 `f'(3y)` → `3z^2` → `z:=3y` → `27y^2`).
+   * 순서가 요점이다 — 먼저 대입하면 합성함수 미분이 되어 답이 달라진다.
+   *
+   * **`vars` 는 매개변수와 무관한 이름일 수 있다** — `\frac{df}{dx}(y)` 에서 f의
+   * 매개변수가 `z` 면 본문에 `x` 가 없으니 미분이 0 이다. 이 분리 덕분에 다변수 편미분
+   * (`\frac{\partial f}{\partial x}(a,b)`)이 특별 취급 없이 따라온다.
+   *
+   * **새 op 를 안 만든 이유**: `f'(3)` 은 실제로 "f의 도함수를 3에서 적용" 이라 `apply`
+   * 와 성격이 같다 — CE 위임 금지(`transform/delegate.ts`), 수치평가 거부(`numeric.ts`),
+   * normalize에서 불투명, 모양은 호출부마다 재계산까지 전부 그대로 맞다. 그리고
+   * **선택 필드(`?`)가 아니라 필수 `| null`** 인 것도 의도다 — 그래야 `apply` 리터럴을
+   * 만드는 자리를 TS가 하나도 빠뜨리지 않고 잡아준다(`traversal.ts` 는 스프레드가
+   * 아니라 필드를 나열해 다시 만들기 때문에, 선택 필드였으면 조용히 떨어진다).
    */
-  | { readonly op: 'apply'; readonly shape: Shape; readonly name: string; readonly args: readonly TypedExpr[] }
+  | {
+      readonly op: 'apply';
+      readonly shape: Shape;
+      readonly name: string;
+      readonly args: readonly TypedExpr[];
+      readonly deriv: { readonly vars: readonly string[]; readonly order: number } | null;
+    }
   /**
    * `\frac{p}{q}` — **나눗셈 표기 자체를 보존**한다. `p·q^{-1}` 로 바꿔버리면
    * `\frac{x^2+2x+1}{x+1}` 이 `\left(x^2+2x+1\right)\left(x+1\right)^{-1}` 로 렌더돼

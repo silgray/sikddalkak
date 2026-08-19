@@ -162,7 +162,7 @@ export function mapChildren(
         if (!mapped.ok) return mapped;
         args.push(mapped.value);
       }
-      return ok({ op: 'apply', shape: e.shape, name: e.name, args });
+      return ok({ op: 'apply', shape: e.shape, name: e.name, args, deriv: e.deriv });
     }
 
     case 'frac': {

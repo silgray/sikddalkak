@@ -282,9 +282,14 @@ export function collectFreeSymbols(e: TypedExpr): readonly string[] {
       // `call` 과 달리 **함수 이름도 넣는다** — 셀 의존 간선이 여기서 나온다(`sym` 을
       // 위 주석에서 굳이 뺄 이유가 없다는 것과 같은 논리: 함수 정의 셀이 바뀌면 이
       // 셀도 무효화돼야 한다).
+      //
+      // `deriv` 가 있으면 그 `vars` 도 넣는다 — 아래 `deriv` 케이스의 바운드 이름 포함과
+      // 같은 이유(`node.vars` 문서 참고): 나중에 그 이름의 셀이 추가돼도 이 셀의 캐시
+      // 지문이 바뀌어야 무효화된다.
       case 'apply':
         names.add(node.name);
         node.args.forEach(walk);
+        if (node.deriv !== null) node.deriv.vars.forEach((v) => names.add(v));
         return;
       case 'frac':
         walk(node.numerator);

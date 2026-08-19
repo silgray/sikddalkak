@@ -38,8 +38,11 @@ export function formatSyntax(node: SyntaxNode): string {
       return `(${node.name} ${node.args.map(formatSyntax).join(' ')})`;
     case 'apply':
       return `(apply ${node.name} ${node.args.map(formatSyntax).join(' ')})`;
-    case 'deriv':
-      return `(deriv ${formatSyntax(node.body)} [${node.vars.join(',')}] ${node.order})`;
+    case 'deriv': {
+      const vars = node.vars === null ? "'" : node.vars.join(',');
+      const args = node.args === null ? '' : ` (${node.args.map(formatSyntax).join(',')})`;
+      return `(deriv ${formatSyntax(node.body)} [${vars}] ${node.order}${args})`;
+    }
     case 'sum':
     case 'prod':
     case 'integral': {
@@ -82,8 +85,10 @@ export function formatTyped(e: TypedExpr): string {
       return `(scalarPow ${formatTyped(e.base)} ${formatTyped(e.exponent)})`;
     case 'call':
       return `(${e.name} ${e.args.map(formatTyped).join(' ')})`;
-    case 'apply':
-      return `(apply ${e.name} ${e.args.map(formatTyped).join(' ')})`;
+    case 'apply': {
+      const deriv = e.deriv === null ? '' : ` deriv[${e.deriv.vars.join(',')}]${e.deriv.order}`;
+      return `(apply ${e.name}${deriv} ${e.args.map(formatTyped).join(' ')})`;
+    }
     case 'frac':
       return `(frac ${formatTyped(e.numerator)} ${formatTyped(e.denominator)})`;
     case 'matIdentity':
@@ -132,8 +137,10 @@ export function formatTypedWithShapes(e: TypedExpr): string {
         return `(scalarPow ${formatTypedWithShapes(e.base)} ${formatTypedWithShapes(e.exponent)})`;
       case 'call':
         return `(${e.name} ${e.args.map(formatTypedWithShapes).join(' ')})`;
-      case 'apply':
-        return `(apply ${e.name} ${e.args.map(formatTypedWithShapes).join(' ')})`;
+      case 'apply': {
+        const deriv = e.deriv === null ? '' : ` deriv[${e.deriv.vars.join(',')}]${e.deriv.order}`;
+        return `(apply ${e.name}${deriv} ${e.args.map(formatTypedWithShapes).join(' ')})`;
+      }
       case 'frac':
         return `(frac ${formatTypedWithShapes(e.numerator)} ${formatTypedWithShapes(e.denominator)})`;
       case 'matIdentity':

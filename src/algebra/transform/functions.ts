@@ -1,4 +1,4 @@
-import { instantiateFunction } from '../parse/elaborate';
+import { instantiateFunction, withBoundScalars } from '../parse/elaborate';
 import { substitute } from './substitute';
 import { mapChildren } from '../expression/traversal';
 import { evaluate } from './evaluate';
@@ -44,6 +44,8 @@ function foldApply(e: Extract<TypedExpr, { op: 'apply' }>, env: Env): Result<Typ
   const instantiated = instantiateFunction(fn, args, env);
   if (!instantiated.ok) return ok(fallback);
 
+  if (e.deriv !== null) return foldFunctionDeriv(e, instantiated.value, args, env, fallback);
+
   const bindings: Record<string, TypedExpr> = { ...env.bindings };
   for (let i = 0; i < fn.params.length; i += 1) bindings[fn.params[i]] = args[i];
   const substituted = substitute(instantiated.value, { ...env, bindings });
@@ -51,5 +53,36 @@ function foldApply(e: Extract<TypedExpr, { op: 'apply' }>, env: Env): Result<Typ
 
   // 재귀 evaluate — 중첩된 함수 호출·행렬 리터럴 산술·CE 스칼라 정리가 한 번에 끝난다
   // (`foldCalculus` 의 미적분 본문 평가와 같은 이유, `evaluate` 문서 참고).
+  return evaluate(substituted.value, env);
+}
+
+/**
+ * `f'(3y)` / `\frac{df}{dx}(y)` — **본문을 먼저 미분한 뒤** 매개변수에 인수를 대입한다.
+ * 순서가 요점이다(합성함수 미분이 아니다, `expression/node.ts` 의 `apply.deriv` 문서
+ * 참고). `instantiated`(f의 본문, 매개변수 모양만 걸린 채)를 그대로 `deriv` 노드에
+ * 싸서 기존 `foldCalculus`(`transform/calculus.ts`)의 미분 경로에 넘기고, 나온 결과에
+ * 매개변수→인수 값 치환을 한 번 더 얹는다 — 인스턴스화·미분 규칙 둘 다 한 곳(각각
+ * `elaborate.ts`/`calculus.ts`)만 쓴다.
+ */
+function foldFunctionDeriv(
+  e: Extract<TypedExpr, { op: 'apply' }>,
+  instantiatedBody: TypedExpr,
+  args: readonly TypedExpr[],
+  env: Env,
+  fallback: TypedExpr,
+): Result<TypedExpr> {
+  const fn = env.functions?.[e.name];
+  if (fn === undefined || e.deriv === null) return ok(fallback);
+  const { vars, order } = e.deriv;
+
+  const derivNode: TypedExpr = { op: 'deriv', shape: e.shape, body: instantiatedBody, vars, order };
+  const differentiated = evaluate(derivNode, withBoundScalars(env, [...fn.params, ...vars]));
+  if (!differentiated.ok) return ok(fallback);
+
+  const bindings: Record<string, TypedExpr> = { ...env.bindings };
+  for (let i = 0; i < fn.params.length; i += 1) bindings[fn.params[i]] = args[i];
+  const substituted = substitute(differentiated.value, { ...env, bindings });
+  if (!substituted.ok) return ok(fallback);
+
   return evaluate(substituted.value, env);
 }

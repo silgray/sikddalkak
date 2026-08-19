@@ -122,7 +122,7 @@ function elaborateApply(
     // (`f: sin expects a scalar argument (got 3x3)`, 중첩 호출이면 바깥부터 쌓인다).
     return failWith(instantiated.errors.map((e) => ({ ...e, message: `${name}: ${e.message}` })));
   }
-  return ok({ op: 'apply', shape: instantiated.value.shape, name, args });
+  return ok({ op: 'apply', shape: instantiated.value.shape, name, args, deriv: null });
 }
 
 /**
@@ -282,15 +282,102 @@ export function withBoundScalars(env: Env, names: readonly string[]): Env {
   return { ...env, shapes };
 }
 
+/**
+ * `f'(a)` / `\frac{df}{dx}(a)` — **정의된 함수의 도함수**를 인수에서 값매김한다.
+ *
+ * 순서가 요점이다: 본문을 먼저 미분하고, 그 결과에 인수를 대입한다(합성함수 미분이
+ * 아니다). 여기서는 모양만 정한다 — `instantiateFunction` 으로 매개변수에 인수 모양을
+ * 걸어 본문을 elaborate한 뒤, 그 모양에 `buildDeriv` 를 적용해 `.shape` 만 취한다. 실제
+ * 값 계산(미분 후 치환)은 `transform/functions.ts` 의 `foldApply` 가 한다 — 인스턴스화
+ * 규칙이 두 벌이 되지 않도록 `elaborateApply`(§사용자 정의 함수)와 같은 `instantiateFunction`
+ * 을 공유한다.
+ *
+ * `vars` 가 `null`(프라임)이면 f가 일변수여야 한다 — 어느 변수로 미분하는지 표기에
+ * 안 적혀 있어서다. `args` 가 `null`(인수 생략, `\frac{df}{dz}` 단독)이면 매개변수
+ * 자기 자신을 대입한 것과 같다.
+ *
+ * `freshBoundNameErrors`/`withBoundScalars` 를 안 쓴다 — 여기 `vars` 는 이 식의 새
+ * 바운드 변수가 아니라 f 안에서 이미 스코프된 이름이다(f의 매개변수와 워크스페이스
+ * 정의가 겹치는 경우는 `cellGraph.ts` 의 매개변수 충돌 검사가 이미 컷한다).
+ */
+function elaborateFunctionDeriv(
+  node: Extract<SyntaxNode, { kind: 'deriv' }>,
+  fnName: string,
+  fn: FunctionDef,
+  env: Env,
+): Result<TypedExpr> {
+  let vars: readonly string[];
+  if (node.vars === null) {
+    if (fn.params.length !== 1) {
+      return fail(
+        'unsupported',
+        `Prime notation only works on a one-variable function; use \\frac{\\partial ${fnName}}{\\partial x}(\\dots) for ${fnName}`,
+      );
+    }
+    vars = [fn.params[0]];
+  } else {
+    vars = node.vars;
+  }
+
+  const argNodes = node.args ?? fn.params.map((p): SyntaxNode => ({ kind: 'sym', name: p }));
+  if (argNodes.length !== fn.params.length) {
+    return failShapeMismatch(
+      `${fnName} expects ${fn.params.length} argument${fn.params.length === 1 ? '' : 's'} (got ${argNodes.length})`,
+    );
+  }
+  const argResults = argNodes.map((a) => elaborate(a, env));
+  const argErrors = argResults.flatMap((a) => (a.ok ? [] : a.errors));
+  if (argErrors.length > 0) return failWith(argErrors);
+  const args = argResults.map((a) => (a as { value: TypedExpr }).value);
+  const nonScalar = args.find((a) => !isScalar(a.shape));
+  if (nonScalar !== undefined) {
+    return failShapeMismatch(
+      `${fnName}: a function derivative needs scalar arguments (got ${classifyShape(nonScalar.shape)})`,
+    );
+  }
+
+  const instantiated = instantiateFunction(fn, args, env);
+  if (!instantiated.ok) {
+    return failWith(instantiated.errors.map((e) => ({ ...e, message: `${fnName}: ${e.message}` })));
+  }
+  const derived = buildDeriv(instantiated.value, vars, node.order);
+  if (!derived.ok) return derived;
+  return ok({ op: 'apply', shape: derived.value.shape, name: fnName, args, deriv: { vars, order: node.order } });
+}
+
 function elaborateDiff(
   node: Extract<SyntaxNode, { kind: 'deriv' }>,
   env: Env,
 ): Result<TypedExpr> {
-  const nameErrors = freshBoundNameErrors(node.vars, env);
-  const body = elaborate(node.body, withBoundScalars(env, node.vars));
+  if (node.body.kind === 'sym') {
+    const fn = env.functions?.[node.body.name];
+    if (fn !== undefined) return elaborateFunctionDeriv(node, node.body.name, fn, env);
+  }
+  if (node.vars === null) {
+    // `translatePrimeToTree` 만 `vars: null` 을 만들고 항상 `sym` 본문과 함께다 —
+    // 여기 왔다는 건 위 `fn !== undefined` 분기가 안 걸렸다는(정의된 함수가 아니라는) 뜻.
+    const name = node.body.kind === 'sym' ? node.body.name : 'this expression';
+    return fail('unsupported', `${name} is not a defined function`);
+  }
+  const vars = node.vars;
+  const nameErrors = freshBoundNameErrors(vars, env);
+  const body = elaborate(node.body, withBoundScalars(env, vars));
   const errors = [...nameErrors, ...(body.ok ? [] : body.errors)];
   if (errors.length > 0) return failWith(errors);
-  return buildDeriv((body as { value: TypedExpr }).value, node.vars, node.order);
+  const derived = buildDeriv((body as { value: TypedExpr }).value, vars, node.order);
+  if (!derived.ok) return derived;
+  if (node.args === null) return derived;
+
+  // `\frac{da}{dx}(y)` 인데 `a` 가 함수가 아니다 — 뒤따르는 괄호는 `absorbDerivArgs`
+  // (`parse/translate.ts`)가 붙여둔 후보일 뿐이었으므로, `elaborateApplyNode` 가 `f(x)`
+  // 를 함수가 아닐 때 곱으로 되돌리는 것과 같은 규칙으로 강등한다.
+  const argResults = node.args.map((a) => elaborate(a, env));
+  const argErrors = argResults.flatMap((a) => (a.ok ? [] : a.errors));
+  if (argErrors.length > 0) return failWith(argErrors);
+  return argResults.reduce<Result<TypedExpr>>(
+    (acc, arg) => (acc.ok ? buildMul(acc.value, (arg as { value: TypedExpr }).value) : acc),
+    derived,
+  );
 }
 
 function elaborateBounded(

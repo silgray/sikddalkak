@@ -338,7 +338,7 @@ export function normalize(
         if (!r.ok) return r;
         args.push(r.value);
       }
-      return ok({ op: 'apply', shape: e.shape, name: e.name, args });
+      return ok({ op: 'apply', shape: e.shape, name: e.name, args, deriv: e.deriv });
     }
 
     // 본문(그리고 상하한)을 재귀 정규화만 하고 재조립한다. **바운드 경계를 넘는 스칼라

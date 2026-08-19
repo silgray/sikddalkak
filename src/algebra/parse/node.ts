@@ -61,8 +61,23 @@ export type SyntaxNode =
    * `\dfrac{\mathrm{d}}{\mathrm{d}x}(...)` 계열. `vars` 는 미분 변수(다변수면 길이 >1),
    * `order` 는 몇 번 미분했는지 — `\dfrac{\mathrm{d}^3}{\mathrm{d}x^3}` 는 `vars:['x'],order:3`.
    * CE가 같은 변수의 중첩 `D` 를 접어서 주므로(실측) 여기서 한 번에 접어 담는다.
+   *
+   * **`vars: null` 은 프라임 표기(`f'(a)`)다.** 미분 변수가 표기에 안 적혀 있고 "f의
+   * 유일한 매개변수" 라는 뜻이라, `env.functions` 를 봐야 이름을 알 수 있다 —
+   * 그래서 여기서는 미정으로 남기고 `elaborate` 가 채운다.
+   *
+   * **`args` 는 뒤따르는 괄호 묶음**(`\frac{df}{dx}\left(y\right)`)이다. `null` 이면
+   * 안 붙은 것. `apply` 와 똑같이 **이게 진짜 인수열인지 그냥 곱인지 여기서 안 정한다** —
+   * `body` 가 정의된 함수의 이름일 때만 인수열이고, 그건 `env.functions` 를 봐야 안다
+   * (`\frac{\mathrm{d}a}{\mathrm{d}x}(y)` 에서 `a` 가 그냥 변수면 `0\cdot y` 다).
    */
-  | { readonly kind: 'deriv'; readonly body: SyntaxNode; readonly vars: readonly string[]; readonly order: number }
+  | {
+      readonly kind: 'deriv';
+      readonly body: SyntaxNode;
+      readonly vars: readonly string[] | null;
+      readonly order: number;
+      readonly args: readonly SyntaxNode[] | null;
+    }
   | {
       readonly kind: 'sum';
       readonly body: SyntaxNode;

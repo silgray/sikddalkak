@@ -58,16 +58,18 @@ const INVERSE_FUNCTIONS: Record<string, string> = {
 };
 
 /**
- * `f'(x)` / `f''(x)` — 프라임 미분 표기. **한 변수 함수 전용.**
+ * `f'(x)` / `f''(3y)` — 프라임 미분 표기. **정의된 일변수 함수 전용.**
  *
  * CE는 이걸 `["Apply",["Derivative","f",n],arg]` 로 준다(실측: `f'''(x)` → n=3,
- * `f^{\prime}(x)` 도 같은 꼴). 우리 Syntax IR에는 이미 딱 맞는 두 노드가 있으므로
- * 새 노드를 만들 필요 없이 **`\frac{\mathrm{d}}{\mathrm{d}x}f(x)` 와 같은 트리로
- * 내려놓는다** — 그러면 elaborate·evaluate·render가 이미 아는 길로 흘러간다.
+ * `f^{\prime}(x)` 도 같은 꼴).
  *
- * 인수는 **심볼이어야 한다.** `f'(x)` 는 "x로 미분" 과 같지만 `f'(2)` 는 "미분한 다음
- * 2를 넣어라" 라서 같은 트리로 못 적는다(치환을 담을 Syntax 노드가 없다). 조용히 틀린
- * 답을 내느니 정직하게 거절한다 — 필요해지면 elaborate에 bound 변수를 만들어 붙여야 한다.
+ * 뜻은 **"f의 도함수를 인수 자리에서 값매김"** 이다 — `f(z)=z^3` 이면 `f'(3y)` 는
+ * `3z^2` 에 `z:=3y` 를 넣은 `27y^2` 이지, 합성함수 미분 `\frac{d}{dy}f(3y)` 가 아니다.
+ * 그래서 인수는 아무 식이나 와도 된다(`f'(3)`, `f'(x+1)`).
+ *
+ * **미분 변수는 여기서 못 정한다** — 표기에 안 적혀 있고 "f의 유일한 매개변수" 라는
+ * 뜻이라 `env.functions` 를 봐야 안다. `vars: null` 로 남기고 `elaborate` 가 채운다
+ * (`parse/node.ts` 의 `deriv` 문서 참고).
  *
  * 대상이 아니면 `null` 을 돌려 호출부가 다음 갈래(`InverseFunction`)로 넘어가게 한다.
  */
@@ -82,22 +84,18 @@ function translatePrimeToTree(
     return null;
   }
   if (order < 1) return null;
-  if (callArgs.length !== 1) {
-    return fail('unsupported', "Prime notation takes exactly one argument (f'(x))");
+  if (callArgs.length === 0) {
+    return fail('unsupported', "Prime notation needs an argument (f'(x))");
   }
-  const arg = translateToTree(callArgs[0]);
-  if (!arg.ok) return arg;
-  if (arg.value.kind !== 'sym') {
-    return fail(
-      'unsupported',
-      "Prime notation needs a variable as its argument — write f'(x), not f'(2)",
-    );
-  }
+  const args = callArgs.map(translateToTree);
+  const errors = args.flatMap((a) => (a.ok ? [] : a.errors));
+  if (errors.length > 0) return failWith(errors);
   return ok({
     kind: 'deriv',
-    body: { kind: 'apply', name: fnName, args: [arg.value] },
-    vars: [arg.value.name],
+    body: { kind: 'sym', name: fnName },
+    vars: null,
     order,
+    args: args.map((a) => (a as { value: SyntaxNode }).value),
   });
 }
 
@@ -199,7 +197,7 @@ function translateDiffToTree(bodyJson: unknown, varJson: unknown): Result<Syntax
   if (terms.length < 2) {
     const body = translateToTree(currentBody);
     if (!body.ok) return body;
-    return ok({ kind: 'deriv', body: body.value, vars: [varName.value], order });
+    return ok({ kind: 'deriv', body: body.value, vars: [varName.value], order, args: null });
   }
 
   const [first, ...rest] = terms;
@@ -215,6 +213,7 @@ function translateDiffToTree(bodyJson: unknown, varJson: unknown): Result<Syntax
     body: (diffBody as { value: SyntaxNode }).value,
     vars: [varName.value],
     order,
+    args: null,
   };
   const restTerms = rest.map((t, i) => {
     const node = (restNodes[i] as { value: SyntaxNode }).value;
@@ -346,7 +345,7 @@ function translateMultivarDiffToTree(
   const bodyJson = restArgs.length === 1 ? restArgs[0] : ['InvisibleOperator', ...restArgs];
   const body = translateToTree(bodyJson);
   if (!body.ok) return body;
-  return ok({ kind: 'deriv', body: body.value, vars: names, order: 1 });
+  return ok({ kind: 'deriv', body: body.value, vars: names, order: 1, args: null });
 }
 
 // ---------------------------------------------------------------------------
@@ -520,6 +519,34 @@ function buildApplyNode(name: string, target: ApplyTarget): Result<SyntaxNode> {
   return target.wrap(apply);
 }
 
+/**
+ * `\frac{\mathrm{d}f}{\mathrm{d}x}\left(y\right)` — 미분 표기 **바로 뒤**에 붙은 괄호
+ * 묶음을 그 `deriv` 노드의 `args` 로 흡수한다. 흡수 대상이 아니면 `null` 을 돌려
+ * 호출부가 평범한 병치(곱)로 두게 한다.
+ *
+ * **본문이 맨 심볼일 때만** 흡수한다. `f` 가 정의된 함수라야 인수열이 뜻을 갖고, 그
+ * 판단은 `env.functions` 가 있는 `elaborate` 몫이라 여기서는 후보로만 담는다
+ * (`apply` 가 함수 적용인지 곱인지 미루는 것과 같은 규율). 본문이 식이면
+ * (`\frac{d}{dx}\left(x^2\right)\left(y\right)`) 흡수하지 않으므로 기존 곱 해석 그대로다.
+ *
+ * CE 실측으로 `D(f,x)`(단일변수·`\partial` 포함), 중첩 `D`(고차), 다변수 `Divide` 꼴이
+ * 전부 `deriv{body: sym}` 로 번역되므로 세 표기가 이 한 조건에 함께 걸린다.
+ */
+function absorbDerivArgs(node: SyntaxNode, nextJson: unknown): Result<SyntaxNode> | null {
+  if (node.kind !== 'deriv' || node.body.kind !== 'sym' || node.args !== null) return null;
+  const target = asApplyTarget(nextJson);
+  if (target === null) return null;
+  const rawArgs = argSourceArgs(target.source);
+  if (rawArgs.length === 0) return fail('malformed', 'Empty parentheses');
+  const parsed = rawArgs.map(translateToTree);
+  const errors = parsed.flatMap((a) => (a.ok ? [] : a.errors));
+  if (errors.length > 0) return failWith(errors);
+  return target.wrap({
+    ...node,
+    args: parsed.map((a) => (a as { value: SyntaxNode }).value),
+  });
+}
+
 function translateMultiplyToTree(args: readonly unknown[]): Result<SyntaxNode> {
   // 인수열을 [피연산자, 마커, 피연산자, …] 로 읽는다. 마커가 없는 인접은 병치.
   const items: SyntaxNode[] = [];
@@ -551,6 +578,14 @@ function translateMultiplyToTree(args: readonly unknown[]): Result<SyntaxNode> {
       if (target !== null) i += 1; // Delimiter(+후위)를 같이 소비했다
     } else {
       node = translateToTree(arg);
+      // 미분 표기 바로 뒤에 붙은 괄호도 같은 방식으로 흡수한다 — `\frac{df}{dx}(y)`.
+      // 이름+괄호(위 갈래)와 판박이지만 머리가 문자열이 아니라 트리라 따로 본다.
+      const absorbed =
+        node.ok && i + 1 < args.length ? absorbDerivArgs(node.value, args[i + 1]) : null;
+      if (absorbed !== null) {
+        node = absorbed;
+        i += 1;
+      }
     }
 
     if (!node.ok) {

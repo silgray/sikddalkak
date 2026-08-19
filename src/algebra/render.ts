@@ -347,8 +347,23 @@ export function render(e: TypedExpr): string {
     // 정의가 없는 환경에서 이 LaTeX을 다시 읽으면 곱(`elaborate` 의 juxt 되돌리기)으로
     // 온다. 그래서 렌더 멱등성은 "같은 `env` 안에서" 로 좁아진다(`call`은 `env` 와
     // 무관하게 항상 함수라 이 제약이 없다).
-    case 'apply':
-      return `${symbolToLatex(e.name)}${paren(e.args.map((a) => render(a)).join(','))}`;
+    //
+    // `deriv` 가 있으면 `\frac{\mathrm{d}f}{\mathrm{d}x}\left(a\right)` 문체로 낸다 —
+    // `deriv` 노드 렌더(아래)와 같은 스타일. **프라임(`f'(a)`)으로는 절대 안 낸다** —
+    // d-표기는 `elaborateDiff` 가 매개변수 추론 없이 그대로 되읽으므로 멱등이 보장되지만,
+    // 프라임은 함수가 일변수인지부터 다시 따져야 해서 멱등이 안 보장된다.
+    case 'apply': {
+      const args = paren(e.args.map((a) => render(a)).join(','));
+      if (e.deriv === null) return `${symbolToLatex(e.name)}${args}`;
+      const { vars, order } = e.deriv;
+      const op =
+        vars.length === 1
+          ? order === 1
+            ? `\\frac{\\mathrm{d}${symbolToLatex(e.name)}}{\\mathrm{d}${symbolToLatex(vars[0])}}`
+            : `\\frac{\\mathrm{d}^{${order}}${symbolToLatex(e.name)}}{\\mathrm{d}${symbolToLatex(vars[0])}^{${order}}}`
+          : `\\frac{\\mathrm{d}${symbolToLatex(e.name)}}{\\mathrm{d}(${vars.map(symbolToLatex).join(',')})}`;
+      return `${op}${args}`;
+    }
 
     case 'frac':
       return `\\frac{${render(e.numerator)}}{${render(e.denominator)}}`;
