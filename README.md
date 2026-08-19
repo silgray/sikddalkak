@@ -1,12 +1,11 @@
-<div align="center">
+<!-- <div align="center"> -->
 
 ## sikddalkak
-https://silgray.github.io/sikddalkak/
-
 A symbolic calculator notebook. Write formulas, stack them as cells, and let
 named variables flow between them.
 
-</div>
+https://silgray.github.io/sikddalkak/
+<!-- </div> -->
 
 ## Main feature
 
