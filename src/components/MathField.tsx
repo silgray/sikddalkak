@@ -142,6 +142,9 @@ const CUSTOM_INLINE_SHORTCUTS: InlineShortcutDefinitions = {
   tr: '\\operatorname{\\mathrm{tr}}',
   tt: '\\dagger',
   '**': '*',
+  // 켤레. `Alt+-` 키바인딩(`editor/keybindings.ts`)과 같은 표기를 타이핑으로도 낼 수
+  // 있게 한다 — 저쪽은 선택을 감싸야 해서 `#@`, 이쪽은 감쌀 선택이 없으니 `#?`(빈 칸)다.
+  conj: '\\overline{#?}',
 };
 
 /**
