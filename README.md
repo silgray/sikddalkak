@@ -80,7 +80,7 @@ $$x^2-1 \to (x+1)(x-1) \qquad AB+AC \to A(B+C)$$
 | Notation | Meaning |
 |---|---|
 | $\sin,~ \cos,~ \tan$ | trigonometric |
-| $\sin^{-1},~ \cos^{-1},~ \tan^{-1},~ \arcsin,~\arccos,~\arctan$ | inverse trigonometric |
+| $\sin^{-1},~ \cos^{-1},~ \tan^{-1},~ \arcsin,~ \arccos,~ \arctan$ | inverse trigonometric |
 | $\sinh,~ \cosh,~ \tanh$ | hyperbolic |
 |  $\exp,~ \ln,~ \log$ | exponential and logarithmic |
 
@@ -179,14 +179,14 @@ remember.
 |---|---|---|
 | `sin`, `cos`, `tan`, `sec`, `csc`, `cot` |-| $\sin$, $\cos$, $\tan$, $\sec$, $\csc$, $\cot$ |
 | `arcsin`, `arccos`, `arctan` |-| $\arcsin$, $\arccos$, $\arctan$ |
-| `sinh`, `cosh`, `tanh`, `coth`, `sech` |-| $\sinh$, $\cosh$, $\tanh$, $\coth$, $\operatorname{sech}$ |
+| `sinh`, `cosh`, `tanh`, `coth`, `sech` |-| $\sinh$, $\cosh$, $\tanh$, $\coth$, $\mathrm{sech}$ |
 | `ln`, `log`, `lg`, `exp` |-| $\ln$, $\log_{\square}$, $\lg$, $\exp$ |
 | `det`, `tr` |-| $\det$, $\mathrm{tr}$ |
-| `Re`, `Im` |-| $\operatorname{Re}$, $\operatorname{Im}$ |
+| `Re`, `Im` |-| $\mathrm{Re}$, $\mathrm{Im}$ |
 | `conj` | `Alt`+`-` | $\overline{z}$ |
-<!-- | `max`, `min`, `argmax`, `argmin` |-| $\max$, $\min$, $\operatorname{arg\,max}$, $\operatorname{arg\,min}$ |
-| `gcd`, `lcm`, `mod`, `(mod` |-| $\gcd$, $\operatorname{lcm}$, $\bmod$, $\pmod{\square}$ |
-| `erf`, `erfc`, `bessel`, `mean`, `median` |-| $\operatorname{erf}$, $\operatorname{erfc}$, $\operatorname{bessel}$, $\operatorname{mean}$, $\operatorname{median}$ | -->
+<!-- | `max`, `min`, `argmax`, `argmin` |-| $\max$, $\min$, $\mathrm{arg\,max}$, $\mathrm{arg\,min}$ |
+| `gcd`, `lcm`, `mod`, `(mod` |-| $\gcd$, $\mathrm{lcm}$, $\bmod$, $\pmod{\square}$ |
+| `erf`, `erfc`, `bessel`, `mean`, `median` |-| $\mathrm{erf}$, $\mathrm{erfc}$, $\mathrm{bessel}$, $\mathrm{mean}$, $\mathrm{median}$ | -->
 
 #### Greek letters and symbols
 
