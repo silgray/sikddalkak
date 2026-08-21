@@ -12,6 +12,7 @@ import { expandSelectionSemantic, siblingRunRange } from './selection';
 import { KEY_OPS, dispatchKeyOp } from './keyOps';
 import { findViolations, repairLatex } from './wellformed';
 import { BLOCKED_KEYBINDINGS, CUSTOM_KEYBINDINGS, RESERVED_KEYBINDINGS } from './keybindings';
+import { feedKey } from './feedKey';
 
 /**
  * 에디터 회귀 스위트 — 실제 MathLive(헤드리스 Chromium)를 구동한다.
@@ -93,6 +94,69 @@ describe('MathLive 동작 핀 — 구조 이벤트 시퀀스 (classifyEdit의 �
     cleanups.push(f.dispose);
     await f.type('x^234');
     expect(f.events.map((e) => e.latex)).toEqual(['x', 'x^2', 'x^23', 'x^234']);
+  });
+});
+
+describe('MathLive 동작 핀 — 문자 입력 세 경로 대조 (feedKey 설계 근거)', () => {
+  // 물리 키보드 = 실제 keydown(브라우저가 contenteditable에 네이티브로 삽입) →
+  // input 이벤트. 세 대체 경로가 "sqrt" 4글자에서 각각 어떻게 갈리는지 재측정한다.
+  // ⚠ 메모리 핀(mathlive-typedtext-shortcut-pitfall)이 "typedText는 인라인 숏컷을
+  // 미발동"이라 적어뒀는데, mathlive 0.110 소스(onInput의 simulateKeystroke 분기가
+  // onKeystroke를 직접 부른다)와 어긋난다 — 아래가 그 재측정이다.
+
+  it('typedText + simulateKeystroke:true (harness의 f.type) — 인라인 숏컷 미발동 (재측정 확인)', async () => {
+    // 메모리 핀(mathlive-typedtext-shortcut-pitfall)의 재측정 — 여전히 유효하다.
+    // 원인(실측): onKeystroke가 미매치 글자마다 "return true"(미처리)를 내는데,
+    // onInput의 simulateKeystroke 분기는 그걸 "handled=false"로 보고 그 자리에서
+    // insertMathModeChar로 **즉시 리터럴 삽입**해버린다 — 그래서 나중에 진짜 숏컷이
+    // 완성돼도 매칭될 후보 글자들이 이미 개별 원자로 박혀 있어 안 풀린다.
+    const f = await createField();
+    cleanups.push(f.dispose);
+    await f.type('sqrt');
+    expect(f.value()).toBe('sqrt');
+  });
+
+  it('feedKey (싱크로 합성 keydown + 미소비 시 execCommand insertText 폴백) — 인라인 숏컷 발동 여부', async () => {
+    const f = await createField();
+    cleanups.push(f.dispose);
+    for (const ch of 'sqrt') {
+      feedKey(f.mf, { key: ch });
+      await f.settle();
+    }
+    expect(f.value()).toBe(String.raw`\sqrt{\placeholder{}}`);
+  });
+
+  it('raw keydown만 (싱크, 문자 삽입 폴백 없음) — 전체가 숏컷이면 그 자체로 완성된다', async () => {
+    // onKeystroke 자신이 매칭된 순간 model.setState() 로 버퍼 이전 상태로 되감고
+    // \sqrt{...} 를 직접 넣는다(ModeEditor.insert) — 미매치 글자들이 애초에 아무데도
+    // 안 박혀 있었으니(합성 keydown은 브라우저 기본 삽입을 유발하지 않는다) 되감을
+    // 것도 없다. 그래서 "sqrt" 처럼 전체가 숏컷인 입력은 폴백 없이도 정확하다.
+    const f = await createField();
+    cleanups.push(f.dispose);
+    for (const ch of 'sqrt') {
+      pressRealKey(f.mf, { key: ch });
+      await f.settle();
+    }
+    expect(f.value()).toBe(String.raw`\sqrt{\placeholder{}}`);
+  });
+
+  it('raw keydown만, 숏컷이 아닌 평범한 글자 — 아무 데도 안 박힌다 (feedKey 폴백이 필요한 이유)', async () => {
+    // 'x' 는 어떤 숏컷의 접두사도 아니라 onKeystroke가 "return true"(미처리)만 내는데,
+    // 합성 keydown은 진짜 keydown과 달리 브라우저의 기본 삽입 동작을 유발하지 않는다
+    // — 그래서 폴백이 없으면 문자가 통째로 사라진다.
+    const f = await createField();
+    cleanups.push(f.dispose);
+    pressRealKey(f.mf, { key: 'x' });
+    await f.settle();
+    expect(f.value()).toBe('');
+  });
+
+  it('feedKey, 숏컷이 아닌 평범한 글자 — execCommand insertText 폴백이 채운다', async () => {
+    const f = await createField();
+    cleanups.push(f.dispose);
+    feedKey(f.mf, { key: 'x' });
+    await f.settle();
+    expect(f.value()).toBe('x');
   });
 });
 
@@ -193,6 +257,34 @@ describe('키 연산 — 선언된 시나리오 순회', () => {
           expect(f.value()).toBe(s.expect);
           // 어떤 연산도 파손을 남기지 않는다
           expect(findViolations(f.value())).toEqual([]);
+        });
+      }
+    });
+  }
+});
+
+describe('키 연산 — feedKey 경로로 재순회 (물리 입력과 같은 결과인지)', () => {
+  // 위 스위트와 같은 시나리오 표를 그대로 돌리되, `dispatchKeyOp`를 직접 부르는
+  // 대신 `feedKey`로 셰도우 싱크에 진짜 keydown을 흘린다. `feedKey`가 노리는
+  // 것 자체가 "물리 키보드와 같은 경로"이므로, 표를 새로 쓰지 않고 같은 표가
+  // 같은 결과를 내는지 보는 게 가장 정직한 검증이다. `MathField` React 래퍼를
+  // 마운트해야 한다(`dispatchKeyOp`를 부르는 capture 리스너가 거기 달려 있다,
+  // `createField`의 맨 MathfieldElement에는 없다).
+  for (const op of KEY_OPS) {
+    describe(`${op.id}: ${op.summary}`, () => {
+      for (const s of op.scenarios) {
+        it(`${JSON.stringify(s.start)} + ${s.key} → ${JSON.stringify(s.expect)}`, async () => {
+          const { mf } = await mountMathField(s.start);
+          if (s.selection !== undefined) {
+            mf.selection = { ranges: [s.selection], direction: 'forward' };
+          } else {
+            mf.position = s.caret ?? mf.lastOffset;
+          }
+          await settle();
+          feedKey(mf, { key: s.key });
+          await settle();
+          expect(mf.value).toBe(s.expect);
+          expect(findViolations(mf.value)).toEqual([]);
         });
       }
     });

@@ -43,6 +43,17 @@ export function modelOf(mf: MathfieldElement): InternalModel | null {
 }
 
 /**
+ * 셰도우 DOM 안의 키보드 이벤트 싱크(`.ML__keyboard-sink`, contenteditable 스팬).
+ * MathLive는 여기서 keydown/keypress/input을 듣는다(`delegateKeyboardEvents`,
+ * mathlive.mjs 실측) — 호스트(`math-field` 엘리먼트)에 이벤트를 쏘면 이 리스너들을
+ * 아예 안 거친다. `feedKey.ts` 가 물리 키 입력과 같은 경로를 타려고 여기로 합성
+ * `KeyboardEvent`를 디스패치한다(브라우저 테스트 하네스의 `pressKey`와 같은 자리).
+ */
+export function keyboardSinkOf(mf: MathfieldElement): HTMLElement | null {
+  return mf.shadowRoot?.querySelector<HTMLElement>('.ML__keyboard-sink') ?? null;
+}
+
+/**
  * MathLive의 인라인 숏컷 키 버퍼를 비운다. 외부에서 값을 밀어넣을 때(실행취소
  * 등) 같이 불러야 한다 — 안 그러면 버퍼에 남은 옛 글자와 다음 입력이 이어붙어
  * 숏컷 매칭돼, 이미 되돌린 글자가 되살아난다 (예: s → undo → 'in' 입력 = \sin).

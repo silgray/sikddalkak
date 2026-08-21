@@ -7,6 +7,7 @@ import {
   modelOf,
   patchMathliveDisposedBlur,
 } from '../editor/internals';
+import { setActiveMathField } from '../editor/activeField';
 import { PLACEHOLDER_RULES, contentCount, findViolations, repairLatex } from '../editor/wellformed';
 import { dispatchKeyOp } from '../editor/keyOps';
 import { configureKeybindings } from '../editor/keybindings';
@@ -198,9 +199,14 @@ const SHADOW_CSS = `
 }
 `;
 
-/** `styles.css` 모바일 블록과 같은 640px 기준. 가상 키보드 정책 분기 전용(임시). */
-function isMobileViewport(): boolean {
-  return window.matchMedia('(max-width: 640px)').matches;
+/**
+ * 이 노드가 키 팔레트(`KeyPalette.tsx`) 안인가. 팔레트는 셀 그룹 밖에 고정으로 떠
+ * 있지만 **편집 표면의 일부**라, "필드 바깥을 눌렀다" 판정에서 빼야 한다.
+ * `pointerdown` 의 target은 보통 Element지만 텍스트 노드로 올 여지를 남겨 방어한다.
+ */
+function isInKeyPalette(node: Node | null): boolean {
+  const el = node instanceof Element ? node : (node?.parentElement ?? null);
+  return el?.closest('.key-palette') != null;
 }
 
 let shadowSheet: CSSStyleSheet | null = null;
@@ -421,11 +427,10 @@ export function MathField({
 
     const mf = new MathfieldElement();
     mf.value = initialValue.current;
-    // 데스크톱에서는 가상 키보드가 멋대로 뜨지 않게 막지만, 모바일(터치)에서는
-    // 켠다 — 임시 조치다. 인라인 숏컷과 keyOps.ts 예방 층이 가상 키보드 입력
-    // 경로를 타는지는 미확인(알려진 구멍, styles.css 모바일 블록 참고).
-    // 마운트 시점 1회 판정 — 이 값이 바뀌는 리사이즈는 이번 판에서 안 쫓는다.
-    mf.mathVirtualKeyboardPolicy = isMobileViewport() ? 'auto' : 'manual';
+    // MathLive 자체 가상 키보드는 항상 끈다 — 이 브랜치(mobile-kbd-palette)는
+    // 그걸 자체 팔레트(KeyPalette.tsx)로 대체하는 실험이다. 자체 VK는 우리
+    // keyOps.ts·앱 단축키·인라인 숏컷 판정 경로를 우회한다(계획 문서 Context 참고).
+    mf.mathVirtualKeyboardPolicy = 'manual';
     // `\` 를 치면 뜨던 LaTeX 명령어 검색 팝오버를 끈다. 이 앱의 입력 수단은 인라인
     // 숏컷(`sqrt`, `sum`…)과 키바인딩이고, 그 목록은 도움말 패널이 맡는다 — 타이핑
     // 중에 자동완성 창이 끼어들면 캐럿·선택 흐름만 끊긴다.
@@ -522,6 +527,7 @@ export function MathField({
 
     mf.addEventListener('focusin', () => {
       isEditing.current = true;
+      setActiveMathField(mf);
       handlers.current.onFocus?.();
       // selection-change는 "변화"에만 발화한다. 이미 선택이 있는 필드에 포커스가
       // 들어오면 이벤트 없이 선택만 존재해 버튼 상태가 어긋난다 — 즉시 보고해 동기화.
@@ -569,6 +575,14 @@ export function MathField({
       if (mf.selectionIsCollapsed) return;
       const target = ev.target as Node | null;
       if (target !== null && scopeOf().contains(target)) return;
+      // 키 팔레트는 "바깥" 이 아니다 — 키보드이지 딴 데가 아니다(`KeyPalette.tsx`).
+      // 셀 그룹 밖에 고정으로 떠 있어 `scopeOf()` 에 안 잡히므로 명시적으로 뺀다.
+      // 안 빼면 **placeholder 위에서 화살표가 제자리를 맴돈다**: 캐럿이 placeholder에
+      // 서면 MathLive가 그걸 선택 상태로 만드는데(collapsed=false), 그 상태에서 팔레트를
+      // 누를 때마다 여기가 선택을 지워 캐럿이 0으로 돌아가기 때문이다. 물리 키보드는
+      // pointerdown이 아예 없어서 안 겪는 차이다
+      // (실측·회귀 핀: `editor/feedKeyParity.browser.test.tsx`).
+      if (isInKeyPalette(target)) return;
       clearSelection();
     };
     document.addEventListener('pointerdown', onOutsidePointerDown, { capture: true });
