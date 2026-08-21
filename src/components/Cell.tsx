@@ -180,6 +180,15 @@ export function Cell({
             onReplace={(latex) => replaceCurrentSelection(latex)}
           />
         )}
+        {/* 변환 버튼(expand/simplify/factor)의 모바일용 플로팅 사본 — `.cell-actions`
+            가 좁은 화면에서 통째로 숨으므로, 선택 위로 뜨는 이 사본이 대신 보인다.
+            데스크톱에서는 `.transform-popup` 기본 규칙(styles.css)이 숨겨서 아래
+            `.cell-actions` 안의 인라인 버튼만 보인다. */}
+        {selection !== null && !transformsBlocked && (
+          <div className="transform-popup">
+            <TransformButtons selection={selection} onApply={applyTransform} />
+          </div>
+        )}
         <FieldClip watch={object.latex}>
           <MathField
             ref={inputRef}

@@ -38,32 +38,35 @@ body {
   padding: 2.5rem 1.5rem 6rem;
 }
 
-.app-header h1 {
-  margin: 0 0 0.35rem;
+/* 제목 + 탭 바 + 도움말. 데스크톱은 두 줄(`.tabbar`가 flex-basis:100%로 줄바꿈),
+   모바일(640px 이하)은 한 줄로 흡수된다 — 아래 모바일 블록 참고. */
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.app-title {
   font-size: 1.6rem;
+  font-weight: 600;
   letter-spacing: -0.02em;
 }
 
-.app-header p {
+.app-intro {
   margin: 0 0 2rem;
   color: var(--muted);
   font-size: 0.85rem;
   line-height: 1.7;
 }
 
-.app-header code,
-.app-header kbd {
+.app-intro code,
+.app-intro kbd {
   background: color-mix(in srgb, var(--fg) 8%, transparent);
   border-radius: 4px;
   padding: 0.1em 0.4em;
   font-size: 0.9em;
-}
-
-.app-header-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.75rem;
 }
 
 /* --- 도움말 패널 --- */
@@ -188,9 +191,11 @@ body {
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  margin-bottom: 0.75rem;
   border-bottom: 1px solid var(--line);
   flex-wrap: wrap;
+  /* `.topbar`(제목+도움말과 한 줄) 안에서 늘 다음 줄로 떨어진다 — 데스크톱의
+     "제목 줄 / 탭 줄" 2단 배치. 모바일 블록이 auto로 되돌려 한 줄에 흡수한다. */
+  flex-basis: 100%;
 }
 
 .tab {
@@ -456,6 +461,13 @@ math-field::part(virtual-keyboard-toggle) {
   box-shadow: 0 3px 10px color-mix(in srgb, var(--fg) 15%, transparent);
 }
 
+/* 모바일에서 변환 버튼(expand/simplify/factor)을 같은 방식으로 띄우는 자리 —
+   기본값은 숨김(데스크톱은 `.cell-actions`/`.result-actions` 안에 인라인으로 그대로
+   보인다). 실제 배치는 아래 모바일 미디어쿼리가 정한다. */
+.transform-popup {
+  display: none;
+}
+
 .delim-btn {
   border: none;
   border-radius: 4px;
@@ -667,4 +679,178 @@ math-field::part(virtual-keyboard-toggle) {
   color: var(--error);
   font-size: 0.8rem;
   font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+}
+
+/* ==========================================================================
+   모바일 (임시 베이스 판, CLAUDE.md 없음 — mobile-ui 브랜치)
+
+   여기서 갈라져 나갈 캐럿/선택 조작 실험 브랜치들의 공통 출발점. 데스크톱 규칙은
+   위에 그대로 두고 이 블록에서만 덮어쓴다 — 되돌리기·머지가 쉽도록.
+   지금 손대지 않는 것: 셀 컨트롤(●/⠿/×/변환 버튼) 대체 수단, 실행취소/셀 추가
+   버튼, 터치 드래그 재정렬, hover 의존 규칙(대상이 숨어 있어 무의미).
+   ========================================================================== */
+@media (max-width: 640px) {
+  /* --- 셀이 화면 좌우로 꽉 차게 (카드가 아니라 구분선으로 갈리는 행) --- */
+
+  .app {
+    max-width: none;
+    padding: 0 0 calc(50vh + env(safe-area-inset-bottom));
+  }
+
+  .stack {
+    gap: 0;
+  }
+
+  .cell-group {
+    border: none;
+    border-bottom: 1px solid var(--line);
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .cell-input,
+  .result {
+    padding: 0.9rem 0.75rem;
+  }
+
+  .mf math-field {
+    /* 16px 밑으로 두면 iOS가 포커스 시 페이지를 확대한다. */
+    font-size: 1.25rem;
+  }
+
+  /* --- 셀 컨트롤은 이번 판에서 전부 숨긴다 (다음 판 몫) --- */
+
+  .cell-toggle,
+  .drag-handle,
+  .drag-handle-spacer,
+  .cell-actions {
+    display: none;
+  }
+
+  /* 행렬 구분 기호 툴바는 셀 위로 뜨는 오버레이라 수식 자리를 안 먹는다 — 남긴다.
+     `left`는 드래그 핸들 폭 기준이었으니 셀의 새 좌측 패딩에 맞춘다. */
+  .selection-toolbar {
+    left: 0.75rem;
+  }
+
+  /* 결과 행의 formula/decimal 토글은 남기고, 인라인 변환 버튼만 숨긴다 — 아래
+     `.transform-popup` 이 대신 뜬다. */
+  .result-actions .transform-btn {
+    display: none;
+  }
+
+  /* 변환 버튼(expand/simplify/factor)도 선택 위로 띄운다 — `.cell-actions` 가
+     통째로 숨은 자리에선 인라인으로 보일 방법이 없다. `.selection-toolbar`(행렬
+     구분 기호)와 겹치는 걸 피하려고 반대쪽(필드 아래)에 둔다. */
+  .result {
+    position: relative;
+  }
+
+  .transform-popup {
+    display: flex;
+    position: absolute;
+    top: calc(100% + 0.15rem);
+    left: 0.75rem;
+    z-index: 5;
+    gap: 2px;
+    padding: 0.1rem 0.2rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    box-shadow: 0 3px 10px color-mix(in srgb, var(--fg) 15%, transparent);
+  }
+
+  .result-mode {
+    width: 5.5rem;
+    height: 1.6rem;
+  }
+
+  /* --- 상단 바: 제목 + 탭 + 도움말을 한 줄로 --- */
+
+  .topbar {
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.5rem;
+    position: sticky;
+    top: 0;
+    z-index: 6;
+    background: var(--bg);
+    padding: 0.6rem 0.75rem;
+    margin: 0 0 0.25rem;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .app-title {
+    flex: 0 0 auto;
+    font-size: 0.95rem;
+  }
+
+  .app-intro {
+    display: none;
+  }
+
+  .tabbar {
+    /* 데스크톱 2단 배치(위 기본 규칙의 flex-basis:100%)를 되돌려 같은 줄에 흡수. */
+    flex: 1 1 auto;
+    flex-basis: auto;
+    min-width: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    border-bottom: none;
+    scrollbar-width: none;
+  }
+
+  .tabbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab-name {
+    max-width: 6rem;
+  }
+
+  .help-toggle {
+    flex: 0 0 auto;
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .tab-add,
+  .tab-close {
+    padding: 0.3rem 0.5rem;
+  }
+
+  /* --- 도움말 패널: 화면에 맞춰 뜬다 --- */
+
+  .help-panel {
+    position: fixed;
+    left: 0.5rem;
+    right: 0.5rem;
+    top: 3rem;
+    width: auto;
+    max-height: 75vh;
+  }
+
+  .help-panel dl > div {
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+
+  .help-panel dt {
+    flex: none;
+  }
+
+  /* --- 터치 일반 --- */
+
+  button {
+    touch-action: manipulation;
+  }
+
+  /* MathLive 자체 가상 키보드를 쓴다 (임시 — 인라인 숏컷·keyOps 우회 문제는
+     알려진 구멍으로 남겨둔다, MathField.tsx 참고). 필드 포커스만으로 자동으로
+     뜨므로(`mathVirtualKeyboardPolicy: 'auto'`, MathField.tsx) 토글 버튼은 따로
+     필요 없다 — 기본 숨김 규칙(위쪽, 비-모바일과 공유)을 그대로 둔다.
+     ☰ 메뉴는 좁은 화면에서 과하니 끈다. */
+  math-field::part(menu-toggle) {
+    display: none;
+  }
 }

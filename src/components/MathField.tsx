@@ -198,6 +198,11 @@ const SHADOW_CSS = `
 }
 `;
 
+/** `styles.css` 모바일 블록과 같은 640px 기준. 가상 키보드 정책 분기 전용(임시). */
+function isMobileViewport(): boolean {
+  return window.matchMedia('(max-width: 640px)').matches;
+}
+
 let shadowSheet: CSSStyleSheet | null = null;
 
 function applyShadowStyles(mf: MathfieldElement): void {
@@ -416,8 +421,11 @@ export function MathField({
 
     const mf = new MathfieldElement();
     mf.value = initialValue.current;
-    // 데스크톱에서 가상 키보드가 멋대로 뜨지 않게.
-    mf.mathVirtualKeyboardPolicy = 'manual';
+    // 데스크톱에서는 가상 키보드가 멋대로 뜨지 않게 막지만, 모바일(터치)에서는
+    // 켠다 — 임시 조치다. 인라인 숏컷과 keyOps.ts 예방 층이 가상 키보드 입력
+    // 경로를 타는지는 미확인(알려진 구멍, styles.css 모바일 블록 참고).
+    // 마운트 시점 1회 판정 — 이 값이 바뀌는 리사이즈는 이번 판에서 안 쫓는다.
+    mf.mathVirtualKeyboardPolicy = isMobileViewport() ? 'auto' : 'manual';
     // `\` 를 치면 뜨던 LaTeX 명령어 검색 팝오버를 끈다. 이 앱의 입력 수단은 인라인
     // 숏컷(`sqrt`, `sum`…)과 키바인딩이고, 그 목록은 도움말 패널이 맡는다 — 타이핑
     // 중에 자동완성 창이 끼어들면 캐럿·선택 흐름만 끊긴다.

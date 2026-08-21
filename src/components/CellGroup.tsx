@@ -334,6 +334,13 @@ function ResultRow({
           onMoveOut={onMoveOut}
         />
       </FieldClip>
+      {/* 변환 버튼의 모바일용 플로팅 사본 — `Cell.tsx` 와 같은 이유
+          (`.result-actions` 안 인라인 버튼은 좁은 화면에서 숨는다). */}
+      {selection !== null && (
+        <div className="transform-popup">
+          <TransformButtons selection={selection} onApply={onApply} />
+        </div>
+      )}
       <div className="result-actions">
         {selection !== null && <TransformButtons selection={selection} onApply={onApply} />}
         <ResultModeToggle numeric={numericMode} onChange={onNumericModeChange} />

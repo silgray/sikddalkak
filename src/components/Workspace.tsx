@@ -3,6 +3,7 @@ import { workspaceReducer, initialWorkspace, type WorkspaceState } from '../stat
 import { loadWorkspace, saveWorkspace } from '../state/persist';
 import { TabBar } from './TabBar';
 import { CellStack } from './CellStack';
+import { HelpPanel } from './HelpPanel';
 
 /** 저장된 워크스페이스가 있으면 거기서, 없으면 빈 워크스페이스로 시작한다. */
 function init(): WorkspaceState {
@@ -45,14 +46,25 @@ export function Workspace() {
 
   return (
     <div className="workspace">
-      <TabBar
-        tabs={state.tabs}
-        activeTabId={state.activeTabId}
-        onSelect={(id) => dispatch({ type: 'selectTab', id })}
-        onAdd={() => dispatch({ type: 'addTab' })}
-        onClose={(id) => dispatch({ type: 'closeTab', id })}
-        onRename={(id, name) => dispatch({ type: 'renameTab', id, name })}
-      />
+      {/* 데스크톱: 제목/도움말이 첫 줄, 탭 바가 그 아래(`.topbar` wrap + `.tabbar`
+          flex-basis:100%, styles.css). 모바일(640px 이하)에서는 한 줄로 흡수된다. */}
+      <div className="topbar">
+        <span className="app-title">sikddalkak</span>
+        <TabBar
+          tabs={state.tabs}
+          activeTabId={state.activeTabId}
+          onSelect={(id) => dispatch({ type: 'selectTab', id })}
+          onAdd={() => dispatch({ type: 'addTab' })}
+          onClose={(id) => dispatch({ type: 'closeTab', id })}
+          onRename={(id, name) => dispatch({ type: 'renameTab', id, name })}
+        />
+        <HelpPanel />
+      </div>
+      <p className="app-intro">
+        Type an expression and press <kbd>Enter</kbd> to evaluate.
+        <br />
+        Write <code>a = 3</code> to define a variable other cells can use.
+      </p>
       {/* 탭이 바뀌면 CellStack을 새로 마운트한다 — 이전 탭의 mathfield DOM이 남지 않게. */}
       <CellStack key={activeTab.id} tab={activeTab} dispatch={dispatch} />
     </div>
