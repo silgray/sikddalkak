@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { contentOf } from '../editor/internals';
 
 type Props = {
   children: ReactNode;
@@ -51,7 +52,7 @@ export function FieldClip({ children, watch }: Props) {
 
     const attach = (): boolean => {
       const mf = row.querySelector('math-field');
-      const content = mf?.shadowRoot?.querySelector('.ML__content') ?? null;
+      const content = mf === null ? null : contentOf(mf);
       if (mf === null || content === null) return false;
 
       const measure = () => {

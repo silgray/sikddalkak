@@ -10,6 +10,7 @@ import {
 import { setActiveMathField } from '../editor/activeField';
 import { PLACEHOLDER_RULES, contentCount, findViolations, repairLatex } from '../editor/wellformed';
 import { dispatchKeyOp } from '../editor/keyOps';
+import { attachTouchGesture } from '../editor/touchGesture';
 import { configureKeybindings } from '../editor/keybindings';
 import {
   expandSelectionSemantic,
@@ -723,9 +724,13 @@ export function MathField({
     // ghost 여는 괄호(닫는 괄호 입력용) 렌더·직렬화 패치. 최초 1회만 실제 작업을
     // 하고 결과가 캐시된다 — 키 입력 도중이 아니라 여기서 미리 데워둔다.
     ensureGhostLeftSupport();
+    // 모바일 터치 제스처(가로 스크롤 / 홀드 선택 / 컨텍스트 메뉴 차단).
+    // 데스크톱에서는 아무 것도 가로채지 않는다 (`editor/touchGesture.ts`).
+    const detachTouchGesture = attachTouchGesture(mf, host);
     mfRef.current = mf;
     return () => {
       document.removeEventListener('pointerdown', onOutsidePointerDown, { capture: true });
+      detachTouchGesture();
       mf.remove();
       mfRef.current = null;
     };

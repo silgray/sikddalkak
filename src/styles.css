@@ -746,6 +746,13 @@ math-field::part(virtual-keyboard-toggle) {
   .mf math-field {
     /* 16px 밑으로 두면 iOS가 포커스 시 페이지를 확대한다. */
     font-size: 1.25rem;
+    /* 가로 손짓은 우리가 가져오고(`editor/touchGesture.ts` 의 패닝), 세로 페이지
+       스크롤은 브라우저에 남긴다. */
+    touch-action: pan-y;
+    /* 꾹 눌렀을 때 뜨는 네이티브 선택 콜아웃을 막는다 — 그 자리는 홀드 선택이 쓴다.
+       ⚠ `user-select: none` 으로 막으면 안 된다: MathLive가 그걸 보고 pointerdown
+       리스너를 아예 안 달아(실측, `connectedCallback`) 필드가 통째로 죽는다. */
+    -webkit-touch-callout: none;
   }
 
   /* --- 셀 컨트롤: 드래그 핸들과 삭제만 되살린다 (작게) --- */

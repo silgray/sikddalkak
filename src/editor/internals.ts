@@ -54,6 +54,20 @@ export function keyboardSinkOf(mf: MathfieldElement): HTMLElement | null {
 }
 
 /**
+ * 셰도우 DOM 안의 콘텐츠 상자(`.ML__content`). **가로 스크롤 컨테이너**다 —
+ * `overflow: hidden` 이라(mathlive.mjs 실측) 브라우저 네이티브 패닝은 없고,
+ * MathLive 자신도 캐럿을 따라갈 때 `field.scroll({left})` 로 여기를 직접 옮긴다
+ * (`Mathfield.scrollIntoView`). 그래서 넘침 측정(`FieldClip.tsx`)과 터치 패닝
+ * (`touchGesture.ts`)이 둘 다 이 요소의 `scrollLeft`/`scrollWidth` 를 본다.
+ *
+ * ⚠ `::part(content)` 에 `overflow` 를 덮어쓰면 이 스크롤 컨테이너가 사라진다
+ * (`styles.css` 의 경고 참고).
+ */
+export function contentOf(mf: Element): HTMLElement | null {
+  return mf.shadowRoot?.querySelector<HTMLElement>('.ML__content') ?? null;
+}
+
+/**
  * MathLive의 인라인 숏컷 키 버퍼를 비운다. 외부에서 값을 밀어넣을 때(실행취소
  * 등) 같이 불러야 한다 — 안 그러면 버퍼에 남은 옛 글자와 다음 입력이 이어붙어
  * 숏컷 매칭돼, 이미 되돌린 글자가 되살아난다 (예: s → undo → 'in' 입력 = \sin).

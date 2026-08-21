@@ -247,7 +247,7 @@
 MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **버전 업 시 재확인 지점.**
 
 - **`internals.ts`** — MathLive 내부 API 접근 **단일 창구** (model, 숏컷 버퍼
-  flush, dispose-포커스 크래시 패치). 전부 try/catch 방어.
+  flush, dispose-포커스 크래시 패치, 콘텐츠 상자 `contentOf`). 전부 try/catch 방어.
 - **`latexScan.ts`** — 위치 붙은 LaTeX 토큰/그룹 스캐너. 재직렬화 없이 원본에
   대한 `Splice`만 만든다 (손대지 않은 부분은 바이트 보존).
 - **`rules.ts`** — 구조 규칙 **레지스트리** (데이터). `{id, find, fix, examples}`.
@@ -257,8 +257,33 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
   파손을 애초에 막는 예방 층 — 괄호 쌍 생성/제거, 밑 없는 `^`/`_` 차단, 첨자 강등.
 - **`selection.ts`** — 선택을 "한 레벨 연속 형제 열"로 강제. `normalizeSelection`
   (게이트), `siblingRunRange`, shift+화살표·Ctrl+D 확장 로직.
+- **`touchGesture.ts`** — **모바일 터치 제스처 층.** 한 손짓을 넷으로 가른다:
+  짧은 탭=캐럿, 짧은 터치 후 가로 드래그=**셀 수식 가로 스크롤**, 홀드=손가락 밑
+  **항** 선택(`expandSelectionSemantic` 2칸), 홀드 후 드래그=그 항을 품은 채 확장.
+  MathLive는 pointerdown을 잡는 순간부터 드래그를 선택으로만 쓰고 `.ML__content` 는
+  `overflow: hidden` 이라, 이게 없으면 넘치는 식을 손으로 옮길 방법이 아예 없다.
+  **pointerdown은 삼키지 않는다** — 포커스·캐럿 배치·placeholder 특례를 MathLive가
+  그대로 하게 두고 그 뒤의 pointermove만 capture로 가로챈다(그 로직이 두 벌이 되면
+  어긋난다). 겹치는 구간이 없는 근거는 아래 실측 함정의 히스테리시스 항목.
+  데스크톱은 안 건드린다 — `pointerType==='touch' && isMobileViewport()` 게이트.
 - **`wellformed.ts`** — 위 규칙들의 파사드 (`repairLatex`/`findViolations` 재노출).
 - **`harness.ts`** — 브라우저 테스트용 실제 MathLive 구동 하네스.
+
+⚠ **MathLive 0.110 실측 함정** (터치·포인터 쪽, `touchGesture.browser.test.tsx` 가 핀):
+- **드래그 히스테리시스는 `500ms && 20px`** — 터치에서 그 안쪽 움직임을 통째로
+  무시한다(`onPointerDown` 안의 `onPointerMove`). 우리 제스처 임계(`450ms / 8px`)가
+  **둘 다 그 안쪽**이라, 모드가 정해지기 전엔 MathLive가 아무 것도 안 하고 정해진
+  뒤엔 우리가 pointermove를 다 삼킨다 — 두 층이 선택을 동시에 만질 구간이 없다.
+  **이 두 상수의 대소 관계가 깨지면 설계가 무너진다.**
+- **`mf.getOffsetFromPoint(x, y, {bias})` 는 공개 API다** — 화면 좌표 → 모델 오프셋.
+  짝인 **`mf.getElementInfo(offset).bounds` 는 뷰포트 좌표 DOMRect**를 주고, 그
+  오프셋 **자리의** 원자를 가리킨다(실측: `1+xy` 에서 오프셋 4 = `y`).
+- **컨텍스트 메뉴는 호스트에 쏘는 cancelable `contextmenu` 로 열린다**
+  (`acceptContextMenu`) — `preventDefault()` 면 안 뜬다. ⚠ 그 이벤트는
+  **`bubbles: false`** 라 부모가 아니라 `math-field` **자신에게** 들어야 한다.
+- **호스트에 `user-select: none` 을 걸면 필드가 죽는다** — MathLive가
+  `connectedCallback` 에서 그걸 보고 pointerdown 리스너를 아예 안 단다. 네이티브
+  선택 콜아웃 억제는 `-webkit-touch-callout` 으로만 한다.
 
 ### `src/state/` — 상태 관리
 
@@ -314,6 +339,7 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
   그래프 구성 자체는 안 한다 — 그건 `cellGraph.ts` 몫. `splitRelation` 은
   `Cell.tsx` 도 같이 쓴다(solve 버튼 노출 판정 — 판정이 두 벌이면 어긋난다).
 - **`types.ts`** — `FormulaObject`(정본), `EvalResult`, `CellMode` 등 공용 타입.
+- **`mobile.ts`** — `isMobileViewport()`. 모바일 판정의 **단일 기준점**(위 대원칙 2).
 - **`styles.css`** — 전역 CSS (라이트/다크 자동, CSS 변수).
 - **`scripts/copy-mathlive-assets.mjs`** — 빌드 전 MathLive 폰트를 public으로 복사.
 
@@ -344,8 +370,9 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 1. **CSS는 `@media (max-width: 640px)` 블록 안에만 쓴다** (`styles.css` 맨 아래 한 블록).
    전역 규칙에는 **기본값(대개 `display: none`)만** 두고 실제 배치는 그 블록이 정한다 —
    `.key-palette`·`.transform-popup`이 그 꼴이다.
-2. **JS 분기가 꼭 필요하면 같은 640px 기준을 쓴다** (`window.matchMedia`). 지금은
-   그런 자리가 없다 — CSS로 못 가르는 게 생기면 그때 하나만 만들어 공유할 것.
+2. **JS 분기가 꼭 필요하면 같은 640px 기준을 쓴다** (`window.matchMedia`). 그
+   기준은 **`src/mobile.ts` 의 `isMobileViewport()` 하나뿐**이다 — 새로 만들지 말고
+   이걸 쓴다. 지금 쓰는 곳은 터치 제스처 층(`editor/touchGesture.ts`) 하나다.
 3. **컴포넌트에 모바일 전용 DOM을 넣어야 하면, 그리기만 하고 숨김은 CSS에 맡긴다.**
    예: 결과 토글의 `π`/`3.14` 라벨은 데스크톱 `formula`/`decimal` 라벨과 **둘 다**
    렌더되고, 어느 쪽을 보일지는 미디어쿼리가 정한다. 조건부 렌더로 가르지 않는다 —
