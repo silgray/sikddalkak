@@ -199,7 +199,14 @@ describe('MathField — 셀 그룹 밖으로 나가면 선택을 해제한다', 
     expect(mfA.selectionIsCollapsed).toBe(true);
   });
 
-  it('그룹 밖을 클릭하면(포커스 이동이 없어도) 선택이 풀린다', async () => {
+  /** 바깥을 눌렀다 뗀다. 떼는 지점이 누른 지점과 멀면 그건 탭이 아니라 스크롤이다. */
+  function tapOutside(el: Element, x0: number, y0: number, x1: number, y1: number): void {
+    const base = { bubbles: true, composed: true, pointerId: 3, isPrimary: true, pointerType: 'touch' };
+    el.dispatchEvent(new PointerEvent('pointerdown', { ...base, clientX: x0, clientY: y0 }));
+    document.dispatchEvent(new PointerEvent('pointerup', { ...base, clientX: x1, clientY: y1 }));
+  }
+
+  it('그룹 밖을 탭하면(포커스 이동이 없어도) 선택이 풀린다', async () => {
     // 스택 배경 같은 빈 여백을 누르면 포커스가 어디로도 안 옮겨가 focusout 이
     // 아예 안 난다 — 그래서 document pointerdown 경로가 따로 있다.
     const { mfA, onSelA, outside } = await mountGroup();
@@ -208,10 +215,24 @@ describe('MathField — 셀 그룹 밖으로 나가면 선택을 해제한다', 
     mfA.selection = { ranges: [[0, 3]], direction: 'forward' };
     await settle();
     onSelA.mockClear();
-    outside.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
+    tapOutside(outside, 100, 100, 100, 100);
     await settle();
     expect(mfA.selectionIsCollapsed).toBe(true);
     expect(onSelA).toHaveBeenCalledWith(null);
+  });
+
+  it('그룹 밖에서 시작한 **스크롤**로는 선택이 안 풀린다', async () => {
+    // 모바일에서 바깥을 짚는 손짓의 대부분은 페이지 스크롤이다 — 누른 즉시 풀면
+    // 선택을 잡아둔 채 아래로 훑어보는 게 불가능해진다(사용자 보고). 그래서 손을
+    // 뗄 때까지 기다렸다가 거의 안 움직였을 때만(=탭) 푼다.
+    const { mfA, outside } = await mountGroup();
+    mfA.focus();
+    await settle();
+    mfA.selection = { ranges: [[0, 3]], direction: 'forward' };
+    await settle();
+    tapOutside(outside, 100, 100, 104, 180);
+    await settle();
+    expect(mfA.selectionIsCollapsed).toBe(false);
   });
 
   it('같은 그룹 안을 클릭하면 선택이 살아 있다 (변환 버튼 클릭)', async () => {

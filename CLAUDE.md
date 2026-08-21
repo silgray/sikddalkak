@@ -266,6 +266,13 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
   그대로 하게 두고 그 뒤의 pointermove만 capture로 가로챈다(그 로직이 두 벌이 되면
   어긋난다). 겹치는 구간이 없는 근거는 아래 실측 함정의 히스테리시스 항목.
   데스크톱은 안 건드린다 — `pointerType==='touch' && isMobileViewport()` 게이트.
+  **스크롤로는 선택이 안 풀린다**: MathLive는 pointerdown 하나로 선택을 접는데
+  (우리가 그 처리를 일부러 통과시키므로), capture라 먼저 보는 김에 선택을 찍어뒀다가
+  손짓이 스크롤(가로 패닝·세로 이탈)로 판명되면 되돌린다. 탭이면 안 되돌린다 —
+  그건 정말로 캐럿을 옮긴 것이다.
+  **홀드 메뉴 차단은 document capture 한 곳**에서 한다(참조 세기). 셀의 빈 자리를
+  꾹 누르면 뜨는 건 MathLive가 아니라 브라우저 네이티브 콜아웃이라 필드에 건
+  리스너로는 안 잡힌다(사용자 보고). 예외는 `input`/`textarea` 뿐(탭 이름 바꾸기).
 - **`wellformed.ts`** — 위 규칙들의 파사드 (`repairLatex`/`findViolations` 재노출).
 - **`harness.ts`** — 브라우저 테스트용 실제 MathLive 구동 하네스.
 
@@ -304,6 +311,9 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 - **`MathField.tsx`** — `<math-field>` React 래퍼. **UI↔에디터 경계.** input마다
   `repairLatex` 게이트, selection-change마다 `normalizeSelection` 게이트,
   keydown을 `dispatchKeyOp`로. uncontrolled(`new MathfieldElement()`).
+  선택 해제(그룹 밖 pointerdown)는 **모바일에서만 손 뗄 때까지 기다린다** — 바깥을
+  짚는 손짓 대부분이 페이지 스크롤이라, 누른 즉시 풀면 선택을 잡아둔 채 훑어보는 게
+  불가능하다(사용자 보고). 거의 안 움직였으면(=탭) 그때 푼다. 데스크톱은 즉시.
 - **`SelectionHandles.tsx`** — **모바일 선택 범위 양끝 드래그 핸들.** 홀드로 잡은
   선택(`editor/touchGesture.ts`)을 손가락으로 다듬는다. `MathField` 안에 오버레이로
   들어간다(`math-field` 는 이펙트가 append 하고, React 자식은 이 핸들뿐).

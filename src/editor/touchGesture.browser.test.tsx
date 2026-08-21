@@ -128,6 +128,8 @@ describe('터치 제스처 — 스크롤과 선택 가르기', () => {
     await settle();
     // 포커스는 캐럿을 식 끝에 두고 MathLive가 거기까지 스크롤해 둔다 — 그래서
     // 지금은 **뒤쪽**이 보이고, 앞을 보려면 손가락을 오른쪽으로 끌어야 한다.
+    // ⚠ `focus()` 는 내용을 통째로 선택한다(실측) — 캐럿만 있는 상태로 시작한다.
+    mf.position = mf.lastOffset;
     const before = content.scrollLeft;
     expect(before).toBeGreaterThan(0);
     const start = center(content);
@@ -139,6 +141,40 @@ describe('터치 제스처 — 스크롤과 선택 가르기', () => {
     await settle();
     expect(content.scrollLeft).toBe(before - 60);
     expect(mf.selectionIsCollapsed).toBe(true);
+  });
+
+  it('선택을 잡은 채로 스크롤해도 선택이 남는다', async () => {
+    pretendMobile(true);
+    const { mf, content } = await mount(LONG);
+    mf.focus();
+    mf.selection = { ranges: [[0, 3]], direction: 'forward' };
+    await settle();
+    const selected = selectedLatex(mf);
+    expect(selected).not.toBeNull();
+    // MathLive는 pointerdown 하나로 선택을 접어버린다 — 손짓이 스크롤로 판명되면
+    // 되돌려야 한다. 안 그러면 잡아둔 선택을 보러 스크롤하는 것 자체가 불가능하다.
+    const start = center(content);
+    send(content, 'pointerdown', start);
+    send(content, 'pointermove', { x: start.x + 20, y: start.y });
+    send(content, 'pointermove', { x: start.x + 60, y: start.y });
+    send(content, 'pointerup', { x: start.x + 60, y: start.y });
+    await settle();
+    expect(selectedLatex(mf)).toBe(selected);
+  });
+
+  it('세로 드래그로 페이지를 스크롤해도 선택이 남는다', async () => {
+    pretendMobile(true);
+    const { mf, content } = await mount(LONG);
+    mf.focus();
+    mf.selection = { ranges: [[0, 3]], direction: 'forward' };
+    await settle();
+    const selected = selectedLatex(mf);
+    const start = center(content);
+    send(content, 'pointerdown', start);
+    send(content, 'pointermove', { x: start.x + 2, y: start.y + 40 });
+    send(content, 'pointerup', { x: start.x + 2, y: start.y + 40 });
+    await settle();
+    expect(selectedLatex(mf)).toBe(selected);
   });
 
   it('세로 드래그는 가로 스크롤로 삼키지 않는다 (페이지 스크롤 몫)', async () => {

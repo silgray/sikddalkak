@@ -49,6 +49,42 @@ const HOLD_EXPAND_STEPS = 2;
 type Mode = 'idle' | 'undecided' | 'pan' | 'hold';
 
 /**
+ * 홀드 시 뜨는 메뉴를 **셀 전체에서** 막는다.
+ *
+ * MathLive는 길게 누름을 감지하면 호스트에 cancelable `contextmenu` 를 쏘고 그게
+ * 막히지 않았을 때만 자체 메뉴를 연다(`acceptContextMenu`, 실측). 하지만 셀의
+ * **빈 자리**(수식 밖 여백)를 꾹 누르면 그건 MathLive가 아니라 브라우저의 네이티브
+ * 콜아웃이라 필드에 건 리스너로는 안 잡힌다(사용자 보고). 그래서 document capture로
+ * 한 번에 막는다 — capture라 `bubbles:false` 인 MathLive 쪽 이벤트도 같이 잡힌다.
+ *
+ * 예외는 진짜 텍스트 입력뿐이다(탭 이름 바꾸기의 `<input>`) — 거기선 네이티브
+ * 선택·붙여넣기 메뉴가 있어야 한다.
+ *
+ * 필드가 여럿이라 참조를 세어 마지막 하나가 떠날 때만 뗀다.
+ */
+let menuBlockRefs = 0;
+
+const onDocumentContextMenu = (ev: Event): void => {
+  if (!isMobileViewport()) return; // 데스크톱 우클릭 메뉴는 그대로 둔다
+  const target = ev.target;
+  if (target instanceof Element && target.closest('input, textarea') !== null) return;
+  ev.preventDefault();
+};
+
+function retainMenuBlock(): () => void {
+  if (menuBlockRefs === 0) {
+    document.addEventListener('contextmenu', onDocumentContextMenu, { capture: true });
+  }
+  menuBlockRefs += 1;
+  return () => {
+    menuBlockRefs -= 1;
+    if (menuBlockRefs === 0) {
+      document.removeEventListener('contextmenu', onDocumentContextMenu, { capture: true });
+    }
+  };
+}
+
+/**
  * `mf` 를 감싸는 호스트 요소에 제스처 층을 붙인다. 반환값은 떼는 함수.
  *
  * capture 단계로 듣는 게 요점이다 — 셰도우 DOM 안쪽(MathLive) 리스너보다 항상
@@ -65,6 +101,14 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
   let holdTimer: ReturnType<typeof setTimeout> | null = null;
   /** 홀드가 잡은 선택 범위. 드래그 중에도 **항상 포함**시켜 항 단위 알갱이를 지킨다. */
   let anchorRun: readonly [number, number] | null = null;
+  /**
+   * 손짓이 시작될 때 살아 있던 선택. **스크롤로는 선택이 풀리면 안 된다** — 그런데
+   * MathLive는 pointerdown 하나로 선택을 접고 캐럿을 옮겨버린다(우리는 그 처리를
+   * 일부러 통과시킨다). capture 단계라 우리가 먼저 보므로 여기서 찍어뒀다가,
+   * 손짓이 스크롤로 판명되면 되돌린다. 탭으로 판명되면 되돌리지 않는다 — 그건
+   * 사용자가 정말로 캐럿을 옮긴 것이다.
+   */
+  let savedRanges: readonly (readonly [number, number])[] | null = null;
 
   const reset = (): void => {
     if (holdTimer !== null) {
@@ -74,6 +118,18 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
     mode = 'idle';
     pointerId = null;
     anchorRun = null;
+    savedRanges = null;
+  };
+
+  /** 스크롤로 판명된 손짓이 지워버린 선택을 되돌린다. */
+  const restoreSelection = (): void => {
+    if (savedRanges === null) return;
+    try {
+      mf.selection = { ranges: savedRanges as [number, number][], direction: 'forward' };
+    } catch {
+      /* 그 사이 값이 바뀌어 오프셋이 안 맞으면 그냥 둔다 */
+    }
+    savedRanges = null;
   };
 
   /** 홀드 성립 — 손가락 밑 항을 선택한다. */
@@ -103,6 +159,8 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
     startY = ev.clientY;
     lastX = startX;
     mode = 'undecided';
+    // MathLive가 이걸 접기 전에 찍어둔다 (capture라 우리가 먼저 본다).
+    savedRanges = mf.selectionIsCollapsed ? null : mf.selection.ranges.map(([a, b]) => [a, b]);
     holdTimer = setTimeout(beginHold, HOLD_DELAY_MS);
     // 여기서는 아무 것도 막지 않는다 — MathLive의 탭 처리가 그대로 돌아야 한다.
   };
@@ -119,6 +177,8 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
       // 세로가 우세하면 페이지 스크롤 의도다 — 손을 떼고 브라우저에 넘긴다
       // (모바일 CSS가 `touch-action: pan-y` 로 세로만 열어둔 것과 짝이다).
       if (Math.abs(dy) > Math.abs(dx)) {
+        // 세로 스크롤도 스크롤이다 — 하던 선택을 되살리고 손을 뗀다.
+        restoreSelection();
         reset();
         return;
       }
@@ -127,6 +187,7 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
         holdTimer = null;
       }
       mode = 'pan';
+      restoreSelection();
     }
 
     if (mode === 'pan') {
@@ -169,29 +230,18 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
     reset();
   };
 
-  /**
-   * 홀드 시 뜨는 컨텍스트 메뉴를 막는다. MathLive는 길게 누름을 감지하면 호스트에
-   * cancelable `contextmenu` 를 쏘고 그게 막히지 않았을 때만 메뉴를 연다
-   * (`acceptContextMenu`, 실측). 네이티브 선택 콜아웃도 같은 이벤트로 온다.
-   * ⚠ 이 이벤트는 `bubbles: false` 로 만들어지므로 **`mf` 자신에게** 들어야 한다.
-   * 데스크톱 우클릭 메뉴는 그대로 둔다(브랜치 대원칙).
-   */
-  const onContextMenu = (ev: Event): void => {
-    if (isMobileViewport()) ev.preventDefault();
-  };
-
+  const releaseMenuBlock = retainMenuBlock();
   host.addEventListener('pointerdown', onPointerDown, { capture: true });
   host.addEventListener('pointermove', onPointerMove, { capture: true, passive: false });
   host.addEventListener('pointerup', onPointerEnd, { capture: true });
   host.addEventListener('pointercancel', onPointerEnd, { capture: true });
-  mf.addEventListener('contextmenu', onContextMenu);
 
   return () => {
     reset();
+    releaseMenuBlock();
     host.removeEventListener('pointerdown', onPointerDown, { capture: true });
     host.removeEventListener('pointermove', onPointerMove, { capture: true });
     host.removeEventListener('pointerup', onPointerEnd, { capture: true });
     host.removeEventListener('pointercancel', onPointerEnd, { capture: true });
-    mf.removeEventListener('contextmenu', onContextMenu);
   };
 }

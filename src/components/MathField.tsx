@@ -18,6 +18,7 @@ import { setActiveMathField } from '../editor/activeField';
 import { PLACEHOLDER_RULES, contentCount, findViolations, repairLatex } from '../editor/wellformed';
 import { dispatchKeyOp } from '../editor/keyOps';
 import { attachTouchGesture } from '../editor/touchGesture';
+import { isMobileViewport } from '../mobile';
 import { SelectionHandles } from './SelectionHandles';
 import { configureKeybindings } from '../editor/keybindings';
 import {
@@ -181,6 +182,12 @@ function configureInlineShortcuts(mf: MathfieldElement): void {
  *
  * 시트는 모듈 전역에 **한 장**만 만들어 모든 필드가 공유한다.
  */
+/**
+ * 모바일에서 "바깥을 탭했다" 로 볼 최대 이동(px). 이보다 많이 움직였으면 스크롤이라
+ * 보고 선택을 안 푼다. `editor/touchGesture.ts` 의 판정 임계와 같은 값이다.
+ */
+const TAP_SLOP_PX = 8;
+
 const SHADOW_CSS = `
 /* \\overline 은 렌더 박스가 type:'ignore' 라 원자 간 자동 간격이 아예 안 붙는다
    (mathlive.mjs 의 overline render: new Box(stack, {classes:'overline', type:'ignore'})).
@@ -585,6 +592,8 @@ export function MathField({
     // 포커스가 어디로도 안 옮겨가 focusout 자체가 안 난다. capture 단계라 대상 쪽이
     // 이벤트를 삼켜도 우리가 먼저 본다. 선택이 없으면 즉시 빠져나오므로, 필드마다
     // 하나씩 달려 있어도 부담이 없다.
+    /** 모바일에서 "바깥 탭인지 스크롤인지" 판정을 기다리는 중인 구독. */
+    let outsideTap: AbortController | null = null;
     const onOutsidePointerDown = (ev: PointerEvent) => {
       if (mf.selectionIsCollapsed) return;
       const target = ev.target as Node | null;
@@ -597,7 +606,38 @@ export function MathField({
       // pointerdown이 아예 없어서 안 겪는 차이다
       // (실측·회귀 핀: `editor/feedKeyParity.browser.test.tsx`).
       if (isInKeyPalette(target)) return;
-      clearSelection();
+      // 데스크톱은 누른 즉시 해제한다 — 마우스로 바깥을 누르는 건 늘 "여기로 옮김"이다.
+      if (!isMobileViewport()) {
+        clearSelection();
+        return;
+      }
+      // 모바일에서 바깥을 짚는 손짓의 대부분은 **페이지 스크롤**이다. 누른 즉시
+      // 풀면 선택을 잡아둔 채 아래로 훑어보는 것 자체가 불가능해진다(사용자 보고).
+      // 손을 뗄 때까지 기다렸다가, 거의 안 움직였으면(=탭이면) 그때 푼다.
+      const x0 = ev.clientX;
+      const y0 = ev.clientY;
+      outsideTap?.abort();
+      const controller = new AbortController();
+      outsideTap = controller;
+      const finish = (up: PointerEvent): void => {
+        controller.abort();
+        outsideTap = null;
+        if (Math.abs(up.clientX - x0) < TAP_SLOP_PX && Math.abs(up.clientY - y0) < TAP_SLOP_PX) {
+          clearSelection();
+        }
+      };
+      document.addEventListener('pointerup', finish, {
+        capture: true,
+        signal: controller.signal,
+      });
+      document.addEventListener(
+        'pointercancel',
+        () => {
+          controller.abort();
+          outsideTap = null;
+        },
+        { capture: true, signal: controller.signal },
+      );
     };
     document.addEventListener('pointerdown', onOutsidePointerDown, { capture: true });
 
@@ -745,6 +785,7 @@ export function MathField({
     return () => {
       setMounted(null);
       document.removeEventListener('pointerdown', onOutsidePointerDown, { capture: true });
+      outsideTap?.abort();
       detachTouchGesture();
       mf.remove();
       mfRef.current = null;
