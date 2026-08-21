@@ -219,6 +219,19 @@ export const NAV_ROW: PaletteKey[] = [
   },
 ];
 
+/**
+ * 탭 줄 오른쪽 끝의 실행취소/다시실행.
+ *
+ * 여기도 `feedKey` 를 탄다 — Ctrl+Z/Y 는 `Workspace.tsx` 가 **window 의 capture
+ * 단계**에서 듣는데, `feedKey` 가 셰도우 싱크로 쏜 이벤트도 캡처 경로가 window 에서
+ * 시작하므로 그대로 걸린다. 그래서 리듀서로 가는 별도 배선(prop drilling)이 필요
+ * 없고, 물리 Ctrl+Z 와 **같은 경로·같은 히스토리 단위**가 보장된다.
+ */
+export const HISTORY_KEYS: PaletteKey[] = [
+  { label: '↶', strokes: key('z', 'KeyZ', { ctrlKey: true }), title: 'undo (Ctrl+Z)' },
+  { label: '↷', strokes: key('y', 'KeyY', { ctrlKey: true }), title: 'redo (Ctrl+Y)' },
+];
+
 /** 대문자 상태에서 흘려보낼 키로 바꾼다. 글자 키가 아니면 그대로. */
 function shifted(strokes: KeyStroke[]): KeyStroke[] {
   return strokes.map((s) =>
@@ -302,20 +315,34 @@ export function KeyPalette() {
 
   return (
     <div className="key-palette" role="group" aria-label="Symbol keyboard">
-      <div className="key-palette-tabs" role="tablist">
-        {PALETTE_LAYERS.map((l) => (
-          <button
-            key={l.id}
-            type="button"
-            role="tab"
-            aria-selected={l.id === layerId}
-            className={l.id === layerId ? 'palette-tab palette-tab-active' : 'palette-tab'}
-            onPointerDown={(e) => e.preventDefault()}
-            onClick={() => setLayerId(l.id)}
-          >
-            {l.label}
-          </button>
-        ))}
+      <div className="key-palette-tabs">
+        <div className="key-palette-tablist" role="tablist">
+          {PALETTE_LAYERS.map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              role="tab"
+              aria-selected={l.id === layerId}
+              className={l.id === layerId ? 'palette-tab palette-tab-active' : 'palette-tab'}
+              onPointerDown={(e) => e.preventDefault()}
+              onClick={() => setLayerId(l.id)}
+            >
+              {l.label}
+            </button>
+          ))}
+        </div>
+        {/* 탭 오른쪽 끝 — 레이어와 무관하게 늘 같은 자리. */}
+        <div className="key-palette-history">
+          {HISTORY_KEYS.map((k) => (
+            <PaletteButton
+              key={k.label}
+              k={k}
+              upper={false}
+              onToggleShift={() => undefined}
+              onPressed={() => undefined}
+            />
+          ))}
+        </div>
       </div>
 
       <div className="key-palette-body">

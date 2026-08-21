@@ -385,7 +385,13 @@ function ResultModeToggle({
       {/* 손잡이가 미끄러지고 지금 고른 쪽 이름이 그 옆에 뜬다. 이름은 늘 하나만
           보인다 — 두 낱말을 다 띄우면 어느 쪽이 켜진 건지 오히려 헷갈린다. */}
       <span className="result-mode-knob" />
-      <span className="result-mode-label">{numeric ? 'decimal' : 'formula'}</span> {/* name changed */}
+      <span className="result-mode-label">{numeric ? 'decimal' : 'formula'}</span>
+      {/* 모바일용 짧은 라벨. **둘 다 렌더하고 어느 쪽을 보일지는 미디어쿼리가
+          정한다** — 조건부 렌더로 가르면 JS 분기 기준이 CSS와 어긋날 자리가 하나 더
+          생긴다(CLAUDE.md "이 브랜치의 대원칙"). 위 라벨이 읽히므로 여기는 숨긴다. */}
+      <span className="result-mode-label-compact" aria-hidden="true">
+        {numeric ? '3.14' : 'π'}
+      </span>
     </button>
   );
 }

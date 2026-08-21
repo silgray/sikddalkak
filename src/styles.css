@@ -474,6 +474,12 @@ math-field::part(virtual-keyboard-toggle) {
   display: none;
 }
 
+/* 결과 토글의 짧은 라벨(π / 3.14). 데스크톱은 `formula`/`decimal` 낱말을 쓰므로
+   숨긴다 — 둘 다 렌더되고 어느 쪽을 보일지는 미디어쿼리가 정한다(CellGroup.tsx). */
+.result-mode-label-compact {
+  display: none;
+}
+
 .delim-btn {
   border: none;
   border-radius: 4px;
@@ -688,12 +694,15 @@ math-field::part(virtual-keyboard-toggle) {
 }
 
 /* ==========================================================================
-   모바일 (임시 베이스 판, CLAUDE.md 없음 — mobile-ui 브랜치)
+   모바일 — mobile-kbd-palette 브랜치
 
-   여기서 갈라져 나갈 캐럿/선택 조작 실험 브랜치들의 공통 출발점. 데스크톱 규칙은
-   위에 그대로 두고 이 블록에서만 덮어쓴다 — 되돌리기·머지가 쉽도록.
-   지금 손대지 않는 것: 셀 컨트롤(●/⠿/×/변환 버튼) 대체 수단, 실행취소/셀 추가
-   버튼, 터치 드래그 재정렬, hover 의존 규칙(대상이 숨어 있어 무의미).
+   ⚠ **이 브랜치의 변경은 전부 이 블록 안에만 들어온다** (CLAUDE.md의 "이 브랜치의
+   대원칙" 참고). 데스크톱 규칙은 위에 그대로 두고 여기서만 덮어쓴다 — 데스크톱이
+   흔들리면 여기서 갈라져 나갈 실험 브랜치들끼리 비교가 무너진다.
+   전역 규칙에는 기본값(대개 `display: none`)만 두고 실제 배치는 여기서 정한다.
+
+   지금 손대지 않는 것: 계산 포함 토글(●), 셀 추가 버튼, 터치 드래그 재정렬,
+   hover 의존 규칙(터치엔 hover가 없어 무의미).
 
    ⚠ mobile-kbd-palette 실험: MathLive 자체 가상 키보드를 껐다(항상 'manual',
    MathField.tsx) — `.key-palette`(KeyPalette.tsx)가 대신 화면 하단에 뜬다.
@@ -707,27 +716,31 @@ math-field::part(virtual-keyboard-toggle) {
     --palette-h: 15.5rem;
   }
 
-  /* --- 셀이 화면 좌우로 꽉 차게 (카드가 아니라 구분선으로 갈리는 행) --- */
+  /* --- 셀은 좌우로 거의 꽉 차되, 그룹은 둥근 카드로 서로 갈린다 --- */
 
   .app {
     max-width: none;
     padding: 0 0 calc(var(--palette-h) + env(safe-area-inset-bottom));
   }
 
+  /* 그룹 사이 간격 — 둥근 모서리와 함께 "여기서 그룹이 갈린다"를 만든다. */
   .stack {
-    gap: 0;
+    gap: 0.4rem;
+    padding: 0.35rem 0.3rem 0;
   }
 
+  /* 데스크톱 카드와 같은 꼴로 되돌린다(전역 규칙 그대로) — 좌우 여백만 최소로 둬
+     화면을 거의 다 쓴다. */
   .cell-group {
-    border: none;
-    border-bottom: 1px solid var(--line);
-    border-radius: 0;
-    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--fg) 2%, transparent);
   }
 
   .cell-input,
   .result {
-    padding: 0.9rem 0.75rem;
+    /* 오른쪽은 우상단 × 버튼 자리를 비워 둔다(아래 `.cell-actions .remove`). */
+    padding: 0.8rem 1.4rem 0.8rem 0.6rem;
   }
 
   .mf math-field {
@@ -735,19 +748,48 @@ math-field::part(virtual-keyboard-toggle) {
     font-size: 1.25rem;
   }
 
-  /* --- 셀 컨트롤은 이번 판에서 전부 숨긴다 (다음 판 몫) --- */
+  /* --- 셀 컨트롤: 드래그 핸들과 삭제만 되살린다 (작게) --- */
 
-  .cell-toggle,
-  .drag-handle,
-  .drag-handle-spacer,
-  .cell-actions {
+  /* 계산 포함 토글(●)은 아직 숨긴다 — 자리를 먹는 데 비해 쓰임이 드물다. */
+  .cell-toggle {
     display: none;
   }
 
+  .drag-handle,
+  .drag-handle-spacer {
+    display: block;
+    width: 0.8rem;
+    font-size: 0.7rem;
+    /* 터치엔 hover가 없어 `.cell-group:hover` 규칙이 안 걸린다 — 늘 보이게 둔다. */
+    opacity: 0.55;
+  }
+
+  /* `.cell-actions` 는 흐름에서 빼고, 그 안의 × 만 셀 우상단에 띄운다. 변환 버튼은
+     `.transform-popup` 이 대신하므로 여기선 안 그린다. */
+  .cell-actions {
+    display: block;
+  }
+
+  .cell-actions .transform-btn {
+    display: none;
+  }
+
+  .cell-actions .remove {
+    position: absolute;
+    top: 0.15rem;
+    right: 0.15rem;
+    z-index: 4;
+    padding: 0.1rem 0.3rem;
+    font-size: 0.75rem;
+    line-height: 1.2;
+    border-color: transparent;
+    opacity: 0.5;
+  }
+
   /* 행렬 구분 기호 툴바는 셀 위로 뜨는 오버레이라 수식 자리를 안 먹는다 — 남긴다.
-     `left`는 드래그 핸들 폭 기준이었으니 셀의 새 좌측 패딩에 맞춘다. */
+     `left`는 드래그 핸들 폭에 맞춘다. */
   .selection-toolbar {
-    left: 0.75rem;
+    left: 1.4rem;
   }
 
   /* 결과 행의 formula/decimal 토글은 남기고, 인라인 변환 버튼만 숨긴다 — 아래
@@ -767,7 +809,7 @@ math-field::part(virtual-keyboard-toggle) {
     display: flex;
     position: absolute;
     top: calc(100% + 0.15rem);
-    left: 0.75rem;
+    left: 1.4rem;
     z-index: 5;
     gap: 2px;
     padding: 0.1rem 0.2rem;
@@ -777,9 +819,45 @@ math-field::part(virtual-keyboard-toggle) {
     box-shadow: 0 3px 10px color-mix(in srgb, var(--fg) 15%, transparent);
   }
 
+  /* 낱말(formula/decimal) 대신 기호(π / 3.14)를 쓰므로 훨씬 좁아도 된다.
+     높이는 π 의 라인박스(폰트 1.3rem → 27.5px 실측)가 들어갈 만큼 준다 — 겸사겸사
+     터치 타겟도 커진다. */
   .result-mode {
-    width: 5.5rem;
-    height: 1.6rem;
+    --knob: 1.1rem;
+    width: 3.6rem;
+    height: 1.85rem;
+  }
+
+  /* 전역 규칙은 손잡이를 `top: var(--rail-pad)` 로 붙이는데, 그건 높이가
+     `knob + rail-pad*2` 일 때만 가운데다. 여기선 높이를 따로 주므로 직접 센터링한다. */
+  .result-mode-knob {
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .result-mode-label {
+    display: none;
+  }
+
+  .result-mode-label-compact {
+    display: block;
+    width: 100%;
+    text-align: center;
+    padding-left: var(--knob);
+    color: var(--muted);
+    /* π 는 한 글자, 3.14 는 네 글자다 — 글자 크기를 따로 줘서 **차지하는 폭이
+       비슷해 보이게** 맞춘다(한쪽만 작아 보이지 않게). 실측 잉크 폭 기준으로
+       고른 값이다: π 13.3px vs 3.14 17.4px. */
+    font-size: 1.3rem;
+    line-height: 1;
+    transition: padding 0.15s ease, color 0.15s ease;
+  }
+
+  .result-mode-numeric .result-mode-label-compact {
+    padding-left: 0;
+    padding-right: var(--knob);
+    color: var(--accent);
+    font-size: 0.58rem;
   }
 
   /* --- 상단 바: 제목 + 탭 + 도움말을 한 줄로 --- */
@@ -887,9 +965,33 @@ math-field::part(virtual-keyboard-toggle) {
 
   .key-palette-tabs {
     display: flex;
+    align-items: stretch;
+    flex: 0 0 auto;
+    gap: 0.4rem;
+    padding: 0.3rem 0.4rem 0;
+  }
+
+  .key-palette-tablist {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    gap: 2px;
+  }
+
+  /* 탭 오른쪽 끝의 실행취소/다시실행. 레이어와 무관하게 늘 같은 자리다. */
+  .key-palette-history {
+    display: flex;
     flex: 0 0 auto;
     gap: 2px;
-    padding: 0.3rem 0.4rem 0;
+  }
+
+  .key-palette-history .palette-key {
+    flex: 0 0 auto;
+    width: 2.1rem;
+    padding: 0.25rem 0;
+    font-style: normal;
+    font-family: inherit;
+    font-size: 1rem;
   }
 
   .palette-tab {

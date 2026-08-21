@@ -145,6 +145,56 @@ describe('KeyPalette — 버튼 클릭이 activeField에 반영된다', () => {
 });
 
 /**
+ * 실행취소/다시실행은 리듀서로 직접 배선되지 않는다 — `feedKey` 로 Ctrl+Z/Y 를
+ * 흘려보내고 `Workspace.tsx` 가 **window capture** 에서 받는다. 그 경로가 실제로
+ * 이어지는지 여기서 본다(안 이어지면 버튼이 조용히 아무것도 안 한다).
+ */
+describe('KeyPalette — 실행취소/다시실행 버튼', () => {
+  it('탭 줄 오른쪽에 있고, 레이어를 바꿔도 그대로 있다', async () => {
+    const { host } = await mount();
+    const inHistory = () =>
+      [...host.querySelectorAll<HTMLButtonElement>('.key-palette-history .palette-key')].map(
+        (b) => b.title,
+      );
+    expect(inHistory()).toEqual(['undo (Ctrl+Z)', 'redo (Ctrl+Y)']);
+    clickTab(host, 'abc');
+    await settle();
+    expect(inHistory()).toEqual(['undo (Ctrl+Z)', 'redo (Ctrl+Y)']);
+  });
+
+  it('Ctrl+Z 가 window capture 리스너까지 도달한다 (Workspace 배선의 전제)', async () => {
+    const { host } = await mount();
+    // `Workspace.tsx` 와 같은 자리·같은 조건으로 듣는다. 실제 리듀서 연결은
+    // 앱에서만 되지만, **이벤트가 거기까지 가는지**가 이 버튼의 유일한 전제다.
+    const seen: string[] = [];
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (!(ev.ctrlKey || ev.metaKey)) return;
+      const k = ev.key.toLowerCase();
+      if (k === 'z' || k === 'y') seen.push(ev.shiftKey ? `shift+${k}` : k);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    cleanups.push(() => window.removeEventListener('keydown', onKeyDown, true));
+
+    clickKey(host, 'undo (Ctrl+Z)');
+    await settle();
+    clickKey(host, 'redo (Ctrl+Y)');
+    await settle();
+
+    expect(seen).toEqual(['z', 'y']);
+  });
+
+  it('실행취소 키는 수식에 글자를 남기지 않는다', async () => {
+    const { mf, host } = await mount();
+    clickKey(host, '1');
+    await settle();
+    clickKey(host, 'undo (Ctrl+Z)');
+    await settle();
+    // Ctrl 조합이라 `feedKey` 의 문자 삽입 폴백을 안 탄다 — 'z' 가 박히면 안 된다.
+    expect(mf.value).not.toContain('z');
+  });
+});
+
+/**
  * **인라인 숏컷 의존 키의 자동 검증 — 하드코딩 방지 장치.**
  *
  * 팔레트는 LaTeX을 안 적고 트리거 글자(`sqrt`, `cos`…)만 흘린다. 그래서 변환 결과가
