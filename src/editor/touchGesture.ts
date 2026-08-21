@@ -93,6 +93,10 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
 
   const onPointerDown = (ev: PointerEvent): void => {
     reset();
+    // 선택 핸들 위에서 시작한 손짓은 그쪽 것이다 (`SelectionHandles.tsx`).
+    // 우리가 capture로 먼저 보기 때문에 그쪽 stopPropagation으로는 못 막는다.
+    const target = ev.target;
+    if (target instanceof Element && target.closest('.sel-handle') !== null) return;
     if (!ev.isPrimary || ev.pointerType !== 'touch' || !isMobileViewport()) return;
     pointerId = ev.pointerId;
     startX = ev.clientX;

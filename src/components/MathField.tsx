@@ -1,4 +1,11 @@
-import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type Ref } from 'react';
+import {
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type Ref,
+} from 'react';
 import { MathfieldElement, type InlineShortcutDefinitions } from 'mathlive';
 import {
   ensureGhostLeftSupport,
@@ -11,6 +18,7 @@ import { setActiveMathField } from '../editor/activeField';
 import { PLACEHOLDER_RULES, contentCount, findViolations, repairLatex } from '../editor/wellformed';
 import { dispatchKeyOp } from '../editor/keyOps';
 import { attachTouchGesture } from '../editor/touchGesture';
+import { SelectionHandles } from './SelectionHandles';
 import { configureKeybindings } from '../editor/keybindings';
 import {
   expandSelectionSemantic,
@@ -410,6 +418,11 @@ export function MathField({
     onDuplicate,
   };
   const initialValue = useRef(value);
+  /**
+   * 마운트된 mathfield. 선택 핸들(`SelectionHandles`)이 렌더 트리에서 이걸 봐야
+   * 해서 ref가 아니라 state다 — 마운트 직후 한 번만 바뀐다.
+   */
+  const [mounted, setMounted] = useState<MathfieldElement | null>(null);
 
   // 편집 중인지 추적한다. 편집 중에는 외부 value 동기화가 입력을 덮지 않도록 막는다.
   const isEditing = useRef(false);
@@ -728,7 +741,9 @@ export function MathField({
     // 데스크톱에서는 아무 것도 가로채지 않는다 (`editor/touchGesture.ts`).
     const detachTouchGesture = attachTouchGesture(mf, host);
     mfRef.current = mf;
+    setMounted(mf);
     return () => {
+      setMounted(null);
       document.removeEventListener('pointerdown', onOutsidePointerDown, { capture: true });
       detachTouchGesture();
       mf.remove();
@@ -814,5 +829,11 @@ export function MathField({
     [],
   );
 
-  return <div ref={hostRef} className={readOnly ? 'mf mf-readonly' : 'mf'} />;
+  // `math-field` 는 위 이펙트가 직접 append 한다 — 여기 React 자식은 그 뒤에 붙는
+  // 오버레이(선택 핸들)뿐이다.
+  return (
+    <div ref={hostRef} className={readOnly ? 'mf mf-readonly' : 'mf'}>
+      <SelectionHandles mf={mounted} container={hostRef.current} />
+    </div>
+  );
 }

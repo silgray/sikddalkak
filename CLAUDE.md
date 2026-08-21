@@ -281,6 +281,8 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 - **컨텍스트 메뉴는 호스트에 쏘는 cancelable `contextmenu` 로 열린다**
   (`acceptContextMenu`) — `preventDefault()` 면 안 뜬다. ⚠ 그 이벤트는
   **`bubbles: false`** 라 부모가 아니라 `math-field` **자신에게** 들어야 한다.
+- **`mf.focus()` 는 내용을 통째로 선택한다** — 캐럿만 있는 상태를 만들려면
+  `mf.position` 을 따로 정해야 한다(테스트에서 자주 걸린다).
 - **호스트에 `user-select: none` 을 걸면 필드가 죽는다** — MathLive가
   `connectedCallback` 에서 그걸 보고 pointerdown 리스너를 아예 안 단다. 네이티브
   선택 콜아웃 억제는 `-webkit-touch-callout` 으로만 한다.
@@ -302,6 +304,14 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 - **`MathField.tsx`** — `<math-field>` React 래퍼. **UI↔에디터 경계.** input마다
   `repairLatex` 게이트, selection-change마다 `normalizeSelection` 게이트,
   keydown을 `dispatchKeyOp`로. uncontrolled(`new MathfieldElement()`).
+- **`SelectionHandles.tsx`** — **모바일 선택 범위 양끝 드래그 핸들.** 홀드로 잡은
+  선택(`editor/touchGesture.ts`)을 손가락으로 다듬는다. `MathField` 안에 오버레이로
+  들어간다(`math-field` 는 이펙트가 append 하고, React 자식은 이 핸들뿐).
+  위치는 `mf.getElementInfo(offset).bounds` 실측, 드래그는 `mf.getOffsetFromPoint`.
+  **스냅을 자기가 계산하지 않는다** — 선택을 그냥 세팅하면 `MathField` 의
+  selection-change 게이트(`normalizeSelection`)가 형제 열로 교정한다. 불변식의 단일
+  게이트를 두 벌로 만들지 않으려는 것. bias는 손가락 밑 원자를 **넣는** 쪽으로
+  준다(시작=-1, 끝=+1) — 0이면 원자 한가운데가 기준이라 얹은 원자가 빠진다(실측).
 - **`SelectionToolbar.tsx`** — 행렬 통째 선택 시 뜨는 구분 기호 플로팅 툴바.
 - **`HelpPanel.tsx`** / **`TabBar.tsx`** — 도움말 패널, 탭 바.
 - **`App.tsx`** / **`main.tsx`** — 진입점. main.tsx에서 MathLive 전역 설정
