@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MathfieldElement } from 'mathlive';
 import { contentOf } from '../editor/internals';
+import { rawSelection, setRawSelection } from '../editor/rawSelection';
 import { isMobileViewport, onMobileViewportChange } from '../mobile';
 
 /**
@@ -12,6 +13,11 @@ import { isMobileViewport, onMobileViewportChange } from '../mobile';
  * 없다. 스냅은 우리가 따로 계산하지 않는다: 선택을 그냥 세팅하면
  * `MathField` 의 `selection-change` 게이트(`normalizeSelection`)가 교정한다 —
  * 선택 불변식의 단일 게이트를 두 벌로 만들지 않으려는 것이다.
+ *
+ * **드래그는 원시 캐럿(`editor/rawSelection.ts`)을 옮긴다** — 화면에 보이는(스냅된)
+ * 선택 범위를 직접 옮기지 않는다. 홀드 드래그가 구조 경계를 넘어 상위로 스냅된
+ * 뒤라도, 핸들을 반대로 되돌리면 원시 좌표부터 다시 계산되어 자연히 좁아진다.
+ * 스냅된 결과를 출발점으로 삼았다면(예전 구현) 한번 넓어진 선택은 되돌릴 수 없었다.
  *
  * 좌표는 전부 **실측**이다. `mf.getElementInfo(offset).bounds` 가 그 오프셋 자리
  * 원자의 뷰포트 좌표 DOMRect를 준다(실측: `1+xy` 의 오프셋 4 = `y`). 거꾸로
@@ -78,10 +84,17 @@ type Props = {
   container: HTMLElement | null;
 };
 
+/** 진행 중인 핸들 드래그. */
+type Drag = {
+  readonly which: 'start' | 'end';
+  readonly midY: number;
+  /** 반대쪽(안 움직이는) 원시 캐럿 — `editor/rawSelection.ts` 참고. */
+  readonly fixed: number;
+};
+
 export function SelectionHandles({ mf, container }: Props) {
   const [placement, setPlacement] = useState<Placement | null>(null);
-  /** 드래그 중인 쪽. 없으면 null. */
-  const dragRef = useRef<{ which: 'start' | 'end'; midY: number } | null>(null);
+  const dragRef = useRef<Drag | null>(null);
 
   useEffect(() => {
     if (mf === null || container === null) return;
@@ -133,17 +146,26 @@ export function SelectionHandles({ mf, container }: Props) {
       // 이 stopPropagation 으로는 못 막는다 — `touchGesture.ts` 가 `.sel-handle`
       // 을 직접 걸러낸다). 여기 stopPropagation은 셀 드래그 재정렬용이다.
       ev.stopPropagation();
-      ev.currentTarget.setPointerCapture(ev.pointerId);
-      dragRef.current = { which, midY: placement.midY };
+      try {
+        ev.currentTarget.setPointerCapture(ev.pointerId);
+      } catch {
+        // 캡처 실패해도 드래그 자체는 계속한다 (move/up이 핸들에 오는 한 동작,
+        // `CellStack.tsx` 의 그룹 드래그와 같은 규율).
+      }
+      const raw = rawSelection(mf);
+      if (raw === null) return;
+      const [ra, rb] = raw;
+      dragRef.current = {
+        which,
+        midY: placement.midY,
+        fixed: which === 'start' ? Math.max(ra, rb) : Math.min(ra, rb),
+      };
     };
 
   const onDragMove = (ev: React.PointerEvent<HTMLDivElement>): void => {
     const drag = dragRef.current;
     if (drag === null) return;
     ev.preventDefault();
-    const range = mf.selection.ranges[0];
-    if (range === undefined) return;
-    const [a, b] = range;
     // 손가락 y가 아니라 **선택 줄의 한가운데**로 히트테스트한다 (위 ⚠ 참고).
     // bias는 손가락 밑 원자를 **선택에 넣는** 쪽으로 준다: 시작 핸들이면 그 원자의
     // 왼쪽 경계(-1), 끝 핸들이면 오른쪽 경계(+1). 0으로 두면 원자 한가운데를 기준
@@ -152,21 +174,21 @@ export function SelectionHandles({ mf, container }: Props) {
       bias: drag.which === 'start' ? -1 : 1,
     });
     if (offset < 0) return;
-    // 양끝이 서로를 넘지 못하게 한다 — 최소 원자 하나는 남는다.
-    const next: [number, number] =
-      drag.which === 'start' ? [Math.min(offset, b - 1), b] : [a, Math.max(offset, a + 1)];
-    if (next[0] === a && next[1] === b) return;
-    // 스냅은 `normalizeSelection` 이 한다 (`MathField` 의 selection-change 게이트).
-    mf.selection = {
-      ranges: [next],
-      direction: drag.which === 'start' ? 'backward' : 'forward',
-    };
+    // 양끝이 서로를 넘지 못하게 한다 — 최소 원자 하나는 남는다. `siblingRunRange`
+    // 는 붕괴한(a===b) 범위를 형제 열로 못 넓혀 아무 것도 안 할 수 있어(null),
+    // 여기서 미리 막아야 손가락이 반대쪽 핸들을 지나가도 선택이 사라지지 않는다.
+    if (drag.which === 'start') setRawSelection(mf, Math.min(offset, drag.fixed - 1), drag.fixed);
+    else setRawSelection(mf, drag.fixed, Math.max(offset, drag.fixed + 1));
   };
 
   const endDrag = (ev: React.PointerEvent<HTMLDivElement>): void => {
     if (dragRef.current === null) return;
     dragRef.current = null;
-    ev.currentTarget.releasePointerCapture(ev.pointerId);
+    try {
+      ev.currentTarget.releasePointerCapture(ev.pointerId);
+    } catch {
+      // 캡처가 애초에 안 됐으면 그냥 넘어간다.
+    }
   };
 
   const handle = (which: 'start' | 'end', edge: Edge) => (

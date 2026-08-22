@@ -257,9 +257,19 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
   파손을 애초에 막는 예방 층 — 괄호 쌍 생성/제거, 밑 없는 `^`/`_` 차단, 첨자 강등.
 - **`selection.ts`** — 선택을 "한 레벨 연속 형제 열"로 강제. `normalizeSelection`
   (게이트), `siblingRunRange`, shift+화살표·Ctrl+D 확장 로직.
+- **`rawSelection.ts`** — **원시 캐럿** 두 개를 필드별로 기억한다(`WeakMap`).
+  화면에 보이는 `mf.selection` 은 이 둘을 감싸는 최소 형제 열
+  (`siblingRunRange`)로 **파생**된 값일 뿐이다 — 홀드 드래그로 상위 구조까지
+  스냅된 뒤에도, 원시 좌표를 따로 쥐고 있으면 손가락을 되돌렸을 때 다시 좁아진다
+  (스냅 **결과**를 다음 조작의 출발점으로 삼으면 못 되돌린다). `setRawSelection`
+  이 유일한 쓰기 창구고, `rawSelection` 은 다른 경로(타이핑·Ctrl+D·팔레트·탭)가
+  선택을 바꿔 캐시가 낡았으면 지금 보이는 범위로 조용히 씨를 다시 뿌린다.
+  `touchGesture.ts` 의 홀드 드래그와 `SelectionHandles.tsx` 의 핸들 드래그
+  둘 다 이걸 거친다.
 - **`touchGesture.ts`** — **모바일 터치 제스처 층.** 한 손짓을 넷으로 가른다:
   짧은 탭=캐럿, 짧은 터치 후 가로 드래그=**셀 수식 가로 스크롤**, 홀드=손가락 밑
-  **항** 선택(`expandSelectionSemantic` 2칸), 홀드 후 드래그=그 항을 품은 채 확장.
+  **항** 선택(`expandSelectionSemantic` 2칸), 홀드 후 드래그=그 항을 품은 채 확장
+  (`rawSelection.ts` 를 거쳐 원시 캐럿으로 남긴다).
   MathLive는 pointerdown을 잡는 순간부터 드래그를 선택으로만 쓰고 `.ML__content` 는
   `overflow: hidden` 이라, 이게 없으면 넘치는 식을 손으로 옮길 방법이 아예 없다.
   **pointerdown은 삼키지 않는다** — 포커스·캐럿 배치·placeholder 특례를 MathLive가
@@ -322,6 +332,9 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
   selection-change 게이트(`normalizeSelection`)가 형제 열로 교정한다. 불변식의 단일
   게이트를 두 벌로 만들지 않으려는 것. bias는 손가락 밑 원자를 **넣는** 쪽으로
   준다(시작=-1, 끝=+1) — 0이면 원자 한가운데가 기준이라 얹은 원자가 빠진다(실측).
+  **드래그는 `editor/rawSelection.ts` 의 원시 캐럿을 옮긴다** — 스냅된 선택 자체를
+  옮기면, 홀드 드래그가 구조 경계를 넘어 상위로 스냅된 뒤엔 되돌릴 방법이 없다
+  (스냅된 결과가 다음 조작의 출발점이 되어버리므로).
 - **`SelectionToolbar.tsx`** — 행렬 통째 선택 시 뜨는 구분 기호 플로팅 툴바.
 - **`HelpPanel.tsx`** / **`TabBar.tsx`** — 도움말 패널, 탭 바.
 - **`App.tsx`** / **`main.tsx`** — 진입점. main.tsx에서 MathLive 전역 설정

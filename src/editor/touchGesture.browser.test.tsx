@@ -51,7 +51,7 @@ function pretendMobile(on: boolean): void {
 const settle = () => new Promise((r) => setTimeout(r, 120));
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-type Mounted = { mf: MathfieldElement; content: HTMLElement };
+type Mounted = { mf: MathfieldElement; content: HTMLElement; host: HTMLElement };
 
 async function mount(initial: string, width = 320): Promise<Mounted> {
   const host = document.createElement('div');
@@ -74,7 +74,7 @@ async function mount(initial: string, width = 320): Promise<Mounted> {
     root.unmount();
     host.remove();
   });
-  return { mf, content };
+  return { mf, content, host };
 }
 
 type Pt = { x: number; y: number };
@@ -220,6 +220,61 @@ describe('터치 제스처 — 스크롤과 선택 가르기', () => {
     send(content, 'pointerup', { x: left.x - 4, y: left.y });
     await settle();
     expect(selectedLatex(mf)).toBe('1+xy');
+  });
+
+  it('홀드 드래그가 중첩 구조를 넘어 넓어진 뒤에도, 핸들로 다시 좁힐 수 있다', async () => {
+    // 회귀 핀 — `editor/rawSelection.ts` 가 없던 시절엔 핸들이 "지금 보이는(이미
+    // 넓어진) 선택"만 알아서, 한쪽 핸들을 아무리 안으로 끌어도 반대쪽이 escalate된
+    // 경계(예: 문서 맨 앞)에 박혀 있어 절대 좁혀지지 않았다. 분수를 쓰는 이유:
+    // 평평한 식(`1+xy`)은 원시 캐럿이 우연히 스냅된 값과 같아져 이 차이가 안 드러난다
+    // — `\frac{a}{bc}+d` 에서 분모 안 'c'를 홀드하면(`HOLD_EXPAND_STEPS=2`가
+    // 분모 branch 전체 'bc'까지만 오른다) 원시 시작 캐럿이 분모 **안**(라텍 상
+    // 오프셋 3)에 남는데, 넓히는 동안 보이는 선택은 분수를 통째로 감싸야 해서
+    // 훨씬 바깥(오프셋 0)으로 스냅된다 — 그 간극이 이 테스트의 핵심이다.
+    pretendMobile(true);
+    const { mf, content, host } = await mount(String.raw`\frac{a}{bc}+d`);
+    mf.focus();
+    await settle();
+    const over = pointAt(mf, 5); // 'c' — 분모 안
+    send(content, 'pointerdown', over);
+    await wait(600);
+    // 사다리 2칸: 원자('c') → 분모 branch 전체('bc'). 아직 분수 밖으로는 안 나갔다.
+    expect(selectedLatex(mf)).toBe('bc');
+
+    // 분수를 넘어 'd' 까지 끌면, 분수는 반쪽만 드러낼 수 없어 전체로 스냅된다.
+    const dPos = pointAt(mf, 8);
+    send(content, 'pointermove', dPos);
+    send(content, 'pointerup', dPos);
+    await settle();
+    expect(selectedLatex(mf)).toBe(String.raw`\frac{a}{bc}+d`);
+
+    // 손을 뗀 뒤 — **끝 핸들만** 따로 잡아 분모 안('c')으로 되돌린다.
+    const endHandle = host.querySelector('.sel-handle-end') as HTMLElement;
+    expect(endHandle).not.toBeNull();
+    const cPos = pointAt(mf, 5);
+    const opts = {
+      pointerId: 11,
+      isPrimary: true,
+      pointerType: 'touch' as const,
+      bubbles: true,
+      cancelable: true,
+    };
+    const from = endHandle.getBoundingClientRect();
+    endHandle.dispatchEvent(
+      new PointerEvent('pointerdown', { ...opts, clientX: from.left + from.width / 2, clientY: from.top }),
+    );
+    endHandle.dispatchEvent(new PointerEvent('pointermove', { ...opts, clientX: cPos.x, clientY: cPos.y }));
+    endHandle.dispatchEvent(new PointerEvent('pointerup', { ...opts, clientX: cPos.x, clientY: cPos.y }));
+    await settle();
+    // 정확히 어느 원자에서 스냅됐는지(`b`/`bc`)는 픽셀 바이어스에 달렸고 그건
+    // `selectionHandles.browser.test.tsx` 가 이미 따로 잰다 — 여기서 잡는 계약은
+    // "분수 밖(`+d`)까지 다시 끌려가지 않는다"는 **좁혀짐 자체**다. 고쳐지기
+    // 전엔 반대쪽(시작) 핸들이 escalate된 오프셋 0에 박혀 있어 이 좁혀짐 자체가
+    // 불가능했다.
+    const shrunk = selectedLatex(mf);
+    expect(shrunk).not.toBeNull();
+    expect(shrunk).not.toContain('+');
+    expect(shrunk).not.toContain('d');
   });
 
   it('홀드 시 컨텍스트 메뉴는 막힌다', async () => {

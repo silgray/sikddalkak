@@ -1,6 +1,7 @@
 import type { MathfieldElement } from 'mathlive';
 import { contentOf } from './internals';
 import { expandSelectionSemantic } from './selection';
+import { setRawSelection } from './rawSelection';
 import { isMobileViewport } from '../mobile';
 
 /**
@@ -208,7 +209,12 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
     }
   };
 
-  /** 홀드 선택을 손가락 위치까지 넓힌다. anchorRun은 언제나 안에 남는다. */
+  /**
+   * 홀드 선택을 손가락 위치까지 넓힌다. anchorRun은 언제나 안에 남는다.
+   * `setRawSelection` 을 거쳐 (lo, hi) 를 **원시 캐럿**으로 남긴다 — 손을 뗀
+   * 뒤에도 `SelectionHandles` 가 이어받아, 구조 경계를 넘어 스냅된 선택이라도
+   * 손가락을 되돌리면 다시 좁혀진다(`rawSelection.ts` 참고).
+   */
   const extendToPoint = (x: number, y: number): void => {
     try {
       const focus = mf.getOffsetFromPoint(x, y, { bias: x < startX ? -1 : 1 });
@@ -216,10 +222,7 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
       const [a, b] = anchorRun ?? [focus, focus];
       const lo = Math.min(a, focus);
       const hi = Math.max(b, focus);
-      mf.selection = {
-        ranges: [[lo, hi]],
-        direction: focus < a ? 'backward' : 'forward',
-      };
+      setRawSelection(mf, lo, hi);
     } catch {
       /* 내부 상태가 예상과 다르면 선택을 건드리지 않는다 */
     }
