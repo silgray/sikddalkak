@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MathfieldElement } from 'mathlive';
-import { contentOf } from '../editor/internals';
+import { clearAtomBoundsCache, contentOf } from '../editor/internals';
 import { rawSelection, setRawSelection } from '../editor/rawSelection';
 import { isMobileViewport, onMobileViewportChange } from '../mobile';
 
@@ -26,16 +26,23 @@ import { isMobileViewport, onMobileViewportChange } from '../mobile';
  * ⚠ **세로 좌표는 손가락이 아니라 선택 줄의 한가운데를 쓴다.** 핸들을 잡은 손가락은
  * 수식 아래(또는 위)에 있어서, 그 y를 그대로 넘기면 히트테스트가 줄 밖으로 나간다.
  *
+ * ⚠ **MathLive는 원자 상자를 뷰포트 좌표로 캐싱한다**(`atomBoundsCache`, 실측) —
+ * 그 캐시를 비우는 곳은 원래 렌더 전후와 자기 `onPointerDown` 뿐이다. 우리 패닝은
+ * `content.scrollLeft` 만 옮기고 렌더도 pointerdown도 없으므로, 그 스크롤을
+ * `clearAtomBoundsCache`(`editor/internals.ts`) 없이 두면 핸들이 옛 좌표에 멈춘다 —
+ * 아래 `scroll` 리스너가 그때만 명시적으로 비운다(매 프레임 비우면 히트테스트가
+ * 원자마다 다시 `getBoundingClientRect` 를 재야 해서 느려진다).
+ *
  * 데스크톱에는 안 뜬다 — DOM은 늘 그리고 숨김은 CSS(`@media (max-width: 640px)`)가
  * 맡는다(브랜치 대원칙 3). 다만 **측정은** 모바일에서만 돈다: 선택이 바뀔 때마다
  * 도는 자리라 데스크톱에서 헛일할 이유가 없다. 그 판정도 `mobile.ts` 하나를 쓴다.
  */
 
 type Edge = {
-  /** 컨테이너 기준 x (px). */
+  /** 컨테이너 기준 x (px). 보이는 범위 밖이면 그 경계로 **클램프된** 값이다. */
   readonly x: number;
-  /** 지금 보이는 범위 안인가 — 스크롤 밖으로 나간 핸들은 숨긴다. */
-  readonly visible: boolean;
+  /** 진짜 위치가 보이는 범위 밖이라 경계에 고정됐는가 — 방향 표식(`.sel-handle-pinned`)에 쓴다. */
+  readonly pinned: boolean;
 };
 
 type Placement = {
@@ -48,8 +55,10 @@ type Placement = {
   readonly midY: number;
 };
 
-/** 스크롤 경계 반올림 오차 여유(px). */
-const EDGE_SLACK = 2;
+/** 핸들이 컨테이너 경계에 갇혀 자동 스크롤할 때의 걸음 — MathLive 자신의
+ * 드래그 선택 오토스크롤과 같은 값이다(`mathlive.mjs` 의 `scrollInterval`, 실측). */
+const AUTO_SCROLL_STEP_PX = 16;
+const AUTO_SCROLL_INTERVAL_MS = 32;
 
 function measure(mf: MathfieldElement, container: HTMLElement): Placement | null {
   if (mf.selectionIsCollapsed) return null;
@@ -65,14 +74,19 @@ function measure(mf: MathfieldElement, container: HTMLElement): Placement | null
   const contentBox = contentOf(mf)?.getBoundingClientRect() ?? box;
   const top = Math.min(first.top, last.top);
   const bottom = Math.max(first.bottom, last.bottom);
-  const inView = (x: number): boolean =>
-    x >= contentBox.left - EDGE_SLACK && x <= contentBox.right + EDGE_SLACK;
+
+  // 컨테이너 밖으로 나간 쪽은 숨기지 않고 그 경계에 세운다 — 핀으로 읽히게 하고
+  // (`.sel-handle-pinned`), 언제든 잡아서 다시 안으로 끌어올 수 있게 둔다.
+  const clampEdge = (trueX: number): Edge => {
+    const x = Math.min(Math.max(trueX, contentBox.left), contentBox.right);
+    return { x: x - box.left, pinned: x !== trueX };
+  };
 
   return {
     top: top - box.top,
     bottom: bottom - box.top,
-    start: { x: first.left - box.left, visible: inView(first.left) },
-    end: { x: last.right - box.left, visible: inView(last.right) },
+    start: clampEdge(first.left),
+    end: clampEdge(last.right),
     midY: (top + bottom) / 2,
   };
 }
@@ -90,6 +104,11 @@ type Drag = {
   readonly midY: number;
   /** 반대쪽(안 움직이는) 원시 캐럿 — `editor/rawSelection.ts` 참고. */
   readonly fixed: number;
+  /** 경계에 붙어 자동 스크롤 중인 방향. 0이면 안 하는 중. */
+  autoScrollDir: -1 | 0 | 1;
+  autoScrollTimer: ReturnType<typeof setInterval> | null;
+  /** 오토스크롤 틱마다 다시 쓸 마지막 손가락 x. */
+  lastClientX: number;
 };
 
 export function SelectionHandles({ mf, container }: Props) {
@@ -116,8 +135,13 @@ export function SelectionHandles({ mf, container }: Props) {
     mf.addEventListener('focusout', schedule);
     const content = contentOf(mf);
     // 가로 스크롤(캐럿 추적·터치 패닝 둘 다)마다 핸들이 따라가야 한다. 스크롤은
-    // 즉시 반영해야 안 튀므로 rAF를 안 거친다.
-    content?.addEventListener('scroll', remeasure, { passive: true });
+    // 즉시 반영해야 안 튀므로 rAF를 안 거친다. **패닝은 MathLive의 렌더를 안
+    // 거치므로 캐시가 안 비워진다** — 여기서만 명시적으로 비운다(위 ⚠ 참고).
+    const onScroll = (): void => {
+      clearAtomBoundsCache(mf);
+      remeasure();
+    };
+    content?.addEventListener('scroll', onScroll, { passive: true });
     const observer = content === null ? null : new ResizeObserver(schedule);
     observer?.observe(content as Element);
     const unsubscribe = onMobileViewportChange(schedule);
@@ -129,13 +153,57 @@ export function SelectionHandles({ mf, container }: Props) {
       mf.removeEventListener('selection-change', schedule);
       mf.removeEventListener('input', schedule);
       mf.removeEventListener('focusout', schedule);
-      content?.removeEventListener('scroll', remeasure);
+      content?.removeEventListener('scroll', onScroll);
       observer?.disconnect();
       unsubscribe();
     };
   }, [mf, container]);
 
   if (placement === null || mf === null) return null;
+
+  /** 손가락 x(경계로 클램프한 값)에서 오프셋을 다시 재고 원시 캐럿을 갱신한다. */
+  const applyDragAt = (drag: Drag, clientX: number): void => {
+    const contentBox = contentOf(mf)?.getBoundingClientRect();
+    const x =
+      contentBox === undefined
+        ? clientX
+        : Math.min(Math.max(clientX, contentBox.left), contentBox.right);
+    // bias는 손가락 밑 원자를 **선택에 넣는** 쪽으로 준다: 시작 핸들이면 그 원자의
+    // 왼쪽 경계(-1), 끝 핸들이면 오른쪽 경계(+1). 0으로 두면 원자 한가운데를 기준
+    // 삼아, 원자 위에 손가락을 얹었는데 그게 빠지는 일이 생긴다(실측).
+    const offset = mf.getOffsetFromPoint(x, drag.midY, { bias: drag.which === 'start' ? -1 : 1 });
+    if (offset < 0) return;
+    // 양끝이 서로를 넘지 못하게 한다 — 최소 원자 하나는 남는다. `siblingRunRange`
+    // 는 붕괴한(a===b) 범위를 형제 열로 못 넓혀 아무 것도 안 할 수 있어(null),
+    // 여기서 미리 막아야 손가락이 반대쪽 핸들을 지나가도 선택이 사라지지 않는다.
+    if (drag.which === 'start') setRawSelection(mf, Math.min(offset, drag.fixed - 1), drag.fixed);
+    else setRawSelection(mf, drag.fixed, Math.max(offset, drag.fixed + 1));
+  };
+
+  /** 손가락이 컨테이너 밖이면 그 방향으로 자동 스크롤을 걸거나 뗀다. */
+  const updateAutoScroll = (drag: Drag, clientX: number): void => {
+    const contentBox = contentOf(mf)?.getBoundingClientRect();
+    let dir: -1 | 0 | 1 = 0;
+    if (contentBox !== undefined) {
+      if (clientX < contentBox.left) dir = -1;
+      else if (clientX > contentBox.right) dir = 1;
+    }
+    if (dir === drag.autoScrollDir) return;
+    if (drag.autoScrollTimer !== null) {
+      clearInterval(drag.autoScrollTimer);
+      drag.autoScrollTimer = null;
+    }
+    drag.autoScrollDir = dir;
+    if (dir === 0) return;
+    drag.autoScrollTimer = setInterval(() => {
+      const content = contentOf(mf);
+      if (content === null) return;
+      content.scrollLeft += dir * AUTO_SCROLL_STEP_PX;
+      // 우리가 직접 옮긴 스크롤이라 렌더를 안 거친다 — 다음 히트테스트 전에 비운다.
+      clearAtomBoundsCache(mf);
+      applyDragAt(drag, drag.lastClientX);
+    }, AUTO_SCROLL_INTERVAL_MS);
+  };
 
   const startDrag =
     (which: 'start' | 'end') =>
@@ -159,6 +227,9 @@ export function SelectionHandles({ mf, container }: Props) {
         which,
         midY: placement.midY,
         fixed: which === 'start' ? Math.max(ra, rb) : Math.min(ra, rb),
+        autoScrollDir: 0,
+        autoScrollTimer: null,
+        lastClientX: ev.clientX,
       };
     };
 
@@ -166,23 +237,15 @@ export function SelectionHandles({ mf, container }: Props) {
     const drag = dragRef.current;
     if (drag === null) return;
     ev.preventDefault();
-    // 손가락 y가 아니라 **선택 줄의 한가운데**로 히트테스트한다 (위 ⚠ 참고).
-    // bias는 손가락 밑 원자를 **선택에 넣는** 쪽으로 준다: 시작 핸들이면 그 원자의
-    // 왼쪽 경계(-1), 끝 핸들이면 오른쪽 경계(+1). 0으로 두면 원자 한가운데를 기준
-    // 삼아, 원자 위에 손가락을 얹었는데 그게 빠지는 일이 생긴다(실측).
-    const offset = mf.getOffsetFromPoint(ev.clientX, drag.midY, {
-      bias: drag.which === 'start' ? -1 : 1,
-    });
-    if (offset < 0) return;
-    // 양끝이 서로를 넘지 못하게 한다 — 최소 원자 하나는 남는다. `siblingRunRange`
-    // 는 붕괴한(a===b) 범위를 형제 열로 못 넓혀 아무 것도 안 할 수 있어(null),
-    // 여기서 미리 막아야 손가락이 반대쪽 핸들을 지나가도 선택이 사라지지 않는다.
-    if (drag.which === 'start') setRawSelection(mf, Math.min(offset, drag.fixed - 1), drag.fixed);
-    else setRawSelection(mf, drag.fixed, Math.max(offset, drag.fixed + 1));
+    drag.lastClientX = ev.clientX;
+    applyDragAt(drag, ev.clientX);
+    updateAutoScroll(drag, ev.clientX);
   };
 
   const endDrag = (ev: React.PointerEvent<HTMLDivElement>): void => {
-    if (dragRef.current === null) return;
+    const drag = dragRef.current;
+    if (drag === null) return;
+    if (drag.autoScrollTimer !== null) clearInterval(drag.autoScrollTimer);
     dragRef.current = null;
     try {
       ev.currentTarget.releasePointerCapture(ev.pointerId);
@@ -194,9 +257,8 @@ export function SelectionHandles({ mf, container }: Props) {
   const handle = (which: 'start' | 'end', edge: Edge) => (
     <div
       key={which}
-      className={`sel-handle sel-handle-${which}`}
+      className={`sel-handle sel-handle-${which}${edge.pinned ? ' sel-handle-pinned' : ''}`}
       data-testid={`sel-handle-${which}`}
-      hidden={!edge.visible}
       style={{
         left: `${edge.x}px`,
         top: `${placement.top}px`,

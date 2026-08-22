@@ -247,7 +247,8 @@
 MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **버전 업 시 재확인 지점.**
 
 - **`internals.ts`** — MathLive 내부 API 접근 **단일 창구** (model, 숏컷 버퍼
-  flush, dispose-포커스 크래시 패치, 콘텐츠 상자 `contentOf`). 전부 try/catch 방어.
+  flush, dispose-포커스 크래시 패치, 콘텐츠 상자 `contentOf`, 원자 상자 캐시 비우기
+  `clearAtomBoundsCache`). 전부 try/catch 방어.
 - **`latexScan.ts`** — 위치 붙은 LaTeX 토큰/그룹 스캐너. 재직렬화 없이 원본에
   대한 `Splice`만 만든다 (손대지 않은 부분은 바이트 보존).
 - **`rules.ts`** — 구조 규칙 **레지스트리** (데이터). `{id, find, fix, examples}`.
@@ -303,6 +304,12 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 - **호스트에 `user-select: none` 을 걸면 필드가 죽는다** — MathLive가
   `connectedCallback` 에서 그걸 보고 pointerdown 리스너를 아예 안 단다. 네이티브
   선택 콜아웃 억제는 `-webkit-touch-callout` 으로만 한다.
+- **원자 화면 상자는 `atomBoundsCache` 에 뷰포트 좌표로 캐시된다**
+  (`getAtomBounds`/`getOffsetFromPoint`/`getElementInfo` 가 다 이걸 거친다). 비우는
+  곳은 원래 셋뿐이다: 재렌더 직전(rAF), 렌더 끝, 자기 `onPointerDown`. **패닝처럼
+  렌더도 pointerdown도 없이 `scrollLeft` 만 옮기는 코드는 캐시를 안 비운다** —
+  `clearAtomBoundsCache`(`internals.ts`)로 직접 비워야 한다. 매 프레임 부르면 안
+  된다: 비면 히트테스트가 원자마다 `getBoundingClientRect` 를 다시 돈다.
 
 ### `src/state/` — 상태 관리
 
@@ -334,7 +341,15 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
   준다(시작=-1, 끝=+1) — 0이면 원자 한가운데가 기준이라 얹은 원자가 빠진다(실측).
   **드래그는 `editor/rawSelection.ts` 의 원시 캐럿을 옮긴다** — 스냅된 선택 자체를
   옮기면, 홀드 드래그가 구조 경계를 넘어 상위로 스냅된 뒤엔 되돌릴 방법이 없다
-  (스냅된 결과가 다음 조작의 출발점이 되어버리므로).
+  (스냅된 결과가 다음 조작의 출발점이 되어버리므로). 컨테이너 밖으로 나간 끝은
+  숨기지 않고 그 경계에 **핀**으로 세운다(`.sel-handle-pinned`, 화살촉 모양) —
+  언제든 잡아 안으로 끌어올 수 있다. 드래그 중엔 손가락 x를 콘텐츠 상자 안으로
+  **클램프**해 핸들이 컨테이너 밖으로 못 나가게 하고, 클램프 전 위치가 경계 밖이면
+  MathLive의 자체 드래그 선택과 같은 간격(32ms/16px, 실측)으로 자동 스크롤한다.
+  ⚠ **MathLive는 원자 상자를 뷰포트 좌표로 캐싱한다**(`atomBoundsCache`, 실측) —
+  비우는 곳이 원래 렌더 전후와 자기 `onPointerDown` 뿐이라, 렌더 없이 `scrollLeft`
+  만 옮기는 우리 패닝·자동 스크롤 뒤엔 `editor/internals.ts` 의
+  `clearAtomBoundsCache` 를 명시적으로 불러야 핸들이 스크롤을 따라간다.
 - **`SelectionToolbar.tsx`** — 행렬 통째 선택 시 뜨는 구분 기호 플로팅 툴바.
 - **`HelpPanel.tsx`** / **`TabBar.tsx`** — 도움말 패널, 탭 바.
 - **`App.tsx`** / **`main.tsx`** — 진입점. main.tsx에서 MathLive 전역 설정

@@ -5,14 +5,19 @@ import type { MathfieldElement } from 'mathlive';
 import '../styles.css';
 import { FieldClip } from './FieldClip';
 import { MathField } from './MathField';
+import { contentOf } from '../editor/internals';
 
 /**
  * 선택 범위 양끝 드래그 핸들(`SelectionHandles.tsx`)의 동작 핀.
  *
- * 계약 셋:
+ * 계약:
  *   ① 선택이 있으면 양끝에 핸들이 서고, 그 x가 **실제 원자 경계**와 맞는다
  *   ② 끝 핸들을 끌면 선택이 그쪽으로 자라고, **원자 경계로 스냅**된다
  *   ③ 양끝은 서로를 넘지 못한다 (최소 원자 하나가 남는다)
+ *   ④ 가로 스크롤(패닝)이 지나가면 핸들이 **새 위치로 따라간다**
+ *      (`atomBoundsCache` 를 안 비우면 옛 좌표에 멈춘다, 실측)
+ *   ⑤ 선택 끝이 보이는 범위 밖이면 **숨기지 않고 그 경계에 고정**한다
+ *   ⑥ 핸들을 컨테이너 밖으로 끌어도 그 자리에서 못 나가고, 대신 자동 스크롤한다
  */
 
 const cleanups: (() => void)[] = [];
@@ -39,6 +44,10 @@ function pretendMobile(on: boolean): void {
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 120));
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** 320px 셀에 확실히 안 들어가는 식. */
+const LONG = String.raw`x^{10}+9x^{9}+8x^{8}+7x^{7}+6x^{6}+5x^{5}+4x^{4}+3x^{3}+2x^{2}+x+123456`;
 
 type Mounted = { mf: MathfieldElement; host: HTMLElement };
 
@@ -71,17 +80,33 @@ const handles = (host: HTMLElement) => ({
 const selectedLatex = (mf: MathfieldElement): string | null =>
   mf.selectionIsCollapsed ? null : mf.getValue(mf.selection, 'latex');
 
-/** 핸들을 잡고 `x` 까지 끌었다 놓는다. */
-function dragHandle(handle: HTMLElement, x: number, y: number): void {
-  const opts = { pointerId: 7, isPrimary: true, pointerType: 'touch', bubbles: true, cancelable: true };
+const DRAG_OPTS = {
+  pointerId: 7,
+  isPrimary: true,
+  pointerType: 'touch' as const,
+  bubbles: true,
+  cancelable: true,
+};
+
+/** 핸들을 잡는다. `move`/`end` 로 계속 이어가거나 사이에 기다릴 수 있다(오토스크롤 테스트용). */
+function beginDrag(handle: HTMLElement): { move: (x: number, y: number) => void; end: (x: number, y: number) => void } {
   handle.setPointerCapture = () => {};
   handle.releasePointerCapture = () => {};
   const from = handle.getBoundingClientRect();
   handle.dispatchEvent(
-    new PointerEvent('pointerdown', { ...opts, clientX: from.left + from.width / 2, clientY: from.top }),
+    new PointerEvent('pointerdown', { ...DRAG_OPTS, clientX: from.left + from.width / 2, clientY: from.top }),
   );
-  handle.dispatchEvent(new PointerEvent('pointermove', { ...opts, clientX: x, clientY: y }));
-  handle.dispatchEvent(new PointerEvent('pointerup', { ...opts, clientX: x, clientY: y }));
+  return {
+    move: (x, y) => handle.dispatchEvent(new PointerEvent('pointermove', { ...DRAG_OPTS, clientX: x, clientY: y })),
+    end: (x, y) => handle.dispatchEvent(new PointerEvent('pointerup', { ...DRAG_OPTS, clientX: x, clientY: y })),
+  };
+}
+
+/** 핸들을 잡고 `x` 까지 끌었다 놓는다. */
+function dragHandle(handle: HTMLElement, x: number, y: number): void {
+  const drag = beginDrag(handle);
+  drag.move(x, y);
+  drag.end(x, y);
 }
 
 describe('선택 핸들 — 양끝 조정', () => {
@@ -154,5 +179,99 @@ describe('선택 핸들 — 양끝 조정', () => {
     mf.selection = { ranges: [[2, 4]], direction: 'forward' };
     await settle();
     expect(handles(host).start).toBeNull();
+  });
+
+  it('가로로 스크롤하면(패닝) 핸들이 새 위치로 따라간다', async () => {
+    // 회귀 핀 — MathLive는 원자 상자를 뷰포트 좌표로 캐싱하고(`atomBoundsCache`),
+    // 그 캐시를 비우는 곳은 렌더 전후와 자기 pointerdown뿐이다(실측). 패닝은
+    // `scrollLeft` 만 옮기고 렌더도 pointerdown도 없어서, `clearAtomBoundsCache`
+    // 를 안 부르면 핸들이 스크롤 이전 좌표에 멈춰 있는다.
+    pretendMobile(true);
+    const { mf, host } = await mount(LONG);
+    mf.focus();
+    // `9` 하나만(둘째 항) — 화면 왼쪽 끝에 거의 붙은 원자(`x`)를 고르면 40px만
+    // 스크롤해도 곧장 화면 밖(=핀 처리)으로 나가버려 "따라가는지" 자체를 못 잰다.
+    // 지수(`^{10}`, subsup 원자)는 자기 offset에서 `getElementInfo` 가 bounds를
+    // 안 주는 경우가 있어(실측) 그것도 피한다.
+    mf.selection = { ranges: [[6, 7]], direction: 'forward' };
+    await settle();
+    const content = contentOf(mf)!;
+    // `mf.focus()`/`mf.position` 만으로는 스크롤이 언제 맞춰질지 보장이 안 된다
+    // (MathLive의 캐럿 추적 스크롤은 rAF에 걸린다) — 기준선을 직접 못박는다.
+    content.scrollLeft = 0;
+    content.dispatchEvent(new Event('scroll'));
+    await settle();
+    const before = handles(host).start!.offsetLeft;
+
+    // 패닝이 하는 것과 똑같은 동작 — scrollLeft만 옮기고 MathLive 렌더는 안 돈다.
+    content.scrollLeft += 40;
+    content.dispatchEvent(new Event('scroll'));
+    await settle();
+
+    const after = handles(host).start!.offsetLeft;
+    // 40px 스크롤했으니 컨테이너 기준 x도 그만큼(반대 방향으로) 옮겨야 한다.
+    // 캐시를 못 비우면 `before` 와 그대로 같게 나온다(고쳐지기 전 증상).
+    expect(after).toBeCloseTo(before - 40, 0);
+  });
+
+  it('스크롤로 선택 끝이 보이는 범위 밖으로 나가면, 숨기지 않고 경계에 고정한다', async () => {
+    pretendMobile(true);
+    const { mf, host } = await mount(LONG);
+    mf.focus();
+    // 맨 앞쪽의 좁은 범위 — 지금은 보인다.
+    mf.selection = { ranges: [[0, 1]], direction: 'forward' };
+    await settle();
+    const content = contentOf(mf)!;
+    content.scrollLeft = 0;
+    content.dispatchEvent(new Event('scroll'));
+    await settle();
+    expect(handles(host).start).not.toBeNull();
+    expect(handles(host).start!.className).not.toContain('sel-handle-pinned');
+
+    // 끝까지 스크롤 — 방금 고른 범위가 왼쪽 밖으로 완전히 밀려난다.
+    content.scrollLeft = content.scrollWidth;
+    content.dispatchEvent(new Event('scroll'));
+    await settle();
+
+    const { start, end } = handles(host);
+    // 사라지지 않는다 — 경계에 선다.
+    expect(start).not.toBeNull();
+    expect(end).not.toBeNull();
+    expect(start!.className).toContain('sel-handle-pinned');
+
+    const box = (host.querySelector('.mf') as HTMLElement).getBoundingClientRect();
+    const contentBox = content.getBoundingClientRect();
+    expect(start!.offsetLeft).toBeCloseTo(contentBox.left - box.left, 0);
+  });
+
+  it('핸들을 컨테이너 밖으로 끌면 자동 스크롤하며 경계 안에 머문다', async () => {
+    pretendMobile(true);
+    const { mf, host } = await mount(LONG);
+    mf.focus();
+    // `x` 하나만 — 지수(`^{10}`, subsup 원자)는 자기 offset에서 `getElementInfo`
+    // 가 bounds를 안 주는 경우가 있어(실측) 걸치지 않는 안전한 범위로 고른다.
+    mf.selection = { ranges: [[0, 1]], direction: 'forward' };
+    await settle();
+    const content = contentOf(mf)!;
+    content.scrollLeft = 0;
+    content.dispatchEvent(new Event('scroll'));
+    await settle();
+    const { end } = handles(host);
+    const beforeScroll = content.scrollLeft;
+    const contentBox = content.getBoundingClientRect();
+    const box = (host.querySelector('.mf') as HTMLElement).getBoundingClientRect();
+
+    const drag = beginDrag(end!);
+    // 컨테이너 오른쪽 훨씬 밖 — 자동 스크롤을 걸어야 한다(32ms/16px, 실측).
+    const farX = contentBox.right + 200;
+    drag.move(farX, contentBox.top + 10);
+    await wait(140); // 여러 틱이 지나가게
+    drag.end(farX, contentBox.top + 10);
+    await settle();
+
+    expect(content.scrollLeft).toBeGreaterThan(beforeScroll);
+    // 핸들 자체는 컨테이너 폭을 벗어나지 않는다.
+    const finalLeft = handles(host).end!.offsetLeft;
+    expect(finalLeft).toBeLessThanOrEqual(Math.round(contentBox.right - box.left) + 1);
   });
 });

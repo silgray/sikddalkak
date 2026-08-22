@@ -43,6 +43,24 @@ export function modelOf(mf: MathfieldElement): InternalModel | null {
 }
 
 /**
+ * MathLive가 원자 화면 상자를 **뷰포트 좌표로 캐싱**해 두는 곳
+ * (`mathfield.atomBoundsCache`, `getAtomBounds`/`getElementInfo` 가 읽는다). 비우는
+ * 곳은 원래 셋뿐이다(실측): 재렌더 직전(rAF), 렌더 끝, 그리고 자기 자신의
+ * `onPointerDown`. **패닝은 렌더도 pointerdown도 없이 `scrollLeft` 만 옮기므로**
+ * 캐시가 안 비워져 핸들이 스크롤을 따라가지 않는다 — `SelectionHandles.tsx` 가
+ * 기하 변화(스크롤·리사이즈)를 감지했을 때만 이걸 불러 강제로 비운다.
+ *
+ * ⚠ 매 프레임 부르면 안 된다 — 캐시가 비면 `getOffsetFromPoint` 가 원자마다
+ * `querySelectorAll`+`getBoundingClientRect` 를 다시 돌아 홀드 드래그 같은
+ * 프레임마다 히트테스트하는 경로에서 버벅인다.
+ */
+export function clearAtomBoundsCache(mf: MathfieldElement): void {
+  const internal = (mf as unknown as { _mathfield?: { atomBoundsCache?: Map<string, unknown> } })
+    ._mathfield;
+  internal?.atomBoundsCache?.clear();
+}
+
+/**
  * 셰도우 DOM 안의 키보드 이벤트 싱크(`.ML__keyboard-sink`, contenteditable 스팬).
  * MathLive는 여기서 keydown/keypress/input을 듣는다(`delegateKeyboardEvents`,
  * mathlive.mjs 실측) — 호스트(`math-field` 엘리먼트)에 이벤트를 쏘면 이 리스너들을
