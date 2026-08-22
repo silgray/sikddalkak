@@ -18,7 +18,7 @@ import { isMobileViewport } from '../mobile';
  * | 짧은 터치 후 가로 드래그 | 셀 수식 가로 스크롤 |
  * | 홀드 | 손가락 밑 '항' 자동 선택 (컨텍스트 메뉴 대신) |
  * | 홀드 후 드래그 | 그 선택을 손가락 쪽으로 확장 |
- * | 세로 드래그 | 아무 것도 안 함 = 페이지 스크롤(브라우저 몫) |
+ * | 세로 드래그 | 페이지 스크롤 (`stopPropagation` 만 — `preventDefault` 는 안 한다) |
  *
  * **pointerdown은 삼키지 않는다.** MathLive가 포커스·캐럿 배치·placeholder 특례를
  * 그대로 처리하게 두고, 우리는 그 뒤의 pointermove만 가로챈다 — 그 로직을 우리가
@@ -47,7 +47,7 @@ const HOLD_DELAY_MS = 450;
  */
 const HOLD_EXPAND_STEPS = 2;
 
-type Mode = 'idle' | 'undecided' | 'pan' | 'hold';
+type Mode = 'idle' | 'undecided' | 'pan' | 'hold' | 'vscroll';
 
 /**
  * 홀드 시 뜨는 메뉴를 **셀 전체에서** 막는다.
@@ -133,6 +133,23 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
     savedRanges = null;
   };
 
+  /**
+   * 세로 스크롤로 확정 — 손을 뗄 때까지 이 모드에 머문다(중간에 가로로 꺾여도
+   * 안 바뀐다). 이후 pointermove는 **`stopPropagation` 만** 한다:
+   * `preventDefault` 를 걸면 브라우저의 세로 패닝(`touch-action: pan-y`)까지
+   * 죽는다 — 우리가 막아야 하는 건 MathLive의 `onPointerMove`(그게 선택을
+   * 만든다) 뿐이고, `stopPropagation` 으로 그 이벤트가 셰도우 DOM에 닿는 것
+   * 자체를 막으면 충분하다.
+   */
+  const beginVScroll = (): void => {
+    restoreSelection();
+    if (holdTimer !== null) {
+      clearTimeout(holdTimer);
+      holdTimer = null;
+    }
+    mode = 'vscroll';
+  };
+
   /** 홀드 성립 — 손가락 밑 항을 선택한다. */
   const beginHold = (): void => {
     holdTimer = null;
@@ -175,12 +192,13 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
       const dx = x - startX;
       const dy = y - startY;
       if (Math.abs(dx) < MOVE_THRESHOLD_PX && Math.abs(dy) < MOVE_THRESHOLD_PX) return;
-      // 세로가 우세하면 페이지 스크롤 의도다 — 손을 떼고 브라우저에 넘긴다
-      // (모바일 CSS가 `touch-action: pan-y` 로 세로만 열어둔 것과 짝이다).
+      // 세로가 우세하면 페이지 스크롤 의도다 (모바일 CSS가 `touch-action: pan-y`
+      // 로 세로만 열어둔 것과 짝이다). 손을 떼지 않는다 — 계속 추적하며
+      // MathLive만 못 보게 막는다. 안 그러면 그 순간부터 pointermove를 안 삼켜,
+      // MathLive의 히스테리시스(20px)를 넘기는 순간 저쪽이 선택을 만든다(실측).
       if (Math.abs(dy) > Math.abs(dx)) {
-        // 세로 스크롤도 스크롤이다 — 하던 선택을 되살리고 손을 뗀다.
-        restoreSelection();
-        reset();
+        beginVScroll();
+        ev.stopPropagation();
         return;
       }
       if (holdTimer !== null) {
@@ -189,6 +207,12 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
       }
       mode = 'pan';
       restoreSelection();
+    }
+
+    if (mode === 'vscroll') {
+      // preventDefault는 하지 않는다 — 브라우저가 세로로 계속 스크롤해야 한다.
+      ev.stopPropagation();
+      return;
     }
 
     if (mode === 'pan') {

@@ -222,6 +222,24 @@ describe('터치 제스처 — 스크롤과 선택 가르기', () => {
     expect(selectedLatex(mf)).toBe('1+xy');
   });
 
+  it('세로로 20px(MathLive 히스테리시스)를 넘게 끌어도 선택이 안 생긴다', async () => {
+    pretendMobile(true);
+    const { mf, content } = await mount(LONG);
+    mf.focus();
+    mf.position = 0;
+    await settle();
+    const start = center(content);
+    // pointerdown 자체는 MathLive가 정상 처리한다(캐럿 배치) — 그 처리의 일부로
+    // MathLive 스스로 `preventDefault()` 를 거는 것도 정상이라 여기선 안 잰다.
+    send(content, 'pointerdown', start);
+    const move = send(content, 'pointermove', { x: start.x + 3, y: start.y + 30 });
+    expect(mf.selectionIsCollapsed).toBe(true);
+    // 우리가 막는 건 MathLive가 이 이벤트를 보는 것(`stopPropagation`)뿐이다 —
+    // `preventDefault` 는 걸지 않는다, 그러면 브라우저의 세로 패닝까지 죽는다.
+    expect(move.defaultPrevented).toBe(false);
+    send(content, 'pointerup', { x: start.x + 3, y: start.y + 30 });
+  });
+
   it('홀드 드래그가 중첩 구조를 넘어 넓어진 뒤에도, 핸들로 다시 좁힐 수 있다', async () => {
     // 회귀 핀 — `editor/rawSelection.ts` 가 없던 시절엔 핸들이 "지금 보이는(이미
     // 넓어진) 선택"만 알아서, 한쪽 핸들을 아무리 안으로 끌어도 반대쪽이 escalate된

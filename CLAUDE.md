@@ -267,10 +267,14 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
   선택을 바꿔 캐시가 낡았으면 지금 보이는 범위로 조용히 씨를 다시 뿌린다.
   `touchGesture.ts` 의 홀드 드래그와 `SelectionHandles.tsx` 의 핸들 드래그
   둘 다 이걸 거친다.
-- **`touchGesture.ts`** — **모바일 터치 제스처 층.** 한 손짓을 넷으로 가른다:
+- **`touchGesture.ts`** — **모바일 터치 제스처 층.** 한 손짓을 다섯으로 가른다:
   짧은 탭=캐럿, 짧은 터치 후 가로 드래그=**셀 수식 가로 스크롤**, 홀드=손가락 밑
   **항** 선택(`expandSelectionSemantic` 2칸), 홀드 후 드래그=그 항을 품은 채 확장
-  (`rawSelection.ts` 를 거쳐 원시 캐럿으로 남긴다).
+  (`rawSelection.ts` 를 거쳐 원시 캐럿으로 남긴다), 세로 드래그=**페이지 스크롤**
+  (`stopPropagation` 만 하고 `preventDefault` 는 안 한다 — 걸면 브라우저의 세로
+  패닝(`touch-action: pan-y`)까지 죽는다). 한번 세로로 정해지면 손 뗄 때까지
+  그 모드다(중간에 가로로 꺾여도 안 바뀐다) — `stopPropagation` 을 안 하면
+  MathLive의 히스테리시스(20px)를 넘기는 순간 저쪽이 선택을 만든다(실측).
   MathLive는 pointerdown을 잡는 순간부터 드래그를 선택으로만 쓰고 `.ML__content` 는
   `overflow: hidden` 이라, 이게 없으면 넘치는 식을 손으로 옮길 방법이 아예 없다.
   **pointerdown은 삼키지 않는다** — 포커스·캐럿 배치·placeholder 특례를 MathLive가
