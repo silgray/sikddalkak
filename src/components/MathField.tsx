@@ -19,6 +19,7 @@ import { PLACEHOLDER_RULES, contentCount, findViolations, repairLatex } from '..
 import { dispatchKeyOp } from '../editor/keyOps';
 import { attachTouchGesture } from '../editor/touchGesture';
 import { isMobileViewport } from '../mobile';
+import { ATOM_BOX_DEBUG } from '../features';
 import { SelectionHandles } from './SelectionHandles';
 import { configureKeybindings } from '../editor/keybindings';
 import {
@@ -216,6 +217,27 @@ const SHADOW_CSS = `
 `;
 
 /**
+ * 디버그 전용 — 원자 상자에 1px 테두리 (`features.ts` 의 `ATOM_BOX_DEBUG`, `?atombox`).
+ *
+ * `outline` 이라 레이아웃을 안 건드린다 — `border` 를 쓰면 글자가 밀려서 재려던
+ * 그 좌표가 달라진다. `outline-offset: -1px` 로 안쪽에 그려 이웃 상자끼리 선이
+ * 겹쳐 두꺼워지는 것도 막는다.
+ *
+ * 잎(글리프)과 컨테이너를 색으로 가른다 — `:has()` 로 자식 원자를 품었는지 본다.
+ * **파란 상자 사이의 맨 자리가 곧 히트테스트가 헛짚는 구간**이다.
+ */
+const ATOM_BOX_CSS = `
+.ML__latex [data-atom-id] {
+  outline: 1px solid rgba(59, 110, 245, 0.55);
+  outline-offset: -1px;
+}
+
+.ML__latex [data-atom-id]:has([data-atom-id]) {
+  outline-color: rgba(200, 60, 60, 0.35);
+}
+`;
+
+/**
  * 이 노드가 키 팔레트(`KeyPalette.tsx`) 안인가. 팔레트는 셀 그룹 밖에 고정으로 떠
  * 있지만 **편집 표면의 일부**라, "필드 바깥을 눌렀다" 판정에서 빼야 한다.
  * `pointerdown` 의 target은 보통 Element지만 텍스트 노드로 올 여지를 남겨 방어한다.
@@ -233,7 +255,7 @@ function applyShadowStyles(mf: MathfieldElement): void {
     if (root === null || !('adoptedStyleSheets' in root)) return;
     if (shadowSheet === null) {
       shadowSheet = new CSSStyleSheet();
-      shadowSheet.replaceSync(SHADOW_CSS);
+      shadowSheet.replaceSync(ATOM_BOX_DEBUG ? SHADOW_CSS + ATOM_BOX_CSS : SHADOW_CSS);
     }
     if (root.adoptedStyleSheets.includes(shadowSheet)) return;
     root.adoptedStyleSheets = [...root.adoptedStyleSheets, shadowSheet];

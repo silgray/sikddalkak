@@ -435,7 +435,10 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 - **`types.ts`** — `FormulaObject`(정본), `EvalResult`, `CellMode` 등 공용 타입.
 - **`mobile.ts`** — `isMobileViewport()`. 모바일 판정의 **단일 기준점**(위 대원칙 2).
 - **`features.ts`** — 기능 플래그. `SOLVE_ENABLED`(등식 풀기, CE 한계로 꺼둠),
-  `RAW_CARET_DEBUG`(선택 원시 캐럿 표시, 개발 서버에서만 켜짐).
+  `RAW_CARET_DEBUG`(선택 원시 캐럿 표시, 개발 서버에서만 켜짐),
+  `ATOM_BOX_DEBUG`(원자 상자 1px 테두리, **`?atombox`** 질의 문자열로 켠다 —
+  실기기 확인은 폰에서 배포본을 여는 식이라 상수로는 못 켠다). 셰도우 CSS라
+  `MathField.tsx` 의 `ATOM_BOX_CSS` 가 붙인다.
 - **`styles.css`** — 전역 CSS (라이트/다크 자동, CSS 변수).
 - **`scripts/copy-mathlive-assets.mjs`** — 빌드 전 MathLive 폰트를 public으로 복사.
 
