@@ -61,13 +61,32 @@ export function clearAtomBoundsCache(mf: MathfieldElement): void {
 }
 
 /**
+ * 오프셋 하나가 화면에서 서는 **뷰포트 x**. 못 재면 `null`.
+ *
+ * 오프셋은 원자 **사이**의 경계라, 그 자리는 "오프셋 `q` 로 끝나는 원자의 오른쪽"
+ * 이다. 예외는 branch 맨 앞(`first` 센티넬) — 거기선 뒤따르는 첫 원자의 **왼쪽**을
+ * 쓴다. ⚠ **센티넬 자기 상자를 쓰면 안 된다**: 그 값은 자기가 아니라 부모 컨테이너
+ * 전체로 나오고 레이아웃 타이밍까지 탄다(`resolveOffsetAt` 의 ⚠ 참고). 진짜 원자
+ * 상자만 믿는다.
+ */
+export function boundaryXOf(mf: MathfieldElement, offset: number): number | null {
+  try {
+    const model = modelOf(mf);
+    const isSentinel = model !== null && model.at(offset)?.type === 'first';
+    const box = isSentinel
+      ? mf.getElementInfo(offset + 1)?.bounds
+      : mf.getElementInfo(offset)?.bounds;
+    if (box === undefined) return null;
+    return isSentinel ? box.left : box.right;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 센티넬이 나왔을 때, **그 센티넬의 branch 안에서** 손가락에 가장 가까운 형제
  * 경계를 직접 고른다. MathLive는 "점이 이 branch 안에 있다"까지는 맞게 알려준
  * 셈이라(센티넬의 부모 상자가 점을 품었으니), 그 안에서 자리만 우리가 정한다.
- *
- * 경계의 화면 x는 **진짜 원자 상자로만** 잰다 — branch 맨 앞(센티넬 자신)은 첫
- * 원자의 왼쪽, 그 밖의 경계 `q` 는 원자 `q` 의 오른쪽. 센티넬 자기 상자는 못
- * 믿는다(아래 `resolveOffsetAt` 의 ⚠ 참고).
  */
 function nearestBoundaryInBranch(
   mf: MathfieldElement,
@@ -90,9 +109,8 @@ function nearestBoundaryInBranch(
     if (atom === undefined) continue;
     if ((atom.parent ?? null) !== parent) continue;
     if (JSON.stringify(atom.parentBranch ?? null) !== branch) continue;
-    const box = q === sentinel ? mf.getElementInfo(q + 1)?.bounds : mf.getElementInfo(q)?.bounds;
-    if (box === undefined) continue;
-    const edge = q === sentinel ? box.left : box.right;
+    const edge = boundaryXOf(mf, q);
+    if (edge === null) continue;
     const d = Math.abs(x - edge);
     // 같은 거리면 bias가 가리키는 쪽을 고른다 (왼쪽 -1 / 오른쪽 +1).
     if (d < bestDist || (d === bestDist && bias > 0)) {

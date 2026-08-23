@@ -5,7 +5,8 @@ import type { MathfieldElement } from 'mathlive';
 import '../styles.css';
 import { FieldClip } from './FieldClip';
 import { MathField } from './MathField';
-import { contentOf, resolveOffsetAt } from '../editor/internals';
+import { boundaryXOf, contentOf, resolveOffsetAt } from '../editor/internals';
+import { setRawSelection } from '../editor/rawSelection';
 
 /**
  * 선택 범위 양끝 드래그 핸들(`SelectionHandles.tsx`)의 동작 핀.
@@ -384,6 +385,48 @@ describe('히트테스트 — 원자 사이 빈 자리에서 오프셋이 튀지
       inside += 1;
     }
     expect(inside).toBeGreaterThan(20);
+  });
+});
+
+describe('디버그 표식 — 파생 전 원시 캐럿', () => {
+  // `features.ts` 의 `RAW_CARET_DEBUG` 는 개발 서버에서만 켜진다. 테스트도 dev
+  // 모드라 켜져 있다 — 배포본에는 DOM 자체가 안 나온다.
+  it('원시 캐럿 자리에 서고, 파생이 당긴 만큼 핸들과 벌어진다', async () => {
+    pretendMobile(true);
+    // 분수를 뒤에 둬야 축소가 눈에 보인다 (맨 앞이면 당길 자리가 없다).
+    const { mf, host } = await mount(String.raw`d+\frac{a}{bc}`);
+    mf.focus();
+    await settle();
+
+    // 끝 캐럿이 분모 **안**(오프셋 7) — 파생은 분수를 빼고 `d+` 로 줄인다.
+    setRawSelection(mf, 0, 7);
+    await settle();
+    expect(selectedLatex(mf)).toBe('d+');
+
+    const box = (host.querySelector('.mf') as HTMLElement).getBoundingClientRect();
+    const marks = [...host.querySelectorAll('.sel-raw-caret')] as HTMLElement[];
+    expect(marks).toHaveLength(2);
+
+    // 표식은 **원시** 오프셋 자리에 선다 (파생된 선택이 아니라).
+    for (const [i, q] of [0, 7].entries()) {
+      const expected = boundaryXOf(mf, q)! - box.left;
+      expect(marks[i].offsetLeft, `원시 캐럿 ${q}`).toBeCloseTo(expected, 0);
+    }
+
+    // 그래서 끝 표식은 끝 핸들보다 **오른쪽**에 있다 — 그 간격이 곧 축소량이다.
+    expect(marks[1].offsetLeft).toBeGreaterThan(handles(host).end!.offsetLeft);
+
+    // 드래그를 가리면 안 된다.
+    expect(getComputedStyle(marks[0]).pointerEvents).toBe('none');
+  });
+
+  it('선택이 없으면 표식도 없다', async () => {
+    pretendMobile(true);
+    const { mf, host } = await mount('1+xy');
+    mf.focus();
+    mf.position = 0;
+    await settle();
+    expect(host.querySelectorAll('.sel-raw-caret')).toHaveLength(0);
   });
 });
 

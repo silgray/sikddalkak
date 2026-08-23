@@ -390,6 +390,12 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
   비우는 곳이 원래 렌더 전후와 자기 `onPointerDown` 뿐이라, 렌더 없이 `scrollLeft`
   만 옮기는 우리 패닝·자동 스크롤 뒤엔 `editor/internals.ts` 의
   `clearAtomBoundsCache` 를 명시적으로 불러야 핸들이 스크롤을 따라간다.
+  **디버그**: `features.ts` 의 `RAW_CARET_DEBUG`(기본값 = 개발 서버에서만 켜짐)를
+  켜면 파생 **전** 원시 캐럿 두 개가 가는 빨간 점선으로 겹쳐 그려진다
+  (`.sel-raw-caret`). 손가락이 짚은 자리와 파랗게 칠해진 범위는 서로 다를 수
+  있으므로(시작은 확장, 끝은 축소), 조작감이 이상할 때 둘이 얼마나 벌어졌는지
+  봐야 어느 쪽이 틀렸는지 갈린다. 배포본에서는 `rawCarets: []` 로 상수 접혀
+  계산이 통째로 사라진다(실측).
 - **`SelectionToolbar.tsx`** — 행렬 통째 선택 시 뜨는 구분 기호 플로팅 툴바.
 - **`HelpPanel.tsx`** / **`TabBar.tsx`** — 도움말 패널, 탭 바.
 - **`App.tsx`** / **`main.tsx`** — 진입점. main.tsx에서 MathLive 전역 설정
@@ -428,6 +434,8 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
   `Cell.tsx` 도 같이 쓴다(solve 버튼 노출 판정 — 판정이 두 벌이면 어긋난다).
 - **`types.ts`** — `FormulaObject`(정본), `EvalResult`, `CellMode` 등 공용 타입.
 - **`mobile.ts`** — `isMobileViewport()`. 모바일 판정의 **단일 기준점**(위 대원칙 2).
+- **`features.ts`** — 기능 플래그. `SOLVE_ENABLED`(등식 풀기, CE 한계로 꺼둠),
+  `RAW_CARET_DEBUG`(선택 원시 캐럿 표시, 개발 서버에서만 켜짐).
 - **`styles.css`** — 전역 CSS (라이트/다크 자동, CSS 변수).
 - **`scripts/copy-mathlive-assets.mjs`** — 빌드 전 MathLive 폰트를 public으로 복사.
 

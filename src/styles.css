@@ -474,6 +474,12 @@ math-field::part(virtual-keyboard-toggle) {
   display: none;
 }
 
+/* 디버그 표식(파생 전 원시 캐럿) — 위와 같은 규율. `features.ts` 의
+   `RAW_CARET_DEBUG` 가 꺼져 있으면 DOM 자체가 안 나온다. */
+.sel-raw-caret {
+  display: none;
+}
+
 /* 자체 키 팔레트(KeyPalette.tsx, mobile-kbd-palette 실험) — 데스크톱에서는 물리
    키보드가 있으니 숨긴다. 실제 배치는 아래 모바일 미디어쿼리가 정한다. */
 .key-palette {
@@ -834,6 +840,48 @@ math-field::part(virtual-keyboard-toggle) {
 
   .sel-handle-end.sel-handle-pinned::after {
     clip-path: polygon(0 0, 100% 50%, 0 100%);
+  }
+
+  /* --- 디버그: 확장/축소되기 전 원시 캐럿 (`features.ts` 의 `RAW_CARET_DEBUG`) ---
+
+     보이는 파란 선택은 이 두 캐럿에서 파생된 값이다(시작은 바깥으로 확장, 끝은
+     안쪽으로 축소). 둘이 벌어진 거리가 곧 파생이 한 일이라, 조작감이 이상할 때
+     여기를 보면 손가락 자리와 칠해진 범위 중 어느 쪽이 틀렸는지 갈린다. */
+  .sel-raw-caret {
+    display: block;
+    position: absolute;
+    width: 0;
+    /* 핸들(z-index 5) 위에 그리되 조작은 전혀 안 받는다 — 드래그를 가리면 안 된다. */
+    z-index: 6;
+    pointer-events: none;
+  }
+
+  /* 선택 줄보다 위아래로 조금 더 길게 뽑아, 파란 핸들 막대에 안 가리게 한다. */
+  .sel-raw-caret::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: -0.3rem;
+    bottom: -0.3rem;
+    border-left: 1px dashed var(--error);
+  }
+
+  /* 어느 쪽 캐럿인지 — 작은 쪽은 위, 큰 쪽은 아래에 점을 찍는다. */
+  .sel-raw-caret::after {
+    content: '';
+    position: absolute;
+    left: -1.5px;
+    width: 4px;
+    height: 4px;
+    background: var(--error);
+  }
+
+  .sel-raw-caret-min::after {
+    top: -0.4rem;
+  }
+
+  .sel-raw-caret-max::after {
+    bottom: -0.4rem;
   }
 
   /* --- 셀 컨트롤: 드래그 핸들과 삭제만 되살린다 (작게) --- */

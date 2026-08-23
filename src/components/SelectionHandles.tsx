@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MathfieldElement } from 'mathlive';
-import { clearAtomBoundsCache, contentOf, resolveOffsetAt } from '../editor/internals';
+import {
+  boundaryXOf,
+  clearAtomBoundsCache,
+  contentOf,
+  resolveOffsetAt,
+} from '../editor/internals';
 import { rawSelection, setRawSelection } from '../editor/rawSelection';
+import { RAW_CARET_DEBUG } from '../features';
 import { isMobileViewport, onMobileViewportChange } from '../mobile';
 
 /**
@@ -53,6 +59,11 @@ type Placement = {
   readonly end: Edge;
   /** 선택 줄 한가운데의 **뷰포트** y. 드래그 히트테스트가 쓴다. */
   readonly midY: number;
+  /**
+   * 디버그 전용 — 확장/축소되기 **전** 원시 캐럿 두 개의 컨테이너 기준 x
+   * (`features.ts` 의 `RAW_CARET_DEBUG`). 꺼져 있으면 빈 배열.
+   */
+  readonly rawCarets: readonly number[];
 };
 
 /** 핸들이 컨테이너 경계에 갇혀 자동 스크롤할 때의 걸음 — MathLive 자신의
@@ -82,12 +93,24 @@ function measure(mf: MathfieldElement, container: HTMLElement): Placement | null
     return { x: x - box.left, pinned: x !== trueX };
   };
 
+  // 디버그: 파생 전 원시 캐럿. 파생된 선택과 벌어진 정도가 곧 확장/축소량이다.
+  const raw = RAW_CARET_DEBUG ? rawSelection(mf) : null;
+  const rawCarets =
+    raw === null
+      ? []
+      : ([Math.min(raw[0], raw[1]), Math.max(raw[0], raw[1])]
+          .map((q) => boundaryXOf(mf, q))
+          .filter((v): v is number => v !== null)
+          // 핸들과 같은 규율로 컨테이너 안에 가둔다 — 안 그러면 셀 밖에 그려진다.
+          .map((v) => clampEdge(v).x));
+
   return {
     top: top - box.top,
     bottom: bottom - box.top,
     start: clampEdge(first.left),
     end: clampEdge(last.right),
     midY: (top + bottom) / 2,
+    rawCarets,
   };
 }
 
@@ -316,6 +339,19 @@ export function SelectionHandles({ mf, container }: Props) {
     <>
       {handle(minId, 'start', placement.start)}
       {handle(flip(minId), 'end', placement.end)}
+      {/* 디버그 표식 — 파생 전 원시 캐럿. 이벤트를 안 받게 두어 드래그를 안 가린다. */}
+      {placement.rawCarets.map((x, i) => (
+        <div
+          key={`raw-${i}`}
+          className={`sel-raw-caret sel-raw-caret-${i === 0 ? 'min' : 'max'}`}
+          data-testid="sel-raw-caret"
+          style={{
+            left: `${x}px`,
+            top: `${placement.top}px`,
+            height: `${placement.bottom - placement.top}px`,
+          }}
+        />
+      ))}
     </>
   );
 }
