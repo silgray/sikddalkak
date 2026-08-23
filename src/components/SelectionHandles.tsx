@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MathfieldElement } from 'mathlive';
-import { clearAtomBoundsCache, contentOf } from '../editor/internals';
+import { clearAtomBoundsCache, contentOf, resolveOffsetAt } from '../editor/internals';
 import { rawSelection, setRawSelection } from '../editor/rawSelection';
 import { isMobileViewport, onMobileViewportChange } from '../mobile';
 
@@ -183,10 +183,13 @@ export function SelectionHandles({ mf, container }: Props) {
     // **넘어가는 그 이동**에서는 둘 다 이미 낡았다(손가락은 반대편인데 bias는
     // 넘어가기 전 방향). 그래서 bias 0으로 한 번 가늠해 어느 쪽이 될지 정한 뒤,
     // 그 방향으로 다시 잰다. 두 번째 호출은 `atomBoundsCache` 가 더워져 있어 싸다.
-    const probe = mf.getOffsetFromPoint(x, drag.midY, { bias: 0 });
-    if (probe < 0) return;
-    const offset = mf.getOffsetFromPoint(x, drag.midY, { bias: probe < drag.fixed ? -1 : 1 });
-    if (offset < 0) return;
+    // `resolveOffsetAt` 은 못 믿을 표본(원자 사이 빈 자리에서 나오는 센티넬)에
+    // `null` 을 준다 — 그러면 이번 표본을 통째로 버리고 직전 위치를 지킨다.
+    // 그 빈 자리가 10px 안팎이라 핸들이 잠깐 머무는 정도로만 보인다.
+    const probe = resolveOffsetAt(mf, x, drag.midY, 0);
+    if (probe === null) return;
+    const offset = resolveOffsetAt(mf, x, drag.midY, probe < drag.fixed ? -1 : 1);
+    if (offset === null) return;
     // **교차를 막지 않는다** — 움직이는 캐럿이 고정 캐럿을 지나가면 그대로 두고,
     // 넘어간 쪽이 새 시작이 된다 (`setRawSelection` 은 순서를 안 가린다).
     // 다만 두 캐럿이 **같은 자리에 겹치면** 선택할 게 없어 사라지므로, 그때만

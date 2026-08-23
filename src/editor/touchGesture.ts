@@ -1,5 +1,5 @@
 import type { MathfieldElement } from 'mathlive';
-import { contentOf } from './internals';
+import { contentOf, resolveOffsetAt } from './internals';
 import { expandSelectionSemantic } from './selection';
 import { setRawSelection } from './rawSelection';
 import { isMobileViewport } from '../mobile';
@@ -241,8 +241,10 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
    */
   const extendToPoint = (x: number, y: number): void => {
     try {
-      const focus = mf.getOffsetFromPoint(x, y, { bias: x < startX ? -1 : 1 });
-      if (focus < 0) return;
+      // 원자 사이 빈 자리에서 나오는 못 믿을 표본은 버린다 (`resolveOffsetAt` 참고) —
+      // 그대로 쓰면 선택이 식의 엉뚱한 데로 튄다.
+      const focus = resolveOffsetAt(mf, x, y, x < startX ? -1 : 1);
+      if (focus === null) return;
       const [a, b] = anchorRun ?? [focus, focus];
       const lo = Math.min(a, focus);
       const hi = Math.max(b, focus);

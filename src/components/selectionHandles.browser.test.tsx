@@ -5,7 +5,7 @@ import type { MathfieldElement } from 'mathlive';
 import '../styles.css';
 import { FieldClip } from './FieldClip';
 import { MathField } from './MathField';
-import { contentOf } from '../editor/internals';
+import { contentOf, resolveOffsetAt } from '../editor/internals';
 
 /**
  * 선택 범위 양끝 드래그 핸들(`SelectionHandles.tsx`)의 동작 핀.
@@ -300,3 +300,95 @@ describe('선택 핸들 — 양끝 조정', () => {
     expect(finalLeft).toBeLessThanOrEqual(Math.round(contentBox.right - box.left) + 1);
   });
 });
+
+/**
+ * 사용자 보고 회귀 — **자식이 셋 이상**인 선택에서 핸들을 끌면 커서가 엉뚱한 데로
+ * 튀었다(화면 녹화 확인).
+ *
+ * 원인(실측): `first` 센티넬 원자의 화면 상자를 재면 자기 자신이 아니라 **부모
+ * 컨테이너 전체**가 나온다 — `getNodeBounds` 가 높이 0인 노드에서 부모로 올라가기
+ * 때문이다. `x-\left(a+b\right)` 에서 root 센티넬 상자는 식 전체, 괄호 본문
+ * 센티넬은 본문 전체다. MathLive의 `distance()` 는 점이 상자 **안**이면 0을 주므로,
+ * 원자 사이 **빈 자리**(연산자 둘레 여백)에서는 그 센티넬만이 점을 품어 이긴다.
+ * 게다가 이긴 센티넬이 **더 바깥 branch** 것일 수 있어, 괄호 안을 짚었는데 root
+ * 센티넬이 나와 선택이 괄호 밖으로 옮겨간다.
+ *
+ * ⚠ 이 함정은 **실제 `MathField` 렌더에서만** 재현된다 — 민짜 `math-field`
+ * 하네스(`editor/harness.ts`)는 줄 높이가 달라 센티넬 span이 높이 0이 안 되고,
+ * 그러면 부모로 안 올라가 상자가 작게 나온다(실측). 그래서 이 스위트에 있다.
+ */
+describe('히트테스트 — 원자 사이 빈 자리에서 오프셋이 튀지 않는다', () => {
+  const NESTED = String.raw`x-\left(a+b\right)`;
+
+  /** 오프셋 3=본문 첫자리, 4=`a`, 5=`+`, 6=`b`, 7=괄호 전체 (실측). */
+  const setup = async () => {
+    const { mf, host } = await mount(NESTED);
+    mf.focus();
+    await settle();
+    return { mf, host };
+  };
+
+  it('손가락이 오른쪽으로 갈 때 오프셋은 절대 뒤로 가지 않는다', async () => {
+    pretendMobile(true);
+    const { mf } = await setup();
+    const field = mf.shadowRoot!.querySelector('.ML__latex')!.getBoundingClientRect();
+
+    let prev = -1;
+    let kept = 0;
+    let dropped = 0;
+    for (let x = Math.round(field.left) - 4; x <= Math.round(field.right) + 4; x += 1) {
+      const o = resolveOffsetAt(mf, x, midYOf(mf), 1);
+      if (o === null) {
+        dropped += 1;
+        continue;
+      }
+      expect(o, `x=${x} 에서 뒤로 튐 (${prev} → ${o})`).toBeGreaterThanOrEqual(prev);
+      prev = o;
+      kept += 1;
+    }
+    expect(kept).toBeGreaterThan(20);
+    // 고쳐서 돌려주므로 버리는 표본은 거의 없어야 한다 — 핸들이 멈추면 안 된다.
+    expect(dropped).toBeLessThan(3);
+  });
+
+  it('빈 자리를 짚어도 그 branch 안의 가장 가까운 경계로 고쳐준다', async () => {
+    pretendMobile(true);
+    const { mf } = await setup();
+    const a = mf.getElementInfo(4)!.bounds!;
+    const plus = mf.getElementInfo(5)!.bounds!;
+    // 본문 첫 원자 `a` 의 왼쪽 = 본문 맨 앞. 여기선 센티넬이 정답이라 받아야 한다.
+    expect(resolveOffsetAt(mf, a.left, midYOf(mf), -1)).not.toBeNull();
+    // `a` 와 `+` 사이 **빈 자리**도 버리지 않는다 — 그 branch 안에서 가장 가까운
+    // 경계(=`a` 뒤, 오프셋 4)로 고쳐 돌려준다.
+    const gapX = (a.right + plus.left) / 2;
+    expect(gapX).toBeGreaterThan(a.right); // 진짜 빈 자리인지 먼저 확인
+    expect(resolveOffsetAt(mf, gapX, midYOf(mf), 1)).toBe(4);
+  });
+
+  it('괄호 **안**을 짚었는데 root 레벨 오프셋이 나오는 일은 없다', async () => {
+    // 가장 고약한 경우 — `b` 와 닫는 괄호 사이 빈 자리는 원시 표본으로 **root**
+    // 센티넬(오프셋 0)을 준다. 그대로 쓰면 선택이 `x-` 로, 즉 괄호 **밖**으로
+    // 옮겨간다. 원시 표본이 언제 그렇게 나오는지는 레이아웃 타이밍을 타므로,
+    // 여기서는 "괄호 안에서는 root 오프셋이 절대 안 나온다" 는 결과만 못박는다.
+    pretendMobile(true);
+    const { mf } = await setup();
+    const fence = mf.getElementInfo(7)!.bounds!;
+
+    let inside = 0;
+    for (let x = Math.ceil(fence.left) + 1; x < Math.floor(fence.right); x += 1) {
+      for (const bias of [-1, 0, 1] as const) {
+        const o = resolveOffsetAt(mf, x, midYOf(mf), bias);
+        // 0 = root `first` 센티넬. 괄호 안을 짚고 이게 나오면 선택이 식 밖으로 튄다.
+        expect(o, `괄호 안 x=${x} (bias ${bias}) 에서 root 오프셋`).not.toBe(0);
+      }
+      inside += 1;
+    }
+    expect(inside).toBeGreaterThan(20);
+  });
+});
+
+/** 선택 줄의 세로 한가운데 — 핸들 드래그가 히트테스트에 쓰는 그 y. */
+function midYOf(mf: MathfieldElement): number {
+  const b = mf.getElementInfo(1)!.bounds!;
+  return b.top + b.height / 2;
+}

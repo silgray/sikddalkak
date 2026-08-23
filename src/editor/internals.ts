@@ -61,6 +61,91 @@ export function clearAtomBoundsCache(mf: MathfieldElement): void {
 }
 
 /**
+ * 센티넬이 나왔을 때, **그 센티넬의 branch 안에서** 손가락에 가장 가까운 형제
+ * 경계를 직접 고른다. MathLive는 "점이 이 branch 안에 있다"까지는 맞게 알려준
+ * 셈이라(센티넬의 부모 상자가 점을 품었으니), 그 안에서 자리만 우리가 정한다.
+ *
+ * 경계의 화면 x는 **진짜 원자 상자로만** 잰다 — branch 맨 앞(센티넬 자신)은 첫
+ * 원자의 왼쪽, 그 밖의 경계 `q` 는 원자 `q` 의 오른쪽. 센티넬 자기 상자는 못
+ * 믿는다(아래 `resolveOffsetAt` 의 ⚠ 참고).
+ */
+function nearestBoundaryInBranch(
+  mf: MathfieldElement,
+  model: InternalModel,
+  sentinel: number,
+  x: number,
+  bias: -1 | 0 | 1,
+): number | null {
+  const home = model.at(sentinel);
+  if (home === undefined) return null;
+  const parent = home.parent ?? null;
+  const branch = JSON.stringify(home.parentBranch ?? null);
+
+  let best: number | null = null;
+  let bestDist = Infinity;
+  // 센티넬은 그 branch의 첫 오프셋이라 형제 경계는 전부 그 뒤에 있다. 중간에
+  // 끼는 중첩 내용은 (parent, branch) 비교가 걸러낸다.
+  for (let q = sentinel; q <= model.lastOffset; q += 1) {
+    const atom = model.at(q);
+    if (atom === undefined) continue;
+    if ((atom.parent ?? null) !== parent) continue;
+    if (JSON.stringify(atom.parentBranch ?? null) !== branch) continue;
+    const box = q === sentinel ? mf.getElementInfo(q + 1)?.bounds : mf.getElementInfo(q)?.bounds;
+    if (box === undefined) continue;
+    const edge = q === sentinel ? box.left : box.right;
+    const d = Math.abs(x - edge);
+    // 같은 거리면 bias가 가리키는 쪽을 고른다 (왼쪽 -1 / 오른쪽 +1).
+    if (d < bestDist || (d === bestDist && bias > 0)) {
+      bestDist = d;
+      best = q;
+    }
+  }
+  return best;
+}
+
+/**
+ * 화면 좌표 → 모델 오프셋. `mf.getOffsetFromPoint` 의 **함정을 고친** 판이다.
+ *
+ * ⚠ **실측한 함정**: `first` 센티넬 원자의 화면 상자를 재면 자기 자신이 아니라
+ * **부모 컨테이너 전체**가 나온다 — `getNodeBounds` 가 높이 0인 노드에서 부모로
+ * 올라가기 때문이다. MathLive의 `distance()` 는 점이 상자 **안**이면 0을 주므로,
+ * 그 센티넬이 자기 branch 어디서나 거리 0으로 이겨버린다. 특히 원자 사이 **빈
+ * 자리**(연산자 둘레 여백)에서는 유일한 승자가 된다.
+ *
+ * 더 나쁜 건 이긴 센티넬이 손가락이 있는 branch가 아니라 **더 바깥 branch**의
+ * 것일 수 있다는 점이다: `x-\left(a+b\right)` 에서 `b` 오른쪽 빈 자리는 괄호
+ * **안**인데도 root 센티넬(오프셋 0)을 준다(실측). 그대로 쓰면 선택이 식의
+ * 엉뚱한 데(`x-`)로 튄다 — 자식이 셋 이상이면(=연산자 여백이 생기면) 자주 걸린다.
+ *
+ * ⚠ **언제 걸리는지는 레이아웃 타이밍을 탄다.** span 높이가 0이어야 부모로
+ * 올라가므로, 같은 식이라도 폰트·줄 높이가 확정되기 전엔 안 걸리고 확정된 뒤엔
+ * 걸린다(실측: 민짜 `math-field` 하네스는 재현이 안 되고 실제 `MathField` 렌더는
+ * 걸린다). 그래서 "빈 자리일 때만" 같은 조건부 방어로는 못 막는다 — 센티넬이
+ * 나오면 **언제나** 우리가 다시 고른다.
+ *
+ * 그 branch 안에서 손가락에 가장 가까운 형제 경계로 고쳐준다
+ * (`nearestBoundaryInBranch`). 표본을 버리지 않으므로 핸들이 멈추지 않는다.
+ */
+export function resolveOffsetAt(
+  mf: MathfieldElement,
+  x: number,
+  y: number,
+  bias: -1 | 0 | 1,
+): number | null {
+  try {
+    const offset = mf.getOffsetFromPoint(x, y, { bias });
+    if (offset < 0) return null;
+    const model = modelOf(mf);
+    // 내부 model을 못 잡으면 걸러낼 방법이 없다 — 기존 동작(그대로 쓰기)으로 폴백.
+    if (model === null) return offset;
+    if (model.at(offset)?.type !== 'first') return offset;
+    return nearestBoundaryInBranch(mf, model, offset, x, bias);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 셰도우 DOM 안의 키보드 이벤트 싱크(`.ML__keyboard-sink`, contenteditable 스팬).
  * MathLive는 여기서 keydown/keypress/input을 듣는다(`delegateKeyboardEvents`,
  * mathlive.mjs 실측) — 호스트(`math-field` 엘리먼트)에 이벤트를 쏘면 이 리스너들을
