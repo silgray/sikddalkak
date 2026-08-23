@@ -157,7 +157,9 @@ describe('선택 핸들 — 양끝 조정', () => {
     expect(selectedLatex(mf)).toBe('1+xy');
   });
 
-  it('끝 핸들을 왼쪽으로 끌면 선택이 줄고, 양끝을 넘지는 않는다', async () => {
+  it('문서 맨 앞이 고정 캐럿이면 더 끌어도 원자 하나는 남는다', async () => {
+    // 교차는 허용하지만(아래 테스트), 넘어갈 **자리가 없으면** 겹칠 뿐이라
+    // 선택이 사라진다 — 그때만 반대로 한 칸 물려 최소 하나를 남긴다.
     pretendMobile(true);
     const { mf, host } = await mount('1+xy');
     mf.focus();
@@ -170,6 +172,29 @@ describe('선택 핸들 — 양끝 조정', () => {
     dragHandle(end!, one.left - 40, one.top + one.height / 2);
     await settle();
     expect(selectedLatex(mf)).toBe('1');
+  });
+
+  it('끝 핸들을 시작 캐럿 너머로 끌면 역할이 뒤바뀐다', async () => {
+    pretendMobile(true);
+    const { mf, host } = await mount('1+xy');
+    mf.focus();
+    // `xy` (오프셋 2..4) — 시작 캐럿이 2라 왼쪽으로 넘어갈 자리가 있다.
+    mf.selection = { ranges: [[2, 4]], direction: 'forward' };
+    await settle();
+    expect(selectedLatex(mf)).toBe('xy');
+
+    // 끝 핸들을 잡아 `1` 위(오프셋 0쪽)까지 끈다 — 고정 캐럿 2를 넘어간다.
+    const one = mf.getElementInfo(1)!.bounds!;
+    dragHandle(handles(host).end!, one.left + one.width / 2, one.top + one.height / 2);
+    await settle();
+    // 넘어간 쪽이 새 시작이 되어, 고정 캐럿(2) 왼쪽 구간이 잡힌다.
+    expect(selectedLatex(mf)).toBe('1+');
+
+    // 넘어간 뒤에도 쥔 핸들은 **손가락 쪽**(이제 왼쪽 끝)에 있다 — 렌더가 정체와
+    // 화면상 위치를 갈라 놓지 않으면 여기서 반대편으로 순간이동한다.
+    const box = (host.querySelector('.mf') as HTMLElement).getBoundingClientRect();
+    const startX = mf.getElementInfo(1)!.bounds!.left;
+    expect(handles(host).start!.offsetLeft).toBeCloseTo(startX - box.left, 0);
   });
 
   it('데스크톱에서는 핸들을 그리지 않는다', async () => {

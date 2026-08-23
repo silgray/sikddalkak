@@ -100,10 +100,17 @@ type Props = {
 
 /** 진행 중인 핸들 드래그. */
 type Drag = {
+  /** 잡은 **물리 핸들**의 정체. 교차해도 안 바뀐다 (포인터 캡처가 이 노드에 걸려 있다). */
   readonly which: 'start' | 'end';
   readonly midY: number;
   /** 반대쪽(안 움직이는) 원시 캐럿 — `editor/rawSelection.ts` 참고. */
   readonly fixed: number;
+  /**
+   * 움직이는 캐럿이 지금 **왼쪽 끝**인가. 반대쪽 캐럿을 넘어가면 뒤집힌다 —
+   * 그때부터 잡고 있는 핸들이 곧 시작 핸들이다. 렌더가 이걸 읽어 쥔 노드를
+   * 손가락 쪽에 붙여 둔다(안 그러면 교차하는 순간 반대편으로 순간이동한다).
+   */
+  movingIsMin: boolean;
   /** 경계에 붙어 자동 스크롤 중인 방향. 0이면 안 하는 중. */
   autoScrollDir: -1 | 0 | 1;
   autoScrollTimer: ReturnType<typeof setInterval> | null;
@@ -168,16 +175,31 @@ export function SelectionHandles({ mf, container }: Props) {
       contentBox === undefined
         ? clientX
         : Math.min(Math.max(clientX, contentBox.left), contentBox.right);
-    // bias는 손가락 밑 원자를 **선택에 넣는** 쪽으로 준다: 시작 핸들이면 그 원자의
-    // 왼쪽 경계(-1), 끝 핸들이면 오른쪽 경계(+1). 0으로 두면 원자 한가운데를 기준
-    // 삼아, 원자 위에 손가락을 얹었는데 그게 빠지는 일이 생긴다(실측).
-    const offset = mf.getOffsetFromPoint(x, drag.midY, { bias: drag.which === 'start' ? -1 : 1 });
+    // bias는 손가락 밑 원자를 **선택에 넣는** 쪽으로 준다: 왼쪽 끝이면 그 원자의
+    // 왼쪽 경계(-1), 오른쪽 끝이면 오른쪽 경계(+1). 0으로 두면 원자 한가운데를
+    // 기준 삼아, 원자 위에 손가락을 얹었는데 그게 빠지는 일이 생긴다(실측).
+    //
+    // ⚠ 잡은 핸들의 정체(`which`)나 직전 상태(`movingIsMin`)로는 정할 수 없다 —
+    // **넘어가는 그 이동**에서는 둘 다 이미 낡았다(손가락은 반대편인데 bias는
+    // 넘어가기 전 방향). 그래서 bias 0으로 한 번 가늠해 어느 쪽이 될지 정한 뒤,
+    // 그 방향으로 다시 잰다. 두 번째 호출은 `atomBoundsCache` 가 더워져 있어 싸다.
+    const probe = mf.getOffsetFromPoint(x, drag.midY, { bias: 0 });
+    if (probe < 0) return;
+    const offset = mf.getOffsetFromPoint(x, drag.midY, { bias: probe < drag.fixed ? -1 : 1 });
     if (offset < 0) return;
-    // 양끝이 서로를 넘지 못하게 한다 — 최소 원자 하나는 남는다. `siblingRunRange`
-    // 는 붕괴한(a===b) 범위를 형제 열로 못 넓혀 아무 것도 안 할 수 있어(null),
-    // 여기서 미리 막아야 손가락이 반대쪽 핸들을 지나가도 선택이 사라지지 않는다.
-    if (drag.which === 'start') setRawSelection(mf, Math.min(offset, drag.fixed - 1), drag.fixed);
-    else setRawSelection(mf, drag.fixed, Math.max(offset, drag.fixed + 1));
+    // **교차를 막지 않는다** — 움직이는 캐럿이 고정 캐럿을 지나가면 그대로 두고,
+    // 넘어간 쪽이 새 시작이 된다 (`setRawSelection` 은 순서를 안 가린다).
+    // 다만 두 캐럿이 **같은 자리에 겹치면** 선택할 게 없어 사라지므로, 그때만
+    // 가던 방향으로 한 칸 더 보낸다. 그쪽에 자리가 없으면(문서 양 끝) 반대로
+    // 한 칸 — 그래서 맨 앞/뒤에서는 원자 하나가 남고 더는 안 줄어든다.
+    let moving = offset;
+    if (moving === drag.fixed) {
+      const ahead = drag.movingIsMin ? drag.fixed + 1 : drag.fixed - 1;
+      const behind = drag.movingIsMin ? drag.fixed - 1 : drag.fixed + 1;
+      moving = ahead >= 0 && ahead <= mf.lastOffset ? ahead : behind;
+    }
+    drag.movingIsMin = moving < drag.fixed;
+    setRawSelection(mf, moving, drag.fixed);
   };
 
   /** 손가락이 컨테이너 밖이면 그 방향으로 자동 스크롤을 걸거나 뗀다. */
@@ -227,6 +249,8 @@ export function SelectionHandles({ mf, container }: Props) {
         which,
         midY: placement.midY,
         fixed: which === 'start' ? Math.max(ra, rb) : Math.min(ra, rb),
+        // 잡은 순간에는 잡은 쪽이 곧 그쪽 끝이다. 교차하면 `applyDragAt` 이 뒤집는다.
+        movingIsMin: which === 'start',
         autoScrollDir: 0,
         autoScrollTimer: null,
         lastClientX: ev.clientX,
@@ -254,27 +278,41 @@ export function SelectionHandles({ mf, container }: Props) {
     }
   };
 
-  const handle = (which: 'start' | 'end', edge: Edge) => (
+  /**
+   * `id` = 물리 핸들의 **정체**. React 키이자 포인터 캡처가 걸리는 노드라 드래그
+   * 내내 안 바뀐다. `side` = 지금 화면에서 **어느 끝**에 서 있는가 — 손잡이가
+   * 위냐 아래냐, 핀 화살촉이 어느 쪽을 가리키냐가 여기 걸린다.
+   * 교차하기 전에는 둘이 같고, 교차하면 갈린다.
+   */
+  const handle = (id: 'start' | 'end', side: 'start' | 'end', edge: Edge) => (
     <div
-      key={which}
-      className={`sel-handle sel-handle-${which}${edge.pinned ? ' sel-handle-pinned' : ''}`}
-      data-testid={`sel-handle-${which}`}
+      key={id}
+      className={`sel-handle sel-handle-${side}${edge.pinned ? ' sel-handle-pinned' : ''}`}
+      data-testid={`sel-handle-${side}`}
       style={{
         left: `${edge.x}px`,
         top: `${placement.top}px`,
         height: `${placement.bottom - placement.top}px`,
       }}
-      onPointerDown={startDrag(which)}
+      onPointerDown={startDrag(id)}
       onPointerMove={onDragMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
     />
   );
 
+  // 드래그 중에는 **쥔 노드를 손가락 쪽**(움직이는 캐럿 쪽)에 붙여 둔다. 안 그러면
+  // 교차하는 순간 쥔 핸들이 반대편으로 순간이동한다 — 포인터 캡처 덕에 드래그가
+  // 끊기지는 않지만, 손가락 밑에 없는 핸들을 끌고 있는 꼴이 된다.
+  const drag = dragRef.current;
+  const flip = (w: 'start' | 'end'): 'start' | 'end' => (w === 'start' ? 'end' : 'start');
+  const minId =
+    drag === null ? 'start' : drag.movingIsMin ? drag.which : flip(drag.which);
+
   return (
     <>
-      {handle('start', placement.start)}
-      {handle('end', placement.end)}
+      {handle(minId, 'start', placement.start)}
+      {handle(flip(minId), 'end', placement.end)}
     </>
   );
 }
