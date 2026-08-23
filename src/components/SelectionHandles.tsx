@@ -7,7 +7,7 @@ import {
   resolveOffsetAt,
 } from '../editor/internals';
 import { rawSelection, setRawSelection } from '../editor/rawSelection';
-import { RAW_CARET_DEBUG } from '../features';
+import { HANDLE_CROSSING, RAW_CARET_DEBUG } from '../features';
 import { isMobileViewport, onMobileViewportChange } from '../mobile';
 
 /**
@@ -71,7 +71,11 @@ type Placement = {
 const AUTO_SCROLL_STEP_PX = 16;
 const AUTO_SCROLL_INTERVAL_MS = 32;
 
-function measure(mf: MathfieldElement, container: HTMLElement): Placement | null {
+function measure(
+  mf: MathfieldElement,
+  container: HTMLElement,
+  logDraw = false,
+): Placement | null {
   if (mf.selectionIsCollapsed) return null;
   const range = mf.selection.ranges[0];
   if (range === undefined) return null;
@@ -103,6 +107,22 @@ function measure(mf: MathfieldElement, container: HTMLElement): Placement | null
           .filter((v): v is number => v !== null)
           // 핸들과 같은 규율로 컨테이너 안에 가둔다 — 안 그러면 셀 밖에 그려진다.
           .map((v) => clampEdge(v).x));
+
+  // 드래그 중일 때만 — **그리는 그 시점의** 좌표를 찍는다. `applyDragAt` 에서
+  // 찍으면 아직 렌더 전이라 늘 한 스텝 낡은 값이 나온다(실측).
+  if (logDraw && raw !== null) {
+    const trueX = [Math.min(raw[0], raw[1]), Math.max(raw[0], raw[1])].map((q) => {
+      const v = boundaryXOf(mf, q);
+      return v === null ? NaN : Math.round(v - box.left);
+    });
+    // eslint-disable-next-line no-console
+    console.log(
+      `[rawCaret:draw] raw=[${raw[0]},${raw[1]}]` +
+        ` trueX=[${trueX.join(',')}]` +
+        ` drawX=[${rawCarets.map((v) => Math.round(v)).join(',')}]` +
+        ` shown=[${a},${b}]`,
+    );
+  }
 
   return {
     top: top - box.top,
@@ -152,7 +172,11 @@ export function SelectionHandles({ mf, container }: Props) {
     let disposed = false;
     const remeasure = (): void => {
       if (disposed) return;
-      setPlacement(isMobileViewport() ? measure(mf, container) : null);
+      setPlacement(
+        isMobileViewport()
+          ? measure(mf, container, RAW_CARET_DEBUG && dragRef.current !== null)
+          : null,
+      );
     };
     // MathLive는 rAF에서 렌더한다 — 선택이 바뀐 직후 바로 재면 옛 위치를 본다.
     const schedule = (): void => {
@@ -198,34 +222,71 @@ export function SelectionHandles({ mf, container }: Props) {
       contentBox === undefined
         ? clientX
         : Math.min(Math.max(clientX, contentBox.left), contentBox.right);
-    // bias는 손가락 밑 원자를 **선택에 넣는** 쪽으로 준다: 왼쪽 끝이면 그 원자의
-    // 왼쪽 경계(-1), 오른쪽 끝이면 오른쪽 경계(+1). 0으로 두면 원자 한가운데를
-    // 기준 삼아, 원자 위에 손가락을 얹었는데 그게 빠지는 일이 생긴다(실측).
-    //
-    // ⚠ 잡은 핸들의 정체(`which`)나 직전 상태(`movingIsMin`)로는 정할 수 없다 —
-    // **넘어가는 그 이동**에서는 둘 다 이미 낡았다(손가락은 반대편인데 bias는
-    // 넘어가기 전 방향). 그래서 bias 0으로 한 번 가늠해 어느 쪽이 될지 정한 뒤,
-    // 그 방향으로 다시 잰다. 두 번째 호출은 `atomBoundsCache` 가 더워져 있어 싸다.
-    // `resolveOffsetAt` 은 못 믿을 표본(원자 사이 빈 자리에서 나오는 센티넬)에
-    // `null` 을 준다 — 그러면 이번 표본을 통째로 버리고 직전 위치를 지킨다.
-    // 그 빈 자리가 10px 안팎이라 핸들이 잠깐 머무는 정도로만 보인다.
-    const probe = resolveOffsetAt(mf, x, drag.midY, 0);
-    if (probe === null) return;
-    const offset = resolveOffsetAt(mf, x, drag.midY, probe < drag.fixed ? -1 : 1);
+    // **bias 0 — 네이티브 탭과 똑같이.** 그래야 원시 캐럿이 "그 자리를 탭했을 때
+    // 캐럿이 서는 자리" 와 정확히 일치한다(사용자 요구). 예전엔 ±1 로 "손가락 밑
+    // 원자를 무조건 선택에 넣는" 쪽으로 밀었는데, 그러면 탭 위치와 늘 한 경계씩
+    // 어긋났다(실측: 표본 14개 중 4개가 어긋남). bias가 방향을 안 타므로 어느
+    // 쪽 끝인지 미리 가늠하던 두 번 재기도 통째로 사라졌다.
+    const offset = resolveOffsetAt(mf, x, drag.midY, 0);
     if (offset === null) return;
-    // **교차를 막지 않는다** — 움직이는 캐럿이 고정 캐럿을 지나가면 그대로 두고,
-    // 넘어간 쪽이 새 시작이 된다 (`setRawSelection` 은 순서를 안 가린다).
-    // 다만 두 캐럿이 **같은 자리에 겹치면** 선택할 게 없어 사라지므로, 그때만
-    // 가던 방향으로 한 칸 더 보낸다. 그쪽에 자리가 없으면(문서 양 끝) 반대로
-    // 한 칸 — 그래서 맨 앞/뒤에서는 원자 하나가 남고 더는 안 줄어든다.
     let moving = offset;
-    if (moving === drag.fixed) {
-      const ahead = drag.movingIsMin ? drag.fixed + 1 : drag.fixed - 1;
-      const behind = drag.movingIsMin ? drag.fixed - 1 : drag.fixed + 1;
-      moving = ahead >= 0 && ahead <= mf.lastOffset ? ahead : behind;
+    if (HANDLE_CROSSING) {
+      // **교차를 막지 않는다** — 움직이는 캐럿이 고정 캐럿을 지나가면 그대로 두고,
+      // 넘어간 쪽이 새 시작이 된다 (`setRawSelection` 은 순서를 안 가린다).
+      // 다만 두 캐럿이 **같은 자리에 겹치면** 선택할 게 없어 사라지므로, 그때만
+      // 가던 방향으로 한 칸 더 보낸다. 그쪽에 자리가 없으면(문서 양 끝) 반대로
+      // 한 칸 — 그래서 맨 앞/뒤에서는 원자 하나가 남고 더는 안 줄어든다.
+      if (moving === drag.fixed) {
+        const ahead = drag.movingIsMin ? drag.fixed + 1 : drag.fixed - 1;
+        const behind = drag.movingIsMin ? drag.fixed - 1 : drag.fixed + 1;
+        moving = ahead >= 0 && ahead <= mf.lastOffset ? ahead : behind;
+      }
+      drag.movingIsMin = moving < drag.fixed;
+    } else {
+      // 교차 끄기 — 잡은 쪽에 그대로 머문다. `movingIsMin` 은 안 뒤집히므로
+      // 렌더의 정체/위치 가르기도 자연히 항등이 된다.
+      moving = drag.movingIsMin
+        ? Math.min(moving, drag.fixed - 1)
+        : Math.max(moving, drag.fixed + 1);
     }
-    drag.movingIsMin = moving < drag.fixed;
+    if (RAW_CARET_DEBUG) logDrag(drag, clientX, x, offset, moving);
     setRawSelection(mf, moving, drag.fixed);
+  };
+
+  /**
+   * 드래그 중인 **원시 캐럿**을 콘솔로 흘린다 (`RAW_CARET_DEBUG`).
+   *
+   * "빨간 표식이 클릭 자리와 다르다" 를 가리려고 만들었다 — **오프셋이 틀린 건지**
+   * (`off`/`tapOff` 비교) **그리는 자리가 틀린 건지**(`caretX`/`drawX` 비교)를
+   * 갈라 볼 수 있게 셋을 다 찍는다.
+   * - `tapOff` : 그 x를 **탭했을 때** 나오는 오프셋 (네이티브와 같은 bias 0)
+   * - `off`    : 우리가 실제로 쓴 오프셋 (bias ±1)
+   * - `caretX` : `off` 가 화면에서 서는 자리 (컨테이너 기준)
+   *
+   * 실제로 **그린** 자리는 여기서 못 찍는다 — 아직 렌더 전이라 늘 한 스텝 낡은
+   * 값이 나온다(실측). 그건 `measure()` 의 `[rawCaret:draw]` 가 찍는다.
+   */
+  const logDrag = (
+    drag: Drag,
+    clientX: number,
+    clampedX: number,
+    offset: number,
+    moving: number,
+  ): void => {
+    try {
+      const boxLeft = container?.getBoundingClientRect().left ?? 0;
+      const tapOff = resolveOffsetAt(mf, clampedX, drag.midY, 0);
+      const caretVp = boundaryXOf(mf, moving);
+      // eslint-disable-next-line no-console
+      console.log(
+        `[rawCaret] fingerX=${Math.round(clientX - boxLeft)}` +
+          ` clampX=${Math.round(clampedX - boxLeft)}` +
+          ` tapOff=${tapOff} off=${offset} moving=${moving} fixed=${drag.fixed}` +
+          ` caretX=${caretVp === null ? 'null' : Math.round(caretVp - boxLeft)}`,
+      );
+    } catch {
+      /* 디버그 로그가 드래그를 막으면 안 된다 */
+    }
   };
 
   /** 손가락이 컨테이너 밖이면 그 방향으로 자동 스크롤을 걸거나 뗀다. */

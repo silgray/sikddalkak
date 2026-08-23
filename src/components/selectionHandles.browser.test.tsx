@@ -7,6 +7,7 @@ import { FieldClip } from './FieldClip';
 import { MathField } from './MathField';
 import { boundaryXOf, contentOf, resolveOffsetAt } from '../editor/internals';
 import { setRawSelection } from '../editor/rawSelection';
+import { HANDLE_CROSSING } from '../features';
 
 /**
  * 선택 범위 양끝 드래그 핸들(`SelectionHandles.tsx`)의 동작 핀.
@@ -144,18 +145,29 @@ describe('선택 핸들 — 양끝 조정', () => {
     expect(handles(host).start).toBeNull();
   });
 
-  it('시작 핸들을 왼쪽으로 끌면 선택이 원자 경계로 스냅되며 자란다', async () => {
+  it('핸들 위치는 그 자리를 탭했을 때와 같다 (중앙선 기준)', async () => {
+    // 원시 캐럿은 `bias 0` 으로 잡는다 — 네이티브 탭과 **같은 규칙**이라, 원자의
+    // 어느 쪽 절반을 짚었느냐로 경계가 갈린다. 예전엔 ±1 로 "손가락 밑 원자를
+    // 무조건 포함" 시켜서 탭 위치와 한 경계씩 어긋났다(사용자 보고).
     pretendMobile(true);
     const { mf, host } = await mount('1+xy');
     mf.focus();
+    const one = mf.getElementInfo(1)!.bounds!;
+    const y = one.top + one.height / 2;
+
+    // ① `1` 의 **왼쪽 절반** → 그 앞 경계 → `1` 이 들어온다.
     mf.selection = { ranges: [[2, 4]], direction: 'forward' };
     await settle();
-    const { start } = handles(host);
-    // `1` 의 한가운데로 끈다 — 원자 경계(오프셋 0)까지 스냅돼야 한다.
-    const one = mf.getElementInfo(1)!.bounds!;
-    dragHandle(start!, one.left + one.width / 2, one.top + one.height / 2);
+    dragHandle(handles(host).start!, one.left + one.width * 0.25, y);
     await settle();
     expect(selectedLatex(mf)).toBe('1+xy');
+
+    // ② `1` 의 **오른쪽 절반** → 그 뒤 경계 → `1` 은 빠진다.
+    mf.selection = { ranges: [[2, 4]], direction: 'forward' };
+    await settle();
+    dragHandle(handles(host).start!, one.left + one.width * 0.75, y);
+    await settle();
+    expect(selectedLatex(mf)).toBe('+xy');
   });
 
   it('문서 맨 앞이 고정 캐럿이면 더 끌어도 원자 하나는 남는다', async () => {
@@ -175,7 +187,9 @@ describe('선택 핸들 — 양끝 조정', () => {
     expect(selectedLatex(mf)).toBe('1');
   });
 
-  it('끝 핸들을 시작 캐럿 너머로 끌면 역할이 뒤바뀐다', async () => {
+  // 교차는 `features.ts` 의 `HANDLE_CROSSING` 으로 켜고 끈다 — 조작감을 견줘보려고
+  // 남긴 스위치라, 두 동작을 각각 자기 플래그일 때만 검사한다.
+  it.skipIf(!HANDLE_CROSSING)('끝 핸들을 시작 캐럿 너머로 끌면 역할이 뒤바뀐다', async () => {
     pretendMobile(true);
     const { mf, host } = await mount('1+xy');
     mf.focus();
@@ -196,6 +210,22 @@ describe('선택 핸들 — 양끝 조정', () => {
     const box = (host.querySelector('.mf') as HTMLElement).getBoundingClientRect();
     const startX = mf.getElementInfo(1)!.bounds!.left;
     expect(handles(host).start!.offsetLeft).toBeCloseTo(startX - box.left, 0);
+  });
+
+  it.skipIf(HANDLE_CROSSING)('교차를 끄면 끝 핸들이 시작 캐럿을 못 넘는다', async () => {
+    pretendMobile(true);
+    const { mf, host } = await mount('1+xy');
+    mf.focus();
+    // `xy` (오프셋 2..4) — 시작 캐럿 2 왼쪽으로 넘어갈 자리가 있는데도 안 넘어간다.
+    mf.selection = { ranges: [[2, 4]], direction: 'forward' };
+    await settle();
+    expect(selectedLatex(mf)).toBe('xy');
+
+    const one = mf.getElementInfo(1)!.bounds!;
+    dragHandle(handles(host).end!, one.left + one.width / 2, one.top + one.height / 2);
+    await settle();
+    // 고정 캐럿(2) 바로 오른쪽에서 멈춘다 — 원자 하나가 남는다.
+    expect(selectedLatex(mf)).toBe('x');
   });
 
   it('데스크톱에서는 핸들을 그리지 않는다', async () => {

@@ -54,3 +54,12 @@ function debugFlag(name: string): boolean {
  * `outline` 이라 레이아웃을 안 건드린다(`border` 면 글자가 밀린다).
  */
 export const ATOM_BOX_DEBUG: boolean = debugFlag('atombox');
+
+/**
+ * 선택 핸들이 **반대쪽 캐럿을 넘어갈 수 있는지**.
+ *
+ * 켜면 끝 핸들을 시작보다 왼쪽으로 끌었을 때 역할이 뒤바뀌고, 넘어간 쪽이 새
+ * 시작이 된다(`SelectionHandles.tsx`). 끄면 예전처럼 반대쪽 캐럿 바로 앞에서
+ * 멈춘다 — 조작감을 견줘보려고 스위치로 남겼다.
+ */
+export const HANDLE_CROSSING: boolean = false;
