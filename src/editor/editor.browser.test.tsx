@@ -8,7 +8,7 @@ import { createField, pressKey as pressRealKey } from './harness';
 import { MathField } from '../components/MathField';
 import { parseSyntax } from '../algebra';
 import { finalizeGhostFences, modelOf } from './internals';
-import { expandSelectionSemantic, siblingRunRange } from './selection';
+import { caretRunRange, expandSelectionSemantic, siblingRunRange } from './selection';
 import { KEY_OPS, dispatchKeyOp } from './keyOps';
 import { findViolations, repairLatex } from './wellformed';
 import { BLOCKED_KEYBINDINGS, CUSTOM_KEYBINDINGS, RESERVED_KEYBINDINGS } from './keybindings';
@@ -235,6 +235,106 @@ describe('선택 불변식 — 항상 한 레벨의 연속 형제 열', () => {
       }
     }
     expect(seen.size).toBeGreaterThan(10);
+  });
+});
+
+describe('손가락 선택 파생 — 끝은 안쪽으로 당긴다 (caretRunRange)', () => {
+  /**
+   * ⚠ 구조가 **맨 앞**에 있으면(`\frac{a}{bc}+d`) 새 규칙과 옛 규칙의 결과가
+   * 같다 — 당길 자리가 없어서다(실측). 차이는 그 구조 **앞에 온전한 형제가 있을
+   * 때**만 드러나므로, 여기서는 분수를 뒤에 둔 식을 쓴다.
+   *
+   * 오프셋(실측): 0=root first, 1=`d`, 2=`+`, 3=분자 first, 4=`a`,
+   * 5=분모 first, 6=`b`, 7=`c`, 8=분수 전체. root 레벨 경계는 {0,1,2,8}.
+   */
+  const TAIL_FRAC = String.raw`d+\frac{a}{bc}`;
+
+  it('끝 캐럿이 구조 안이면 그 구조를 뺀다 (옛 규칙은 통째로 삼켰다)', async () => {
+    const f = await createField(TAIL_FRAC);
+    cleanups.push(f.dispose);
+    const model = modelOf(f.mf)!;
+    const show = (r: [number, number] | null) =>
+      r === null ? null : f.mf.getValue({ ranges: [r] }, 'latex');
+
+    // 끝 캐럿이 분모 안(`c` 뒤)일 때.
+    expect(show(caretRunRange(model, 0, 7))).toBe('d+');
+    expect(show(siblingRunRange(model, 0, 7))).toBe(TAIL_FRAC); // 게이트는 그대로 넓힌다
+    // 분자 안이어도 마찬가지 — 어느 branch든 "걸쳐 있으면 뺀다".
+    expect(show(caretRunRange(model, 0, 4))).toBe('d+');
+    // 시작이 `d` 뒤면 남는 건 `+` 하나.
+    expect(show(caretRunRange(model, 1, 7))).toBe('+');
+    // 끝이 구조의 온전한 경계면 새 규칙도 그대로 포함한다.
+    expect(show(caretRunRange(model, 0, 8))).toBe(TAIL_FRAC);
+  });
+
+  it('시작 캐럿이 구조 안이면 그 구조는 그대로 포함한다 (비대칭이 의도)', async () => {
+    const f = await createField(TAIL_FRAC);
+    cleanups.push(f.dispose);
+    const model = modelOf(f.mf)!;
+    // 시작이 분모 안(`b` 뒤)이어도 분수는 **통째로** 들어온다 — 시작은 바깥으로
+    // 넓히기 때문(가장 가까운 root 경계 = 분수 바로 앞). 양끝을 다 당기는
+    // 규칙이었다면 여기서 아무 것도 안 남아 선택이 깜빡였을 자리다.
+    expect(f.mf.getValue({ ranges: [caretRunRange(model, 6, 8)!] }, 'latex')).toBe(
+      String.raw`\frac{a}{bc}`,
+    );
+  });
+
+  it('당겨서 아무 것도 안 남으면 그 끝만 확장으로 되돌린다 (빈 선택 금지)', async () => {
+    const f = await createField(TAIL_FRAC);
+    cleanups.push(f.dispose);
+    const model = modelOf(f.mf)!;
+    // 양끝이 같은 분수의 서로 다른 branch 안(분자 `a` 뒤 ↔ 분모 `c` 뒤) —
+    // root 레벨에 온전히 들어온 형제가 하나도 없다. 폴백이 분수를 살려낸다.
+    const r = caretRunRange(model, 4, 7)!;
+    expect(r[0]).toBeLessThan(r[1]); // 붕괴하지 않는다
+    expect(f.mf.getValue({ ranges: [r] }, 'latex')).toBe(String.raw`\frac{a}{bc}`);
+  });
+
+  it('두 캐럿의 순서를 가리지 않는다 (핸들이 교차해도 같은 결과)', async () => {
+    const f = await createField(TAIL_FRAC);
+    cleanups.push(f.dispose);
+    const model = modelOf(f.mf)!;
+    expect(caretRunRange(model, 7, 0)).toEqual(caretRunRange(model, 0, 7));
+    expect(caretRunRange(model, 8, 1)).toEqual(caretRunRange(model, 1, 8));
+  });
+
+  it('파생 결과는 형제 열이고, 비지 않고, 게이트를 멱등하게 통과한다 (fuzz)', async () => {
+    // ③ 이 마지막 성질이 핵심이다 — `normalizeSelection`(=`siblingRunRange`)이
+    // 우리가 당겨놓은 결과를 도로 넓혀버리면 규칙이 무력해진다. 특히 첨자
+    // 보정이 그럴 뻔한 자리라, 같은 보정을 파생 쪽에도 넣어뒀다.
+    const MIXED = String.raw`1+\frac{a}{b+c}+\begin{pmatrix}1 & 2\\ 3 & 4\end{pmatrix}+x^{2y}`;
+    const f = await createField(MIXED);
+    cleanups.push(f.dispose);
+    const model = modelOf(f.mf)!;
+    const last = model.lastOffset;
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    let checked = 0;
+    for (let i = 0; i < 300; i += 1) {
+      const a = Math.floor(rnd() * (last + 1));
+      const b = Math.floor(rnd() * (last + 1));
+      if (a === b) continue;
+      const r = caretRunRange(model, a, b);
+      expect(r).not.toBeNull();
+      const [x, y] = r!;
+      expect(x, `raw ${a},${b}`).toBeLessThan(y); // ① 비지 않는다
+      const atoms = model.getAtoms([x, y]);
+      if (atoms.length > 0) {
+        const parent = atoms[0].parent ?? null;
+        const branch = JSON.stringify(atoms[0].parentBranch ?? null);
+        expect(
+          atoms.every(
+            (at) =>
+              (at.parent ?? null) === parent &&
+              JSON.stringify(at.parentBranch ?? null) === branch,
+          ),
+          `sibling run ${a},${b}`,
+        ).toBe(true); // ② 형제 열
+      }
+      expect(siblingRunRange(model, x, y), `gate idempotent ${a},${b}`).toEqual([x, y]); // ③
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThan(250);
   });
 });
 
