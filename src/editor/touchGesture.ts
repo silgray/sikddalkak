@@ -4,6 +4,7 @@ import { expandSelectionSemantic } from './selection';
 import { setRawSelection } from './rawSelection';
 import { DIRECT_AIM, aimedPoint } from './touchAim';
 import { isMobileViewport } from '../mobile';
+import { getFocusedMathField } from './activeField';
 
 /**
  * 모바일 터치 제스처 층 — **가로 스크롤과 범위 선택을 갈라준다.**
@@ -24,6 +25,15 @@ import { isMobileViewport } from '../mobile';
  * **pointerdown은 삼키지 않는다.** MathLive가 포커스·캐럿 배치·placeholder 특례를
  * 그대로 처리하게 두고, 우리는 그 뒤의 pointermove만 가로챈다 — 그 로직을 우리가
  * 재현하면 두 벌이 되어 어긋난다.
+ *
+ * **그런데 스크롤(가로 드래그·세로 드래그)로 판명되면 그 처리를 되돌린다.**
+ * MathLive의 pointerdown은 "손짓이 나중에 뭐가 될지" 모르는 채로 포커스·캐럿을
+ * 옮기므로, 탭이 아니라 스크롤이었다고 밝혀지면 그 부작용을 지워야 한다 —
+ * 다른(포커스 없던) 셀 위에서 스크롤을 시작해도 그 셀로 포커스가 넘어가면
+ * 안 되고, 이미 포커스된 셀을 스크롤해도 캐럿이 스크롤 종료 지점으로 튀면 안
+ * 된다. **홀드만은 예외다** — 홀드로 다른 셀을 잡으면 포커스가 그쪽으로
+ * 넘어가는 게 의도된 동작이다(항을 골라 선택하는 것 자체가 그 셀을 편집
+ * 대상으로 고른 것이므로). `savedFocus`/`restoreFocus` 가 이 되돌림을 맡는다.
  *
  * ⚠ **MathLive와 겹치는 구간이 없다는 근거**(실측, `onPointerDown` 안의
  * `onPointerMove`): MathLive는 터치에서 `500ms && 20px` 안쪽 움직임을 통째로
@@ -49,6 +59,18 @@ const HOLD_DELAY_MS = 450;
 const HOLD_EXPAND_STEPS = 2;
 
 type Mode = 'idle' | 'undecided' | 'pan' | 'hold' | 'vscroll';
+
+/**
+ * pointerdown 시점에 포커스였던 필드의 캐럿/선택 스냅샷. `mf` 자신일 수도,
+ * 다른(포커스가 없던) 필드일 수도, 아무 데도 없었을 수도 있다(`null`) —
+ * `onPointerDown`/`restoreFocus` 참고.
+ */
+type FocusSnapshot = {
+  field: MathfieldElement;
+  position: number;
+  /** `null` 이면 접힌 캐럿(collapsed) — `position` 만 쓴다. */
+  selection: readonly (readonly [number, number])[] | null;
+};
 
 /**
  * 홀드 시 뜨는 메뉴를 **셀 전체에서** 막는다.
@@ -104,13 +126,14 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
   /** 홀드가 잡은 선택 범위. 드래그 중에도 **항상 포함**시켜 항 단위 알갱이를 지킨다. */
   let anchorRun: readonly [number, number] | null = null;
   /**
-   * 손짓이 시작될 때 살아 있던 선택. **스크롤로는 선택이 풀리면 안 된다** — 그런데
-   * MathLive는 pointerdown 하나로 선택을 접고 캐럿을 옮겨버린다(우리는 그 처리를
-   * 일부러 통과시킨다). capture 단계라 우리가 먼저 보므로 여기서 찍어뒀다가,
-   * 손짓이 스크롤로 판명되면 되돌린다. 탭으로 판명되면 되돌리지 않는다 — 그건
-   * 사용자가 정말로 캐럿을 옮긴 것이다.
+   * 손짓이 시작될 때 포커스였던 필드의 캐럿/선택. **스크롤로는 포커스도 캐럿도
+   * 안 바뀌어야 한다** — 그런데 MathLive는 pointerdown 하나로 포커스를 옮기고
+   * 캐럿을 놓아버린다(우리는 그 처리를 일부러 통과시킨다). capture 단계라 우리가
+   * 먼저 보므로 여기서 찍어뒀다가, 손짓이 스크롤(pan/vscroll)로 판명되면
+   * 되돌린다. 탭이나 홀드로 판명되면 되돌리지 않는다 — 그건 사용자가 정말로
+   * 캐럿을 옮겼거나(탭) 다른 셀을 골라 선택한 것이다(홀드, 의도된 포커스 이동).
    */
-  let savedRanges: readonly (readonly [number, number])[] | null = null;
+  let savedFocus: FocusSnapshot | null = null;
 
   const reset = (): void => {
     if (holdTimer !== null) {
@@ -120,18 +143,34 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
     mode = 'idle';
     pointerId = null;
     anchorRun = null;
-    savedRanges = null;
+    savedFocus = null;
   };
 
-  /** 스크롤로 판명된 손짓이 지워버린 선택을 되돌린다. */
-  const restoreSelection = (): void => {
-    if (savedRanges === null) return;
-    try {
-      mf.selection = { ranges: savedRanges as [number, number][], direction: 'forward' };
-    } catch {
-      /* 그 사이 값이 바뀌어 오프셋이 안 맞으면 그냥 둔다 */
+  /**
+   * 스크롤로 판명된 손짓이 훔쳐간(또는 옮겨놓은) 포커스·캐럿을 되돌린다.
+   *
+   * **멱등이다** — pan/vscroll이 확정되는 즉시(다른 셀이 드래그 내내 반짝
+   * 포커스된 채로 보이는 걸 막으려고) 한 번, 손을 뗀 뒤에도(한 틱 미뤄서 —
+   * MathLive 자신의 네이티브 pointerup 처리가 이 리스너보다 나중에 돌아 캐럿을
+   * 다시 옮겨놓을 수 있어서) 한 번 더 부를 수 있다. 그래서 `savedFocus` 를
+   * 여기서 지우지 않는다 — `reset()` 만 지운다.
+   */
+  const restoreFocus = (snap: FocusSnapshot | null): void => {
+    if (snap === null) {
+      // 원래 아무 데도 포커스가 없었다 — 이 손짓이 훔쳐간 포커스를 마저 놓는다.
+      if (document.activeElement === mf) mf.blur();
+      return;
     }
-    savedRanges = null;
+    try {
+      if (snap.field !== mf) snap.field.focus();
+      if (snap.selection !== null) {
+        snap.field.selection = { ranges: snap.selection as [number, number][], direction: 'forward' };
+      } else {
+        snap.field.position = snap.position;
+      }
+    } catch {
+      /* 그 사이 값이 바뀌어 오프셋이 안 맞거나 내부 상태가 예상과 다르면 그냥 둔다 */
+    }
   };
 
   /**
@@ -143,7 +182,7 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
    * 자체를 막으면 충분하다.
    */
   const beginVScroll = (): void => {
-    restoreSelection();
+    restoreFocus(savedFocus);
     if (holdTimer !== null) {
       clearTimeout(holdTimer);
       holdTimer = null;
@@ -178,8 +217,21 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
     startY = ev.clientY;
     lastX = startX;
     mode = 'undecided';
-    // MathLive가 이걸 접기 전에 찍어둔다 (capture라 우리가 먼저 본다).
-    savedRanges = mf.selectionIsCollapsed ? null : mf.selection.ranges.map(([a, b]) => [a, b]);
+    // MathLive가 포커스·캐럿을 옮기기 전에 찍어둔다 — capture 단계라 브라우저의
+    // 네이티브 pointerdown 기본 동작(포커스 이동)보다 우리가 먼저 실행된다.
+    // `prevFocused` 는 `mf` 자신일 수도(이미 포커스된 셀을 만짐), 다른 필드일
+    // 수도(포커스 없던 셀을 만짐), 아무 것도 없을 수도 있다.
+    const prevFocused = getFocusedMathField();
+    savedFocus =
+      prevFocused === null
+        ? null
+        : {
+            field: prevFocused,
+            position: prevFocused.position,
+            selection: prevFocused.selectionIsCollapsed
+              ? null
+              : prevFocused.selection.ranges.map(([a, b]) => [a, b]),
+          };
     holdTimer = setTimeout(beginHold, HOLD_DELAY_MS);
     // 여기서는 아무 것도 막지 않는다 — MathLive의 탭 처리가 그대로 돌아야 한다.
   };
@@ -207,7 +259,7 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
         holdTimer = null;
       }
       mode = 'pan';
-      restoreSelection();
+      restoreFocus(savedFocus);
     }
 
     if (mode === 'vscroll') {
@@ -285,8 +337,17 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
   };
 
   const onPointerEnd = (): void => {
+    const endedMode = mode;
+    const snapshot = savedFocus; // reset()이 지우기 전에 로컬로 붙든다
     // pointerup 자체는 통과시킨다 — MathLive가 자기 추적을 정리해야 한다.
     reset();
+    if (endedMode === 'pan' || endedMode === 'vscroll') {
+      // 방금 통과시킨 pointerup을 MathLive가 자기 방식대로 처리해(네이티브 탭
+      // 종료 로직) 캐럿을 다시 옮겨놓을 수 있다 — capture 리스너인 우리가 그
+      // target-phase 처리보다 먼저 도니, 같은 틱에서 되돌려봐야 곧 덮어써진다.
+      // 한 틱 미룬다(`activeField.ts`의 `notifyFieldBlur`와 같은 패턴).
+      setTimeout(() => restoreFocus(snapshot), 0);
+    }
   };
 
   const releaseMenuBlock = retainMenuBlock();

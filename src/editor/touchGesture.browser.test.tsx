@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createElement } from 'react';
+import { createElement, Fragment } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { MathfieldElement } from 'mathlive';
 import '../styles.css';
@@ -78,6 +78,40 @@ async function mount(initial: string, width = 320): Promise<Mounted> {
   return { mf, content, host };
 }
 
+type MountedTwo = { mfA: MathfieldElement; contentA: HTMLElement; mfB: MathfieldElement; contentB: HTMLElement };
+
+/** 필드 두 개를 나란히 띄운다 — "다른(포커스 없던) 셀"을 재현하는 데 쓴다. */
+async function mountTwo(a: string, b: string, width = 320): Promise<MountedTwo> {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root: Root = createRoot(host);
+  root.render(
+    createElement(
+      Fragment,
+      null,
+      createElement(
+        'div',
+        { style: { width: `${width}px`, display: 'flex' } },
+        createElement(FieldClip, { watch: a, children: createElement(MathField, { value: a }) }),
+      ),
+      createElement(
+        'div',
+        { style: { width: `${width}px`, display: 'flex' } },
+        createElement(FieldClip, { watch: b, children: createElement(MathField, { value: b }) }),
+      ),
+    ),
+  );
+  await settle();
+  const fields = host.querySelectorAll('math-field');
+  const mfA = fields[0] as MathfieldElement;
+  const mfB = fields[1] as MathfieldElement;
+  cleanups.push(() => {
+    root.unmount();
+    host.remove();
+  });
+  return { mfA, contentA: contentOf(mfA) as HTMLElement, mfB, contentB: contentOf(mfB) as HTMLElement };
+}
+
 type Pt = { x: number; y: number };
 
 /** 오프셋 `q` 의 원자 한가운데 (뷰포트 좌표). */
@@ -141,6 +175,35 @@ describe('터치 제스처 — 스크롤과 선택 가르기', () => {
     send(content, 'pointerup', { x: start.x + 60, y: start.y });
     await settle();
     expect(content.scrollLeft).toBe(before - 60);
+    expect(mf.selectionIsCollapsed).toBe(true);
+  });
+
+  it('가로 드래그가 끝나도 캐럿 위치가 유지된다 (셀 끝으로 튀지 않는다)', async () => {
+    // 위 테스트는 드래그 전에 캐럿을 이미 `lastOffset`에 놔둬서 "끝으로 튀는"
+    // 버그와 정상 상태가 우연히 구별이 안 된다 — 여기서는 끝이 아닌 자리(3)에
+    // 캐럿을 두고, 드래그가 끝난 뒤에도 그 자리 그대로인지를 직접 잰다.
+    pretendMobile(true);
+    const { mf, content } = await mount(LONG);
+    mf.focus();
+    await settle();
+    // `mf.position = 3` 는 scrollLeft를 안 건드린다(실측) — focus()가 캐럿을
+    // 식 끝에 두며 이미 밀어둔 scrollLeft(최댓값)가 그대로 남는다. 그래서
+    // 오른쪽으로 끌어야(scrollLeft가 줄어드는 방향) 클램프에 안 걸리고 실제로
+    // 움직인다.
+    mf.position = 3;
+    await settle();
+    const before = content.scrollLeft;
+    expect(before).toBeGreaterThan(0);
+    const start = center(content);
+    send(content, 'pointerdown', start);
+    send(content, 'pointermove', { x: start.x + 20, y: start.y });
+    send(content, 'pointermove', { x: start.x + 60, y: start.y });
+    send(content, 'pointerup', { x: start.x + 60, y: start.y });
+    await settle();
+    // 패닝 자체는 여전히 된다.
+    expect(content.scrollLeft).toBeLessThan(before);
+    // 하지만 캐럿은 드래그 전 자리로 되돌아간다 — 끝(lastOffset)으로 안 튄다.
+    expect(mf.position).toBe(3);
     expect(mf.selectionIsCollapsed).toBe(true);
   });
 
@@ -344,6 +407,68 @@ describe('터치 제스처 — 스크롤과 선택 가르기', () => {
     expect(mobile.length, `모바일 블록이 없다 (${MOBILE_QUERY})`).toBeGreaterThan(0);
     const text = mobile.flatMap((rule) => [...rule.cssRules]).map((rule) => rule.cssText);
     expect(text.some((css) => css.includes('.ML__container') && css.includes('pan-y'))).toBe(true);
+  });
+
+  it('포커스가 없는 다른 셀에서 가로 드래그를 시작해도 포커스·캐럿이 안 바뀐다', async () => {
+    pretendMobile(true);
+    const { mfA, mfB, contentB } = await mountTwo('x+y', LONG);
+    mfA.focus();
+    mfA.position = 1;
+    await settle();
+    expect(document.activeElement).toBe(mfA);
+
+    const before = contentB.scrollLeft;
+    const start = center(contentB);
+    send(contentB, 'pointerdown', start);
+    send(contentB, 'pointermove', { x: start.x - 20, y: start.y });
+    send(contentB, 'pointermove', { x: start.x - 60, y: start.y });
+    send(contentB, 'pointerup', { x: start.x - 60, y: start.y });
+    await settle();
+
+    // B는 실제로 스크롤됐다 — 드래그 자체는 여전히 동작한다.
+    expect(contentB.scrollLeft).toBeGreaterThan(before);
+    // 하지만 포커스와 캐럿은 A에 그대로 있다 — B로 안 넘어갔다.
+    expect(document.activeElement).toBe(mfA);
+    expect(document.activeElement).not.toBe(mfB);
+    expect(mfA.position).toBe(1);
+  });
+
+  it('포커스가 없는 다른 셀에서 세로 드래그를 시작해도 포커스·캐럿이 안 바뀐다', async () => {
+    pretendMobile(true);
+    const { mfA, mfB, contentB } = await mountTwo('x+y', LONG);
+    mfA.focus();
+    mfA.position = 1;
+    await settle();
+
+    const start = center(contentB);
+    send(contentB, 'pointerdown', start);
+    send(contentB, 'pointermove', { x: start.x + 2, y: start.y + 40 });
+    send(contentB, 'pointerup', { x: start.x + 2, y: start.y + 40 });
+    await settle();
+
+    expect(document.activeElement).toBe(mfA);
+    expect(document.activeElement).not.toBe(mfB);
+    expect(mfA.position).toBe(1);
+  });
+
+  it('포커스가 없는 다른 셀을 홀드하면 포커스가 그 셀로 넘어간다 (유지되는 동작)', async () => {
+    // 대조군 — 위 두 테스트와 달리 홀드는 다른 셀을 골라 선택하는 손짓이라
+    // 포커스가 넘어가는 게 맞는 동작이다. 이번 수정이 실수로 이걸 깨뜨리지
+    // 않았는지 못 박아 둔다.
+    pretendMobile(true);
+    const { mfA, mfB, contentB } = await mountTwo('x+y', '1+xy');
+    mfA.focus();
+    await settle();
+    expect(document.activeElement).toBe(mfA);
+
+    const over = pointAt(mfB, 4); // 'y' 위 — HOLD_EXPAND_STEPS=2로 'xy'가 잡힌다.
+    send(contentB, 'pointerdown', over);
+    await wait(600);
+    await settle();
+
+    expect(document.activeElement).toBe(mfB);
+    expect(selectedLatex(mfB)).toBe('xy');
+    send(contentB, 'pointerup', over);
   });
 
   it('데스크톱(넓은 뷰포트)에서는 아무 것도 가로채지 않는다', async () => {
