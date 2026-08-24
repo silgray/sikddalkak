@@ -309,30 +309,38 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
   (`rawSelection.ts` 를 거쳐 원시 캐럿으로 남긴다), 세로 드래그=**페이지 스크롤**
   (`stopPropagation` 만 하고 `preventDefault` 는 안 한다 — 걸면 브라우저의 세로
   패닝(`touch-action: pan-y`)까지 죽는다). 한번 세로로 정해지면 손 뗄 때까지
-  그 모드다(중간에 가로로 꺾여도 안 바뀐다) — `stopPropagation` 을 안 하면
-  MathLive의 히스테리시스(20px)를 넘기는 순간 저쪽이 선택을 만든다(실측).
+  그 모드다(중간에 가로로 꺾여도 안 바뀐다).
   MathLive는 pointerdown을 잡는 순간부터 드래그를 선택으로만 쓰고 `.ML__content` 는
   `overflow: hidden` 이라, 이게 없으면 넘치는 식을 손으로 옮길 방법이 아예 없다.
-  **pointerdown은 삼키지 않는다** — 포커스·캐럿 배치·placeholder 특례를 MathLive가
-  그대로 하게 두고 그 뒤의 pointermove만 capture로 가로챈다(그 로직이 두 벌이 되면
-  어긋난다). 겹치는 구간이 없는 근거는 아래 실측 함정의 히스테리시스 항목.
-  데스크톱은 안 건드린다 — `pointerType==='touch' && isMobileViewport()` 게이트.
-  **스크롤로는 포커스도 캐럿도 안 바뀐다**: MathLive는 pointerdown 하나로 포커스를
-  옮기고 캐럿을 놓아버리는데(우리가 그 처리를 일부러 통과시키므로), capture라
-  먼저 보는 김에 그 직전 포커스였던 필드 + 캐럿/선택을 `savedFocus` 로 찍어뒀다가
-  (`getFocusedMathField()`, `activeField.ts`), 손짓이 스크롤(가로 패닝·세로 이탈)로
-  판명되면 `restoreFocus` 로 되돌린다 — 다른 셀 위에서 스크롤을 시작해도 그 셀로
-  포커스가 안 넘어가고, 이미 포커스된 셀을 스크롤해도 캐럿이 스크롤 종료 지점으로
-  안 튄다. 탭이나 **홀드면 안 되돌린다** — 탭은 정말로 캐럿을 옮긴 것이고, 홀드로
-  다른 셀을 잡는 건 그 셀을 편집 대상으로 고른 것이라 포커스 이동이 의도된
-  동작이다. ⚠ **되돌리는 시점이 둘이다**: 손짓이 확정되는 즉시(다른 셀이 드래그
-  내내 반짝 포커스된 채로 보이는 걸 막으려고) 한 번, **그리고 손을 뗀 뒤 한 틱
-  미뤄서** 한 번 더(`setTimeout(...,0)`, `activeField.ts` 의 `notifyFieldBlur` 와
-  같은 패턴) — `pointerup` 자체는 그대로 통과시키므로(MathLive가 자기 추적을
-  정리해야 해서) MathLive의 네이티브 종료 처리가 이 capture 리스너보다 **나중에**
-  돌아 캐럿을 다시 옮겨놓을 수 있고, 그게 끝난 뒤에 한 번 더 덮어써야 이긴다.
-  (실측: `mf.position =` 세터 자체는 `.ML__content` 의 `scrollLeft` 를 안 건드린다
-  — 그래서 캐럿 복원이 방금 만든 패닝 결과를 되돌릴까 봐 걱정할 필요는 없었다.)
+  **pointerdown을 삼킨다** — `preventDefault`+`stopPropagation` 둘 다. 손짓이
+  뭐가 될지 모르는 채로 MathLive가 먼저 포커스·캐럿을 옮기고 스크롤로 판명되면
+  되돌리는 사후 복구 방식을 예전엔 썼는데, ⚠ **`MathfieldElement.onPointerDown`
+  (`mathlive.mjs`)이 `window` 에 pointerup 을 걸어두고 `defaultPrevented` 를
+  **안 보는 채로** 뗀 좌표로 캐럿을 다시 계산한다**(좌표가 수식 밖이면
+  `lastOffset` 로 튄다, 실측 — "가로 드래그 끝나면 캐럿이 끝으로 튀는" 버그의
+  진범이었다). `preventDefault` 로는 못 막고 **capture 단계 `stopPropagation`
+  만이 유일한 차단 수단**이라, 사후 복구보다 원천 차단이 더 간단하고 정확하다.
+  포커스도 마찬가지 — MathLive는 `onPointerDown` 안에서 **명시적으로**
+  `onFocus()` 를 부르므로(브라우저 기본 포커스에 안 기댄다) `stopPropagation`
+  이 그 경로를 끊는다. 다만 셰도우 루트가 `delegatesFocus: true` 라 네이티브
+  기본 동작으로도 포커스가 들어오므로 그건 `preventDefault` 가 막는다 — **둘 다
+  필요하다.** 데스크톱은 안 건드린다 — `pointerType==='touch' &&
+  isMobileViewport()` 게이트가 두 preventDefault/stopPropagation 호출보다 먼저다.
+  pointerdown을 막았으니 **탭·홀드는 우리가 직접 캐럿을 놓는다**(`placeCaretAt`,
+  `resolveOffsetAt(mf, x, y, 0)` — bias 0 은 `SelectionHandles.tsx` 의 핸들
+  위치 계산과 같은 "탭했을 때 캐럿이 서는 자리" 규칙). **홀드는 특히 이게
+  필수다** — `expandSelectionSemantic` 이 `model.position` 만 보는데, 그건
+  우리가 놓기 전엔 "직전 캐럿"일 뿐 손가락 밑이 아니다(`beginHold` 가
+  `placeCaretAt(startX, startY)` 를 확장 전에 먼저 부른다).
+  ⚠ **더블탭(그룹 선택)·트리플탭(전체 선택)은 지금 없다** — MathLive의 전역
+  탭 카운터(`gTapCount`)가 pointerdown과 함께 죽는다. 판정 지점이
+  `onPointerEnd` 한 곳에 모여 있어 필요해지면 거기 얹으면 된다.
+  ⚠ **placeholder 특례(탭하면 통째로 선택되는 3중 분기)도 복제 안 했다** —
+  실측해 보니 `placeCaretAt` 이 접힌 캐럿만 놓아도, 타이핑하면 MathLive의
+  **입력 경로** 자체가 "placeholder 앞 캐럿" 을 알아서 인식해 치환한다
+  (`\sqrt{\placeholder{}}` 를 탭하고 `x` 를 치면 `\sqrt{x}`, 선택 여부와
+  무관 — `touchGesture.browser.test.tsx` 가 핀으로 박아둔다). 그래서 탭이
+  선택을 안 만들어도 실사용엔 영향이 없다.
   **홀드 메뉴 차단은 document capture 한 곳**에서 한다(참조 세기). 셀의 빈 자리를
   꾹 누르면 뜨는 건 MathLive가 아니라 브라우저 네이티브 콜아웃이라 필드에 건
   리스너로는 안 잡힌다(사용자 보고). 예외는 `input`/`textarea` 뿐(탭 이름 바꾸기).
@@ -362,11 +370,18 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 - **`harness.ts`** — 브라우저 테스트용 실제 MathLive 구동 하네스.
 
 ⚠ **MathLive 0.110 실측 함정** (터치·포인터 쪽, `touchGesture.browser.test.tsx` 가 핀):
-- **드래그 히스테리시스는 `500ms && 20px`** — 터치에서 그 안쪽 움직임을 통째로
-  무시한다(`onPointerDown` 안의 `onPointerMove`). 우리 제스처 임계(`450ms / 8px`)가
-  **둘 다 그 안쪽**이라, 모드가 정해지기 전엔 MathLive가 아무 것도 안 하고 정해진
-  뒤엔 우리가 pointermove를 다 삼킨다 — 두 층이 선택을 동시에 만질 구간이 없다.
-  **이 두 상수의 대소 관계가 깨지면 설계가 무너진다.**
+- **`MathfieldElement.onPointerDown` 은 `window` 에 pointerup 을 걸고
+  `defaultPrevented` 를 안 본다** — `preventDefault` 로는 못 막고, **capture
+  단계에서 pointerdown 자체를 `stopPropagation` 해야** 이 등록 자체가 안
+  일어난다(`touchGesture.ts` 가 pointerdown을 삼기는 이유, 위 항목 참고). 안
+  막으면 그 리스너가 pointerup 시점 좌표로 캐럿을 다시 계산해 — 좌표가 수식
+  밖이면 `lastOffset` 로 튄다("가로 드래그 끝나면 캐럿이 끝으로 튀는" 버그의
+  진범이었다, `mathlive.mjs` 실측).
+- **`(500ms && 20px)` 터치 드래그 히스테리시스**(`onPointerDown` 안의
+  `onPointerMove`)는 MathLive가 pointerdown부터 받아야만 의미가 있다 —
+  지금은 pointerdown 자체를 삼키므로 이 히스테리시스와 우리 제스처 임계
+  (`450ms / 8px`)를 견줄 필요가 없어졌다(예전엔 대소 관계가 설계의 전제였다).
+  임계값 자체는 조작감 손잡이로 그대로 남아 있다.
 - **`mf.getOffsetFromPoint(x, y, {bias})` 는 공개 API다** — 화면 좌표 → 모델 오프셋.
   짝인 **`mf.getElementInfo(offset).bounds` 는 뷰포트 좌표 DOMRect**를 주고, 그
   오프셋 **자리의** 원자를 가리킨다(실측: `1+xy` 에서 오프셋 4 = `y`).

@@ -215,8 +215,8 @@ describe('터치 제스처 — 스크롤과 선택 가르기', () => {
     await settle();
     const selected = selectedLatex(mf);
     expect(selected).not.toBeNull();
-    // MathLive는 pointerdown 하나로 선택을 접어버린다 — 손짓이 스크롤로 판명되면
-    // 되돌려야 한다. 안 그러면 잡아둔 선택을 보러 스크롤하는 것 자체가 불가능하다.
+    // pointerdown을 삼키므로 MathLive는 이 손짓을 아예 못 본다 — 선택을 접을
+    // 기회 자체가 없다. 잡아둔 선택을 보러 스크롤하는 게 그래서 자연히 된다.
     const start = center(content);
     send(content, 'pointerdown', start);
     send(content, 'pointermove', { x: start.x + 20, y: start.y });
@@ -309,20 +309,19 @@ describe('터치 제스처 — 스크롤과 선택 가르기', () => {
     send(content, 'pointerup', over);
   });
 
-  it('세로로 20px(MathLive 히스테리시스)를 넘게 끌어도 선택이 안 생긴다', async () => {
+  it('세로로 크게 끌어도 선택이 안 생기고, 세로 패닝은 안 막는다', async () => {
     pretendMobile(true);
     const { mf, content } = await mount(LONG);
     mf.focus();
     mf.position = 0;
     await settle();
     const start = center(content);
-    // pointerdown 자체는 MathLive가 정상 처리한다(캐럿 배치) — 그 처리의 일부로
-    // MathLive 스스로 `preventDefault()` 를 거는 것도 정상이라 여기선 안 잰다.
+    // pointerdown은 우리가 삼킨다 — MathLive는 이 손짓을 아예 못 본다.
     send(content, 'pointerdown', start);
     const move = send(content, 'pointermove', { x: start.x + 3, y: start.y + 30 });
     expect(mf.selectionIsCollapsed).toBe(true);
-    // 우리가 막는 건 MathLive가 이 이벤트를 보는 것(`stopPropagation`)뿐이다 —
-    // `preventDefault` 는 걸지 않는다, 그러면 브라우저의 세로 패닝까지 죽는다.
+    // vscroll 확정은 `stopPropagation` 만 한다 — `preventDefault` 는 안 건다,
+    // 그러면 브라우저의 세로 패닝까지 죽는다.
     expect(move.defaultPrevented).toBe(false);
     send(content, 'pointerup', { x: start.x + 3, y: start.y + 30 });
   });
@@ -488,5 +487,79 @@ describe('터치 제스처 — 스크롤과 선택 가르기', () => {
     const ev = new Event('contextmenu', { cancelable: true });
     mf.dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(false);
+  });
+});
+
+describe('터치 제스처 — 탭이 직접 캐럿을 놓는다 (pointerdown 원천 차단)', () => {
+  // pointerdown을 삼킨 뒤로는 이 앱이 탭의 캐럿 배치를 전부 책임진다
+  // (`placeCaretAt`) — 예전엔 MathLive에 맡겨서 여기 대응하는 핀이 하나도
+  // 없었다.
+
+  it('누르기만 해서는(pointerup 전) 아무 일도 안 일어난다', async () => {
+    // 원천 차단의 핵심 계약 — 예전 사후 복구 방식에서는 이 시점에 이미 B로
+    // 포커스가 넘어가 있었다. 지금은 판정(탭/드래그/홀드) 전까지 그 무엇도 안
+    // 바뀐다.
+    pretendMobile(true);
+    const { mfA, mfB, contentB } = await mountTwo('x+y', '1+xy');
+    mfA.focus();
+    mfA.position = 1;
+    await settle();
+
+    send(contentB, 'pointerdown', pointAt(mfB, 2));
+    await settle();
+
+    expect(document.activeElement).toBe(mfA);
+    expect(mfA.position).toBe(1);
+    // B는 여전히 포커스도 캐럿도 없다 — MathLive가 아무 것도 못 받았다.
+    expect(document.activeElement).not.toBe(mfB);
+  });
+
+  it('탭하면 그 자리에 캐럿이 선다', async () => {
+    pretendMobile(true);
+    const { mf, content } = await mount('1+xy');
+    await settle();
+    const at = pointAt(mf, 3); // 'x' 위
+    send(content, 'pointerdown', at);
+    send(content, 'pointerup', at);
+    await settle();
+    expect(document.activeElement).toBe(mf);
+    expect(mf.position).toBe(3);
+    expect(mf.selectionIsCollapsed).toBe(true);
+  });
+
+  it('포커스 없던 셀을 탭하면 포커스가 그리로 가고 캐럿도 그 자리에 선다', async () => {
+    pretendMobile(true);
+    const { mfA, mfB, contentB } = await mountTwo('x+y', '1+xy');
+    mfA.focus();
+    await settle();
+    expect(document.activeElement).toBe(mfA);
+
+    const at = pointAt(mfB, 3); // 'x' 위
+    send(contentB, 'pointerdown', at);
+    send(contentB, 'pointerup', at);
+    await settle();
+
+    expect(document.activeElement).toBe(mfB);
+    expect(mfB.position).toBe(3);
+    expect(mfB.selectionIsCollapsed).toBe(true);
+  });
+
+  it('placeholder를 탭하고 타이핑하면 그 자리가 치환된다', async () => {
+    // 실측 확인: MathLive는 pointerdown에서 placeholder를 통째로 선택하는
+    // 특례(collapsed=false)를 갖지만, `placeCaretAt`은 그걸 복제하지 않고
+    // 접힌 캐럿만 놓는다. 그런데도 타이핑이 placeholder를 치환하는 건
+    // MathLive의 **입력 경로** 자체가 "placeholder 앞 캐럿" 을 따로 인식해서
+    // 하는 일이라(`MathField.tsx`의 input 핸들러, CLAUDE.md 참고), 탭이 선택을
+    // 안 만들어도 그대로 된다 — 그래서 특례를 복제하지 않기로 했다.
+    pretendMobile(true);
+    const { mf, content } = await mount(String.raw`\sqrt{\placeholder{}}`);
+    await settle();
+    const at = pointAt(mf, 2); // placeholder 위
+    send(content, 'pointerdown', at);
+    send(content, 'pointerup', at);
+    await settle();
+    mf.executeCommand(['typedText', 'x', { simulateKeystroke: true }]);
+    await settle();
+    expect(mf.value).toBe(String.raw`\sqrt{x}`);
   });
 });

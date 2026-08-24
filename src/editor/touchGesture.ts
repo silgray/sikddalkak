@@ -1,10 +1,9 @@
 import type { MathfieldElement } from 'mathlive';
-import { contentOf, resolveOffsetAt } from './internals';
+import { contentOf, flushShortcutBuffer, resolveOffsetAt } from './internals';
 import { expandSelectionSemantic } from './selection';
 import { setRawSelection } from './rawSelection';
 import { DIRECT_AIM, aimedPoint } from './touchAim';
 import { isMobileViewport } from '../mobile';
-import { getFocusedMathField } from './activeField';
 
 /**
  * 모바일 터치 제스처 층 — **가로 스크롤과 범위 선택을 갈라준다.**
@@ -16,39 +15,51 @@ import { getFocusedMathField } from './activeField';
  *
  * | 손짓 | 결과 |
  * | --- | --- |
- * | 짧은 탭 | 캐럿 이동 (MathLive 기본 그대로) |
+ * | 짧은 탭 | 캐럿 이동 (우리가 직접, `placeCaretAt`) |
  * | 짧은 터치 후 가로 드래그 | 셀 수식 가로 스크롤 |
  * | 홀드 | 손가락 밑 '항' 자동 선택 (컨텍스트 메뉴 대신) |
  * | 홀드 후 드래그 | 그 선택을 손가락 쪽으로 확장 |
  * | 세로 드래그 | 페이지 스크롤 (`stopPropagation` 만 — `preventDefault` 는 안 한다) |
  *
- * **pointerdown은 삼키지 않는다.** MathLive가 포커스·캐럿 배치·placeholder 특례를
- * 그대로 처리하게 두고, 우리는 그 뒤의 pointermove만 가로챈다 — 그 로직을 우리가
- * 재현하면 두 벌이 되어 어긋난다.
+ * **pointerdown을 삼킨다** — `preventDefault` + `stopPropagation` 둘 다.
+ * 손짓이 뭐가 될지 모르는 채로 MathLive가 먼저 포커스·캐럿을 옮기고, 스크롤로
+ * 판명되면 되돌리는 방식(사후 복구)을 예전엔 썼다. 그런데 MathLive의
+ * `MathfieldElement.onPointerDown`(`mathlive.mjs`)은 `window`에 pointerup을
+ * 걸어두고 **`defaultPrevented`를 안 보는 채로** 뗀 좌표로 캐럿을 다시
+ * 계산한다 — 좌표가 수식 밖이면 `lastOffset`(셀 끝)으로 튄다(실측: "가로
+ * 드래그 끝나면 캐럿이 끝으로 튀는" 버그의 진범이었다). `preventDefault`로는
+ * 이걸 못 막고 **capture 단계 `stopPropagation`만이 유일한 차단 수단**이라,
+ * 사후 복구보다 원천 차단이 더 간단하고 더 정확하다. 포커스도 마찬가지다
+ * — MathLive는 `onPointerDown` 안에서 **명시적으로** `onFocus()`를 부르므로
+ * (브라우저 기본 포커스에 안 기댄다) `stopPropagation`이 그 경로를 끊는다.
+ * 다만 셰도우 루트가 `delegatesFocus: true`라 네이티브 기본 동작으로도
+ * 포커스가 들어오므로, 그건 `preventDefault`가 막는다 — **둘 다 필요하다.**
  *
- * **그런데 스크롤(가로 드래그·세로 드래그)로 판명되면 그 처리를 되돌린다.**
- * MathLive의 pointerdown은 "손짓이 나중에 뭐가 될지" 모르는 채로 포커스·캐럿을
- * 옮기므로, 탭이 아니라 스크롤이었다고 밝혀지면 그 부작용을 지워야 한다 —
- * 다른(포커스 없던) 셀 위에서 스크롤을 시작해도 그 셀로 포커스가 넘어가면
- * 안 되고, 이미 포커스된 셀을 스크롤해도 캐럿이 스크롤 종료 지점으로 튀면 안
- * 된다. **홀드만은 예외다** — 홀드로 다른 셀을 잡으면 포커스가 그쪽으로
- * 넘어가는 게 의도된 동작이다(항을 골라 선택하는 것 자체가 그 셀을 편집
- * 대상으로 고른 것이므로). `savedFocus`/`restoreFocus` 가 이 되돌림을 맡는다.
+ * pointerdown을 막았으니 **탭·홀드는 우리가 직접 캐럿을 놓는다**
+ * (`placeCaretAt`) — `resolveOffsetAt(mf, x, y, 0)`, `SelectionHandles.tsx`의
+ * 핸들 위치 계산과 같은 bias(중앙선 기준, "네이티브 탭과 같은 자리"). 홀드는
+ * 특히 이게 필수다 — `expandSelectionSemantic`이 `model.position`만 보는데,
+ * 그건 이제 우리가 놓기 전엔 "직전 캐럿"일 뿐 손가락 밑이 아니다.
  *
- * ⚠ **MathLive와 겹치는 구간이 없다는 근거**(실측, `onPointerDown` 안의
- * `onPointerMove`): MathLive는 터치에서 `500ms && 20px` 안쪽 움직임을 통째로
- * 무시한다. 우리 임계는 `450ms / 8px` 로 **둘 다 그 안쪽**이라, 모드가 정해지기
- * 전에는 MathLive가 아무 것도 하지 않고, 정해진 뒤에는 우리가 pointermove를 전부
- * 삼켜 MathLive의 `onPointerMove` 가 한 번도 실행되지 않는다.
+ * ⚠ **더블탭(그룹 선택)·트리플탭(전체 선택)은 지금 없다.** MathLive의 전역
+ * 탭 카운터(`gTapCount`, 5px/500ms)가 pointerdown과 함께 죽는다 — 판정 지점이
+ * `onPointerEnd` 한 곳에 모여 있으니 필요해지면 거기 얹으면 된다.
+ *
+ * ⚠ **placeholder 특례도 없다.** MathLive는 pointerdown에서 placeholder를
+ * 탭하면 안으로 들어가거나 전체 선택하는 3중 분기를 갖는데, 우리 `placeCaretAt`
+ * 은 그냥 오프셋에 캐럿을 놓을 뿐이다. `\frac`·행렬·`\sqrt` 가 전부
+ * placeholder로 시작하므로 영향이 있으면 바로 드러난다 — 실기기·브라우저
+ * 테스트로 확인해야 하는 자리다(`feedKeyParity.browser.test.tsx` 가 키보드
+ * 경로 쪽 기준값을 갖고 있다).
  *
  * 데스크톱은 손대지 않는다 (CLAUDE.md §모바일 대원칙) — 터치 포인터가 아니거나
  * 뷰포트가 모바일 폭이 아니면 pointerdown에서 즉시 빠져나온다.
  */
 
-/** 이 거리를 넘게 움직이면 탭이 아니라 드래그. MathLive의 터치 히스테리시스(20px)보다 작아야 한다. */
+/** 이 거리를 넘게 움직이면 탭이 아니라 드래그. */
 const MOVE_THRESHOLD_PX = 8;
 
-/** 이만큼 누르고 있으면 홀드. MathLive의 히스테리시스 시간(500ms)보다 짧아야 한다. */
+/** 이만큼 누르고 있으면 홀드. */
 const HOLD_DELAY_MS = 450;
 
 /**
@@ -59,18 +70,6 @@ const HOLD_DELAY_MS = 450;
 const HOLD_EXPAND_STEPS = 2;
 
 type Mode = 'idle' | 'undecided' | 'pan' | 'hold' | 'vscroll';
-
-/**
- * pointerdown 시점에 포커스였던 필드의 캐럿/선택 스냅샷. `mf` 자신일 수도,
- * 다른(포커스가 없던) 필드일 수도, 아무 데도 없었을 수도 있다(`null`) —
- * `onPointerDown`/`restoreFocus` 참고.
- */
-type FocusSnapshot = {
-  field: MathfieldElement;
-  position: number;
-  /** `null` 이면 접힌 캐럿(collapsed) — `position` 만 쓴다. */
-  selection: readonly (readonly [number, number])[] | null;
-};
 
 /**
  * 홀드 시 뜨는 메뉴를 **셀 전체에서** 막는다.
@@ -125,15 +124,6 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
   let holdTimer: ReturnType<typeof setTimeout> | null = null;
   /** 홀드가 잡은 선택 범위. 드래그 중에도 **항상 포함**시켜 항 단위 알갱이를 지킨다. */
   let anchorRun: readonly [number, number] | null = null;
-  /**
-   * 손짓이 시작될 때 포커스였던 필드의 캐럿/선택. **스크롤로는 포커스도 캐럿도
-   * 안 바뀌어야 한다** — 그런데 MathLive는 pointerdown 하나로 포커스를 옮기고
-   * 캐럿을 놓아버린다(우리는 그 처리를 일부러 통과시킨다). capture 단계라 우리가
-   * 먼저 보므로 여기서 찍어뒀다가, 손짓이 스크롤(pan/vscroll)로 판명되면
-   * 되돌린다. 탭이나 홀드로 판명되면 되돌리지 않는다 — 그건 사용자가 정말로
-   * 캐럿을 옮겼거나(탭) 다른 셀을 골라 선택한 것이다(홀드, 의도된 포커스 이동).
-   */
-  let savedFocus: FocusSnapshot | null = null;
 
   const reset = (): void => {
     if (holdTimer !== null) {
@@ -143,33 +133,26 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
     mode = 'idle';
     pointerId = null;
     anchorRun = null;
-    savedFocus = null;
   };
 
   /**
-   * 스크롤로 판명된 손짓이 훔쳐간(또는 옮겨놓은) 포커스·캐럿을 되돌린다.
+   * 탭·홀드가 손가락 자리에 캐럿을 놓는다 — pointerdown을 삼켰으니 MathLive가
+   * 하던 일(포커스 이동 + 캐럿 배치)을 우리가 대신한다.
    *
-   * **멱등이다** — pan/vscroll이 확정되는 즉시(다른 셀이 드래그 내내 반짝
-   * 포커스된 채로 보이는 걸 막으려고) 한 번, 손을 뗀 뒤에도(한 틱 미뤄서 —
-   * MathLive 자신의 네이티브 pointerup 처리가 이 리스너보다 나중에 돌아 캐럿을
-   * 다시 옮겨놓을 수 있어서) 한 번 더 부를 수 있다. 그래서 `savedFocus` 를
-   * 여기서 지우지 않는다 — `reset()` 만 지운다.
+   * `bias: 0` — 원자의 어느 쪽 절반을 짚었는지(중앙선 기준)로 경계를 가른다.
+   * "탭했을 때 캐럿이 서는 자리"와 정확히 같아지는 규칙이다 — `SelectionHandles.tsx`
+   * 가 핸들 위치를 잴 때 같은 이유로 같은 bias를 쓴다.
    */
-  const restoreFocus = (snap: FocusSnapshot | null): void => {
-    if (snap === null) {
-      // 원래 아무 데도 포커스가 없었다 — 이 손짓이 훔쳐간 포커스를 마저 놓는다.
-      if (document.activeElement === mf) mf.blur();
-      return;
-    }
+  const placeCaretAt = (x: number, y: number): void => {
     try {
-      if (snap.field !== mf) snap.field.focus();
-      if (snap.selection !== null) {
-        snap.field.selection = { ranges: snap.selection as [number, number][], direction: 'forward' };
-      } else {
-        snap.field.position = snap.position;
-      }
+      const offset = resolveOffsetAt(mf, x, y, 0);
+      mf.focus(); // focus()는 선택을 안 건드린다 — 캐럿은 아래서 명시적으로 놓는다.
+      if (offset !== null) mf.position = offset;
+      // MathLive가 pointerdown마다 하던 일 — 안 하면 탭 직전 타이핑이 버퍼에
+      // 남아 다음 입력과 이어붙어 엉뚱한 숏컷이 튄다(`s` → 탭 → `in` = `\sin`).
+      flushShortcutBuffer(mf);
     } catch {
-      /* 그 사이 값이 바뀌어 오프셋이 안 맞거나 내부 상태가 예상과 다르면 그냥 둔다 */
+      /* 내부 상태가 예상과 다르면 캐럿을 건드리지 않는다 */
     }
   };
 
@@ -182,7 +165,6 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
    * 자체를 막으면 충분하다.
    */
   const beginVScroll = (): void => {
-    restoreFocus(savedFocus);
     if (holdTimer !== null) {
       clearTimeout(holdTimer);
       holdTimer = null;
@@ -195,6 +177,11 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
     holdTimer = null;
     if (mode !== 'undecided') return;
     mode = 'hold';
+    // `expandSelectionSemantic`은 `model.position`만 본다(손가락 좌표를 모른다)
+    // — pointerdown을 삼켰으니 그 자리를 우리가 먼저 놓아야 "손가락 밑 항"이
+    // 나온다. 안 그러면 직전 캐럿(다른 셀이면 포커스조차 없던 자리) 기준으로
+    // 확장된다.
+    placeCaretAt(startX, startY);
     try {
       for (let step = 0; step < HOLD_EXPAND_STEPS; step += 1) expandSelectionSemantic(mf);
       const range = mf.selection.ranges[0];
@@ -217,23 +204,13 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
     startY = ev.clientY;
     lastX = startX;
     mode = 'undecided';
-    // MathLive가 포커스·캐럿을 옮기기 전에 찍어둔다 — capture 단계라 브라우저의
-    // 네이티브 pointerdown 기본 동작(포커스 이동)보다 우리가 먼저 실행된다.
-    // `prevFocused` 는 `mf` 자신일 수도(이미 포커스된 셀을 만짐), 다른 필드일
-    // 수도(포커스 없던 셀을 만짐), 아무 것도 없을 수도 있다.
-    const prevFocused = getFocusedMathField();
-    savedFocus =
-      prevFocused === null
-        ? null
-        : {
-            field: prevFocused,
-            position: prevFocused.position,
-            selection: prevFocused.selectionIsCollapsed
-              ? null
-              : prevFocused.selection.ranges.map(([a, b]) => [a, b]),
-          };
     holdTimer = setTimeout(beginHold, HOLD_DELAY_MS);
-    // 여기서는 아무 것도 막지 않는다 — MathLive의 탭 처리가 그대로 돌아야 한다.
+    // 삼킨다 — MathLive가 포커스를 잡거나(명시적 `onFocus()` 호출, `stopPropagation`
+    // 이 막는다) 브라우저가 기본 포커스를 주는 것(`delegatesFocus`, `preventDefault`
+    // 가 막는다) 둘 다 막는다. 판정 전엔 아무 일도 안 일어나야 한다 — 판정되면
+    // `placeCaretAt`(탭·홀드) 또는 스크롤(pan·vscroll)이 각자 알아서 한다.
+    ev.preventDefault();
+    ev.stopPropagation();
   };
 
   const onPointerMove = (ev: PointerEvent): void => {
@@ -246,9 +223,9 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
       const dy = y - startY;
       if (Math.abs(dx) < MOVE_THRESHOLD_PX && Math.abs(dy) < MOVE_THRESHOLD_PX) return;
       // 세로가 우세하면 페이지 스크롤 의도다 (모바일 CSS가 `touch-action: pan-y`
-      // 로 세로만 열어둔 것과 짝이다). 손을 떼지 않는다 — 계속 추적하며
-      // MathLive만 못 보게 막는다. 안 그러면 그 순간부터 pointermove를 안 삼켜,
-      // MathLive의 히스테리시스(20px)를 넘기는 순간 저쪽이 선택을 만든다(실측).
+      // 로 세로만 열어둔 것과 짝이다). MathLive는 pointerdown 자체를 못 받았으니
+      // (삼켰다) 여기서 더 막을 것도 없다 — 브라우저의 네이티브 세로 패닝만
+      // 계속 흐르면 된다.
       if (Math.abs(dy) > Math.abs(dx)) {
         beginVScroll();
         ev.stopPropagation();
@@ -259,7 +236,6 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
         holdTimer = null;
       }
       mode = 'pan';
-      restoreFocus(savedFocus);
     }
 
     if (mode === 'vscroll') {
@@ -336,17 +312,15 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
     if (ev.cancelable) ev.preventDefault();
   };
 
-  const onPointerEnd = (): void => {
+  const onPointerEnd = (ev: PointerEvent): void => {
     const endedMode = mode;
-    const snapshot = savedFocus; // reset()이 지우기 전에 로컬로 붙든다
-    // pointerup 자체는 통과시킨다 — MathLive가 자기 추적을 정리해야 한다.
     reset();
-    if (endedMode === 'pan' || endedMode === 'vscroll') {
-      // 방금 통과시킨 pointerup을 MathLive가 자기 방식대로 처리해(네이티브 탭
-      // 종료 로직) 캐럿을 다시 옮겨놓을 수 있다 — capture 리스너인 우리가 그
-      // target-phase 처리보다 먼저 도니, 같은 틱에서 되돌려봐야 곧 덮어써진다.
-      // 한 틱 미룬다(`activeField.ts`의 `notifyFieldBlur`와 같은 패턴).
-      setTimeout(() => restoreFocus(snapshot), 0);
+    // 탭 = `undecided` 인 채로 끝난 손짓(450ms 안에, 8px 안에서 손을 뗐다).
+    // pointercancel(시스템이 손짓을 가져간 경우)은 탭이 아니다 — 캐럿을 안 놓는다.
+    if (endedMode === 'undecided' && ev.type === 'pointerup') {
+      // 뗀 좌표가 아니라 **누른** 좌표다 — 8px 안쪽이라 차이는 없지만 `beginHold`
+      // 와 기준을 맞춘다.
+      placeCaretAt(startX, startY);
     }
   };
 

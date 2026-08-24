@@ -908,7 +908,8 @@ export function MathField({
     const mf = mfRef.current;
     if (mf === null) return;
     mf.focus();
-    // focus()가 선택/캐럿을 임의로 옮길 수 있으므로 그 뒤에 명시적으로 놓는다.
+    // focus() 자체는 선택/캐럿을 안 건드린다(모델에 있던 값 그대로 둔다) — 우리가
+    // 원하는 특정 자리로 보내려면 그 뒤에 명시적으로 놓아야 한다.
     if (focusSelection !== null && focusSelection !== undefined) {
       const clamp = (v: number) => Math.max(0, Math.min(v, mf.lastOffset));
       mf.selection = {
