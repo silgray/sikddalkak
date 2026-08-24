@@ -324,6 +324,28 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
   **홀드 메뉴 차단은 document capture 한 곳**에서 한다(참조 세기). 셀의 빈 자리를
   꾹 누르면 뜨는 건 MathLive가 아니라 브라우저 네이티브 콜아웃이라 필드에 건
   리스너로는 안 잡힌다(사용자 보고). 예외는 `input`/`textarea` 뿐(탭 이름 바꾸기).
+- **`activeField.ts`** — **포커스의 단일 게이트.** 쓰는 곳은 `MathField.tsx` 의
+  focusin/focusout/언마운트 셋뿐이고 나머지는 읽기만 한다(`repairLatex` 가 구조를,
+  `normalizeSelection` 이 선택을 맡는 것과 같은 자리). **뜻이 다른 둘을 이름으로
+  가른다**: `focused`(**지금** 포커스를 쥔 필드, 없으면 `null` — 키 팔레트를 접을지가
+  여기 걸린다)와 `active`(**마지막** non-null 값, 안 지운다 — 팔레트 버튼은
+  `pointerdown` 에서 `preventDefault` 해 포커스를 안 뺏으므로 클릭으로는 애초에
+  focusout 이 안 나지만, "필드 밖을 눌렀다가 팔레트로 돌아온" 경우까지 버티려면
+  끈끈해야 한다). `active` 는 `focused` 의 **파생**이다 — 예전엔 `focusin` 에서 따로
+  갱신해 같은 사실을 두 곳이 각각 추적했다.
+  ⚠ **blur 는 한 태스크 미뤄 확정한다.** 셀 간 이동은 focusout(A) → focusin(B) 가
+  잇따르므로 즉시 놓으면 팔레트가 접혔다 펴지고, `--palette-h` 로 묶인 `.app` 바닥
+  여백까지 함께 움직여 내용이 통째로 튄다. 창 포커스 전환(alt-tab)은
+  `document.activeElement` 가 그대로 남는 것으로 가려내 **안 놓는다** — `focusout` 이
+  `relatedTarget === null` 일 때 선택을 안 푸는 것과 같은 판단이다.
+  ⚠ **`mf.remove()` 는 포커스된 필드에서도 focusout 을 안 쏜다**(실측, 그 통지를 빼면
+  브라우저 테스트가 빨간불) — 언마운트 경로가 직접 알려야 사라진 필드가 "포커스 중"
+  으로 남지 않는다. `active` 는 그때 **즉시** 지운다: 끈끈한 게 존재 이유지만 떨어져
+  나간 필드까지 붙들면 팔레트가 detached 엘리먼트로 키를 흘린다.
+  ⚠ **"포커스" 라는 말이 이 앱에 넷 있다. 여기 사는 건 위 둘뿐**이고 나머지는 합칠
+  것이 아니다: `tab.focus`(`state/workspace.ts`)는 "여기로 **보내라**" 는 명령이고
+  (토큰 일회성), `touchGesture.ts` 의 캐럿 이동단은 DOM Selection 의 anchor/focus
+  어휘다(그래서 그쪽 지역변수는 `caret` 으로 부른다).
 - **`wellformed.ts`** — 위 규칙들의 파사드 (`repairLatex`/`findViolations` 재노출).
 - **`harness.ts`** — 브라우저 테스트용 실제 MathLive 구동 하네스.
 
@@ -440,6 +462,16 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
   안 쏜다(실측, `mathlive.mjs` 의 `compareSelection`) — ③은 안 돈다. **버그가
   아니라 같은 픽셀을 다시 재지 않는 것뿐이다.**
 - **`SelectionToolbar.tsx`** — 행렬 통째 선택 시 뜨는 구분 기호 플로팅 툴바.
+- **`KeyPalette.tsx`** — 자체 키 팔레트(MathLive 자체 가상 키보드 대신). 버튼이
+  `mf.insert()` 가 아니라 `feedKey` 로 **물리 키 입력과 같은 경로**를 탄다. ⚠ **여기에
+  LaTeX을 적지 않는다** — 트리거 글자를 흘리고 변환은 인라인 숏컷 엔진이 한다(예외는
+  키 입력 경로가 없는 행렬뿐). 대상은 `editor/activeField.ts` 의 **끈끈한** `active`
+  이고, **접을지 말지는 같은 모듈의 `focused`** 를 `useSyncExternalStore` 로 구독해
+  정한다 — 포커스된 셀이 하나도 없으면 접힌다(모바일 분기가 아니다: 데스크톱은 CSS가
+  어차피 늘 숨긴다). 컴포넌트는 `hidden` 만 걸고 접는 일은 CSS 몫이다(대원칙 3).
+  ⚠ **`display` 만 꺼서는 안 된다** — `.app` 바닥 여백이 `--palette-h` 로 팔레트
+  높이와 묶여 있어(`styles/base.css`) 그 높이만큼 빈 자리가 그대로 남는다.
+  `styles/keyPalette.css` 가 변수도 함께 0으로 돌린다.
 - **`HelpPanel.tsx`** / **`TabBar.tsx`** — 도움말 패널, 탭 바.
 - **`App.tsx`** / **`main.tsx`** — 진입점. main.tsx에서 MathLive 전역 설정
   (폰트/로케일/CE 비활성화).
