@@ -14,7 +14,7 @@ import {
   modelOf,
   patchMathliveDisposedBlur,
 } from '../editor/internals';
-import { setActiveMathField } from '../editor/activeField';
+import { notifyFieldBlur, notifyFieldFocus, notifyFieldRemoved } from '../editor/activeField';
 import { PLACEHOLDER_RULES, contentCount, findViolations, repairLatex } from '../editor/wellformed';
 import { dispatchKeyOp } from '../editor/keyOps';
 import { attachTouchGesture } from '../editor/touchGesture';
@@ -379,7 +379,6 @@ type Props = {
   onEdit?: (latex: string, caret: number) => void;
   /** Enter를 눌렀을 때. 확정하고 다음으로 넘어가는 신호다. */
   onEnter?: (latex: string) => void;
-  onFocus?: () => void;
   /**
    * 선택 영역이 바뀔 때. 선택이 없으면(collapsed) null, 있으면 선택된 LaTeX.
    * 선택 변환 버튼의 표시 여부 판단에 쓴다.
@@ -447,7 +446,6 @@ export function MathField({
   ref,
   onEdit,
   onEnter,
-  onFocus,
   onSelectionChange,
   onMoveOut,
   onTransformShortcut,
@@ -467,7 +465,6 @@ export function MathField({
   const handlers = useRef({
     onEdit,
     onEnter,
-    onFocus,
     onSelectionChange,
     onMoveOut,
     onTransformShortcut,
@@ -479,7 +476,6 @@ export function MathField({
   handlers.current = {
     onEdit,
     onEnter,
-    onFocus,
     onSelectionChange,
     onMoveOut,
     onTransformShortcut,
@@ -611,8 +607,9 @@ export function MathField({
 
     mf.addEventListener('focusin', () => {
       isEditing.current = true;
-      setActiveMathField(mf);
-      handlers.current.onFocus?.();
+      // 포커스의 단일 게이트(`editor/activeField.ts`). 팔레트가 키를 흘릴 대상과
+      // "지금 포커스된 필드가 있나"(가상 키보드 표시)가 둘 다 여기서 나온다.
+      notifyFieldFocus(mf);
       // selection-change는 "변화"에만 발화한다. 이미 선택이 있는 필드에 포커스가
       // 들어오면 이벤트 없이 선택만 존재해 버튼 상태가 어긋난다 — 즉시 보고해 동기화.
       reportSelection();
@@ -636,6 +633,9 @@ export function MathField({
 
     mf.addEventListener('focusout', (ev) => {
       isEditing.current = false;
+      // 포커스 게이트에 알린다 — 확정은 저쪽이 한 태스크 미룬다(셀 간 이동은
+      // focusout → focusin 이 잇따르므로 즉시 놓으면 팔레트가 깜빡인다).
+      notifyFieldBlur(mf);
       // ghost 괄호는 "편집 중인 셀의 순간 상태"다 — 셀을 떠나면 확정한다.
       // LaTeX 표현은 동일하므로 문서·계산에는 영향이 없다 (반투명 표시만 사라진다).
       finalizeGhostFences(mf);
@@ -859,6 +859,11 @@ export function MathField({
       document.removeEventListener('pointerdown', onOutsidePointerDown, { capture: true });
       outsideTap?.abort();
       detachTouchGesture();
+      // `remove()` 는 포커스된 필드에서도 focusout 을 안 쏜다 — 게이트에 직접 알려야
+      // 사라진 필드가 "포커스 중"으로 남지 않는다(`editor/activeField.ts`).
+      // `remove()` 는 포커스된 필드에서도 focusout 을 안 쏜다 — 게이트에 직접 알려야
+      // 사라진 필드가 "포커스 중"으로 남지 않는다(`editor/activeField.ts`).
+      notifyFieldRemoved(mf);
       mf.remove();
       mfRef.current = null;
     };

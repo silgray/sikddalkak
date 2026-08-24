@@ -4,6 +4,12 @@ import { createElement } from 'react';
 import type { MathfieldElement } from 'mathlive';
 import { MathField } from './MathField';
 import { MOBILE_QUERY } from '../mobile';
+import {
+  getActiveMathField,
+  getFocusedMathField,
+  isFieldFocused,
+  subscribeFieldFocus,
+} from '../editor/activeField';
 
 /**
  * `MathField` 의 셀 조작 단축키(Enter 계열, Alt+화살표) 회귀 테스트.
@@ -447,5 +453,103 @@ describe('MathField — 셰도우 DOM 스타일', () => {
       [...rule.cssRules].some((r) => r.cssText.includes('ML__sqrt-sign')),
     );
     expect(insideMobile, '탭 여백 규칙을 모바일 블록 안에서 못 찾았다').toBe(true);
+  });
+});
+
+describe('MathField — 포커스 게이트 (editor/activeField.ts)', () => {
+  /** 셀 그룹 하나에 필드 둘. 셀 간 이동을 진짜 `focus()` 로 재현하려면 둘이 필요하다. */
+  async function mountPair() {
+    const group = document.createElement('div');
+    group.className = 'cell-group';
+    document.body.append(group);
+    const hostA = document.createElement('div');
+    const hostB = document.createElement('div');
+    group.append(hostA, hostB);
+
+    const rootA = createRoot(hostA);
+    const rootB = createRoot(hostB);
+    rootA.render(createElement(MathField, { value: 'x+y' }));
+    rootB.render(createElement(MathField, { value: 'a+b' }));
+    await settle();
+
+    cleanups.push(() => {
+      rootA.unmount();
+      rootB.unmount();
+      group.remove();
+    });
+    return {
+      mfA: hostA.querySelector('math-field') as MathfieldElement,
+      mfB: hostB.querySelector('math-field') as MathfieldElement,
+      rootA,
+    };
+  }
+
+  it('포커스가 들어오면 "지금"과 "마지막"이 둘 다 그 필드다', async () => {
+    const { mfA } = await mountPair();
+    mfA.focus();
+    await settle();
+    expect(isFieldFocused()).toBe(true);
+    expect(getFocusedMathField()).toBe(mfA);
+    expect(getActiveMathField()).toBe(mfA);
+  });
+
+  it('포커스가 빠지면 "지금"은 비고 "마지막"은 남는다', async () => {
+    // 이 비대칭이 이 모듈의 존재 이유다 — 팔레트는 포커스가 빠진 뒤에도 대상을
+    // 알아야 하고(끈끈함), 가상 키보드는 빠졌다는 걸 알아야 한다(지금).
+    const { mfA } = await mountPair();
+    mfA.focus();
+    await settle();
+    mfA.blur();
+    await settle();
+    expect(isFieldFocused()).toBe(false);
+    expect(getActiveMathField()).toBe(mfA);
+  });
+
+  it('셀에서 셀로 옮기는 동안 포커스가 한 번도 안 끊긴다', async () => {
+    // 깜빡임 회귀 핀. focusout(A) → focusin(B) 사이에서 `false` 를 한 번이라도
+    // 내보내면 팔레트가 접혔다 펴지고, `--palette-h` 로 묶인 `.app` 바닥 여백까지
+    // 함께 움직여 내용이 통째로 튄다(`styles/base.css`).
+    const { mfA, mfB } = await mountPair();
+    mfA.focus();
+    await settle();
+
+    const seen: boolean[] = [];
+    const unsubscribe = subscribeFieldFocus(() => seen.push(isFieldFocused()));
+    cleanups.push(unsubscribe);
+
+    mfB.focus();
+    await settle();
+
+    expect(getFocusedMathField()).toBe(mfB);
+    expect(seen).not.toContain(false);
+  });
+
+  it('창 포커스 전환(relatedTarget 없는 focusout)으로는 안 놓는다', async () => {
+    // alt-tab/앱 전환에서는 focusout 이 나지만 `document.activeElement` 는 그대로다 —
+    // 돌아왔을 때 하던 자리가 살아 있어야 하므로 포커스를 놓지 않는다. 같은 필드가
+    // 여전히 진짜로 포커스돼 있으니 합성 이벤트만 쏘면 그 상황이 그대로 재현된다.
+    const { mfA } = await mountPair();
+    mfA.focus();
+    await settle();
+    mfA.dispatchEvent(new FocusEvent('focusout', { relatedTarget: null }));
+    await settle();
+    expect(isFieldFocused()).toBe(true);
+    expect(getFocusedMathField()).toBe(mfA);
+  });
+
+  it('포커스된 채 언마운트되면 게이트가 비고, 사라진 필드를 대상으로 안 남긴다', async () => {
+    // `mf.remove()` 는 포커스된 필드에서도 focusout 을 안 쏜다 — 정리 경로가 직접
+    // 알리지 않으면 이미 떨어져 나간 필드가 "포커스 중"으로 남고, 팔레트는 detached
+    // 엘리먼트로 키를 흘린다.
+    const { mfA, rootA } = await mountPair();
+    mfA.focus();
+    await settle();
+    expect(getActiveMathField()).toBe(mfA);
+
+    rootA.unmount();
+    await settle();
+
+    expect(isFieldFocused()).toBe(false);
+    expect(getActiveMathField()).not.toBe(mfA);
   });
 });

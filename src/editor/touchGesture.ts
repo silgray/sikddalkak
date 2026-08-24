@@ -252,11 +252,11 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
       const { x, y } = aimedPoint(DIRECT_AIM, clientX, clientY);
       // 원자 사이 빈 자리에서 나오는 못 믿을 표본은 버린다 (`resolveOffsetAt` 참고) —
       // 그대로 쓰면 선택이 식의 엉뚱한 데로 튄다.
-      const focus = resolveOffsetAt(mf, x, y, x < startX ? -1 : 1);
-      if (focus === null) return;
-      const [a, b] = anchorRun ?? [focus, focus];
-      const lo = Math.min(a, focus);
-      const hi = Math.max(b, focus);
+      const caret = resolveOffsetAt(mf, x, y, x < startX ? -1 : 1);
+      if (caret === null) return;
+      const [a, b] = anchorRun ?? [caret, caret];
+      const lo = Math.min(a, caret);
+      const hi = Math.max(b, caret);
       setRawSelection(mf, lo, hi);
     } catch {
       /* 내부 상태가 예상과 다르면 선택을 건드리지 않는다 */
