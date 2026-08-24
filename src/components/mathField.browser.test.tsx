@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { createElement } from 'react';
 import type { MathfieldElement } from 'mathlive';
 import { MathField } from './MathField';
+import { MOBILE_QUERY } from '../mobile';
 
 /**
  * `MathField` 의 셀 조작 단축키(Enter 계열, Alt+화살표) 회귀 테스트.
@@ -373,5 +374,78 @@ describe('MathField — 셰도우 DOM 스타일', () => {
     const glyphWidth = glyphs.reduce((sum, g) => sum + g.getBoundingClientRect().width, 0);
     expect(glyphs.length).toBeGreaterThan(0);
     expect(line!.getBoundingClientRect().width).toBeGreaterThan(glyphWidth);
+  });
+
+  /** `\sqrt` 본문 오른쪽 끝의 탭 여백 칸(`MathField.tsx` 의 `SHADOW_CSS`)을 찾는다. */
+  function sqrtContentBox(mf: MathfieldElement): HTMLElement | null {
+    return mf.shadowRoot?.querySelector(
+      '.ML__sqrt-sign + .ML__vlist-t2 > .ML__vlist-r > .ML__vlist > span:first-child > span:not(.ML__pstrut)',
+    ) as HTMLElement | null;
+  }
+
+  it(String.raw`\sqrt 안쪽 끝에 탭 여백이 붙는다`, async () => {
+    // 회귀 핀 — 근호 본문(vinculum)이 마지막 글자에 딱 맞게 렌더돼, "본문 맨 끝,
+    // 근호 안쪽"에 캐럿을 두려는 탭이 짚을 자리가 없었다(사용자 보고, `\sqrt{1+x^2}`).
+    // `.overline` 과 같은 트릭 — 내용 칸에만 오른쪽 패딩을 주면 vinculum(width:100%)이
+    // 그만큼 길어진다. ⚠ 깨지면 MathLive가 `.ML__sqrt-sign`/`.ML__vlist-t2` 구조를 바꾼 것이다.
+    //
+    // ⚠ 이 규칙은 모바일 전용 `@media` 블록 안에 있다(아래 다른 테스트가 그 조건문
+    // 자체를 확인한다). 실제로 적용되는지는 이 브라우저 러너의 뷰포트가 이미 640px
+    // 아래라 여기서도 관찰된다 — `window.matchMedia` 를 흉내 내는 건 소용없다:
+    // 셰도우 스타일시트의 `@media` 는 우리 JS가 아니라 브라우저 CSS 엔진이 진짜
+    // 뷰포트 폭으로 직접 평가한다(`touchGesture.browser.test.tsx` 도 같은 이유로
+    // 실제 적용 대신 `CSSMediaRule.conditionText` 만 구조로 확인한다).
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    root.render(createElement(MathField, { value: String.raw`1+\sqrt{1+x^2}+3` }));
+    await settle();
+    const mf = host.querySelector('math-field') as MathfieldElement;
+    cleanups.push(() => {
+      root.unmount();
+      host.remove();
+    });
+
+    const contentBox = sqrtContentBox(mf);
+    expect(contentBox, '근호 본문 칸을 못 찾았다 — MathLive 구조가 바뀌었나?').not.toBeNull();
+    expect(parseFloat(getComputedStyle(contentBox!).paddingRight)).toBeGreaterThan(0);
+
+    // 줄은 내용 칸 폭을 따라간다 — 패딩이 붙었으니 본문 글자들의 오른쪽 끝(`x^2`)
+    // 보다 더 오른쪽까지 뻗는다.
+    const line = mf.shadowRoot?.querySelector('.ML__sqrt-line') as HTMLElement | null;
+    const lastGlyph = [...contentBox!.querySelectorAll('.ML__mathit, .ML__cmr')].at(-1) as
+      | HTMLElement
+      | undefined;
+    expect(line, '줄(vinculum)을 못 찾았다').not.toBeNull();
+    expect(lastGlyph, '본문 글자를 못 찾았다').not.toBeUndefined();
+    expect(line!.getBoundingClientRect().right).toBeGreaterThan(lastGlyph!.getBoundingClientRect().right);
+  });
+
+  it(String.raw`\sqrt 탭 여백 규칙은 모바일 전용 @media 블록 안에 있다`, async () => {
+    // CLAUDE.md §모바일 대원칙 — 데스크톱 레이아웃은 건드리지 않는다. 실제
+    // 뷰포트로 판정하는 건 위 테스트가 이미 하니, 여기서는 **그 규칙이 데스크톱에서
+    // 안 걸리게 막는 조건문 자체**가 셰도우 스타일시트에 실려 있는지만 구조로 본다.
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    root.render(createElement(MathField, { value: String.raw`1+\sqrt{1+x^2}+3` }));
+    await settle();
+    const mf = host.querySelector('math-field') as MathfieldElement;
+    cleanups.push(() => {
+      root.unmount();
+      host.remove();
+    });
+
+    const topLevel = mf.shadowRoot!.adoptedStyleSheets.flatMap((sheet) => [...sheet.cssRules]);
+    const leaked = topLevel.some((rule) => !(rule instanceof CSSMediaRule) && rule.cssText.includes('0.35em'));
+    expect(leaked, '탭 여백 규칙이 @media 블록 밖(전역)에 있다').toBe(false);
+
+    const mediaRules = topLevel.filter((rule): rule is CSSMediaRule => rule instanceof CSSMediaRule);
+    const mobile = mediaRules.filter((rule) => rule.conditionText === MOBILE_QUERY);
+    expect(mobile.length, `모바일 블록이 없다 (${MOBILE_QUERY})`).toBeGreaterThan(0);
+    const insideMobile = mobile.some((rule) =>
+      [...rule.cssRules].some((r) => r.cssText.includes('ML__sqrt-sign')),
+    );
+    expect(insideMobile, '탭 여백 규칙을 모바일 블록 안에서 못 찾았다').toBe(true);
   });
 });

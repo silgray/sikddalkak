@@ -235,6 +235,26 @@ const SHADOW_CSS = `
   .ML__container {
     touch-action: pan-y;
   }
+
+  /* \\sqrt 안쪽 오른쪽 끝에 탭 여백을 준다. 근호 본문이 자기 너비에 딱 맞게
+     렌더되어(위 vinculum이 마지막 글자 바로 뒤에서 끝난다), "본문 맨 끝, 근호
+     안쪽"에 캐럿을 두려는 탭이 손가락으로는 짚을 자리가 없었다(사용자 보고,
+     \\sqrt{1+x^2} 예시). \\overline 과 같은 구조적 이유로 같은 트릭을 쓴다:
+     이 줄(sqrt-line, vinculum)은 width: 100% 라 자기 칸(vlist)의 폭을
+     따라가므로, **본문 쪽에만** 오른쪽 패딩을 주면 vlist가 그만큼 넓어지고
+     줄이 그 여백까지 뻗는다 — 실측(76px→81px폭, +0.35em 만큼).
+
+     .overline 과 달리 sqrt의 바깥 원자에는 걸 만한 클래스가 없다
+     (mathlive.mjs 의 ML__sqrt CSS 클래스는 죽은 규칙 — 실제로는 안 붙는다).
+     대신 .ML__sqrt-sign(근호 기호)의 다음 형제가 언제나 본문의 .ML__vlist-t2
+     라는 구조(실측: SqrtAtom.render, [delimBox, bodyBox])로 짚는다 —
+     \\sqrt[n]{} 처럼 앞에 지수 상자가 붙어도 그 둘의 인접 관계는 안 바뀐다.
+
+     왼쪽 패딩은 안 준다 — 근호 기호와 본문 사이는 이미 붙어 있는 게 맞는
+     렌더(수학 표기 관례)라 왼쪽을 벌리면 오히려 어색해 보인다. */
+  .ML__latex .ML__sqrt-sign + .ML__vlist-t2 > .ML__vlist-r > .ML__vlist > span:first-child > span:not(.ML__pstrut) {
+    padding-right: 0.35em;
+  }
 }
 `;
 
