@@ -1,0 +1,56 @@
+/* 제목 + 탭 바 + 도움말. 데스크톱은 두 줄(`.tabbar`가 flex-basis:100%로 줄바꿈),
+   모바일(640px 이하)은 한 줄로 흡수된다 — 아래 모바일 블록 참고. */
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.app-title {
+  font-size: 1.6rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.app-intro {
+  margin: 0 0 2rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.7;
+}
+
+.app-intro code,
+.app-intro kbd {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  border-radius: 4px;
+  padding: 0.1em 0.4em;
+  font-size: 0.9em;
+}
+
+@media (max-width: 640px) {
+  /* --- 상단 바: 제목 + 탭 + 도움말을 한 줄로 --- */
+
+  .topbar {
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.5rem;
+    position: sticky;
+    top: 0;
+    z-index: 6;
+    background: var(--bg);
+    padding: 0.6rem 0.75rem;
+    margin: 0 0 0.25rem;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .app-title {
+    flex: 0 0 auto;
+    font-size: 0.95rem;
+  }
+
+  .app-intro {
+    display: none;
+  }
+}

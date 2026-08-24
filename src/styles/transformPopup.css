@@ -1,0 +1,48 @@
+/* 모바일에서 변환 버튼(expand/simplify/factor)을 같은 방식으로 띄우는 자리 —
+   기본값은 숨김(데스크톱은 `.cell-actions`/`.result-actions` 안에 인라인으로 그대로
+   보인다). 실제 배치는 아래 모바일 미디어쿼리가 정한다. */
+.transform-popup {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  /* `.cell-actions` 는 흐름에서 빼고, 그 안의 × 만 셀 우상단에 띄운다(`cell.css`).
+     변환 버튼은 여기서 숨기고 아래 팝업이 대신한다. */
+  .cell-actions .transform-btn {
+    display: none;
+  }
+
+  /* 결과 행의 formula/decimal 토글은 남기고(`resultMode.css`), 인라인 변환 버튼만
+     숨긴다 — 아래 팝업이 대신 뜬다. */
+  .result-actions .transform-btn {
+    display: none;
+  }
+
+  /* 경고는 두 곳(여기 팝업과 `.result-actions`)에 다 렌더된다 — 모바일에서는
+     아래 오른쪽(`cell.css` 의 `.result-actions .result-error`) 하나만 보인다.
+     왼쪽 팝업 쪽은 변환 버튼 자리다. */
+  .transform-popup .result-error {
+    display: none;
+  }
+
+  /* 변환 버튼(expand/simplify/factor)도 선택 위로 띄운다 — `.cell-actions` 가
+     통째로 숨은 자리에선 인라인으로 보일 방법이 없다. `.selection-toolbar`(행렬
+     구분 기호)와 겹치는 걸 피하려고 반대쪽(필드 아래)에 둔다. */
+  .result {
+    position: relative;
+  }
+
+  .transform-popup {
+    display: flex;
+    position: absolute;
+    top: calc(100% + 0.15rem);
+    left: 1.4rem;
+    z-index: 5;
+    gap: 2px;
+    padding: 0.1rem 0.2rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    box-shadow: 0 3px 10px color-mix(in srgb, var(--fg) 15%, transparent);
+  }
+}

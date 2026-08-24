@@ -1,0 +1,113 @@
+/* 결과 토글의 짧은 라벨(π / 3.14). 데스크톱은 `formula`/`decimal` 낱말을 쓰므로
+   숨긴다 — 둘 다 렌더되고 어느 쪽을 보일지는 미디어쿼리가 정한다(CellGroup.tsx). */
+.result-mode-label-compact {
+  display: none;
+}
+
+/* --- 결과 표시 모드 스위치 (symbolic ↔ numeric) --- */
+
+/* 손잡이가 좌우로 미끄러지는 슬라이드 토글. 폭을 고정해 두 낱말 중 긴 쪽
+   ("symbolic")이 들어가게 하고, 손잡이 위치는 그 안에서 계산한다. */
+.result-mode {
+  --knob: 0.85rem;
+  --rail-pad: 0.12rem;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  width: 5rem;
+  height: calc(var(--knob) + var(--rail-pad) * 2);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  font-family: inherit;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.result-mode:hover {
+  border-color: var(--muted);
+}
+
+.result-mode-numeric {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* 이름은 손잡이 **반대쪽**에 놓인다 — 손잡이가 왼쪽이면 오른쪽 여백이 좁아진다. */
+.result-mode-label {
+  width: 100%;
+  text-align: center;
+  padding-left: var(--knob);
+  color: var(--muted);
+  font-size: 0.62rem;
+  letter-spacing: 0.01em;
+  transition: padding 0.15s ease, color 0.15s ease;
+}
+
+.result-mode-numeric .result-mode-label {
+  padding-left: 0;
+  padding-right: var(--knob);
+  color: var(--accent);
+}
+
+.result-mode-knob {
+  position: absolute;
+  top: var(--rail-pad);
+  left: var(--rail-pad);
+  width: var(--knob);
+  height: var(--knob);
+  border-radius: 50%;
+  background: var(--muted);
+  transition: left 0.15s ease, background 0.15s ease;
+}
+
+.result-mode-numeric .result-mode-knob {
+  left: calc(100% - var(--knob) - var(--rail-pad));
+  background: var(--accent);
+}
+
+@media (max-width: 640px) {
+  /* 낱말(formula/decimal) 대신 기호(π / 3.14)를 쓰므로 훨씬 좁아도 된다.
+     높이는 π 의 라인박스(폰트 1.3rem → 27.5px 실측)가 들어갈 만큼 준다 — 겸사겸사
+     터치 타겟도 커진다. */
+  .result-mode {
+    --knob: 1.1rem;
+    width: 3.6rem;
+    height: 1.85rem;
+  }
+
+  /* 전역 규칙은 손잡이를 `top: var(--rail-pad)` 로 붙이는데, 그건 높이가
+     `knob + rail-pad*2` 일 때만 가운데다. 여기선 높이를 따로 주므로 직접 센터링한다. */
+  .result-mode-knob {
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .result-mode-label {
+    display: none;
+  }
+
+  .result-mode-label-compact {
+    display: block;
+    width: 100%;
+    text-align: center;
+    padding-left: var(--knob);
+    color: var(--muted);
+    /* π 는 한 글자, 3.14 는 네 글자다 — 글자 크기를 따로 줘서 **차지하는 폭이
+       비슷해 보이게** 맞춘다(한쪽만 작아 보이지 않게). 실측 잉크 폭 기준으로
+       고른 값이다: π 13.3px vs 3.14 17.4px. */
+    font-size: 1.3rem;
+    line-height: 1;
+    transition: padding 0.15s ease, color 0.15s ease;
+  }
+
+  .result-mode-numeric .result-mode-label-compact {
+    padding-left: 0;
+    padding-right: var(--knob);
+    color: var(--accent);
+    font-size: 0.58rem;
+  }
+}

@@ -1,0 +1,20 @@
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.drop-line {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  margin: 0.05rem 0.25rem;
+}
+
+@media (max-width: 640px) {
+  /* 그룹 사이 간격 — 둥근 모서리와 함께 "여기서 그룹이 갈린다"를 만든다. */
+  .stack {
+    gap: 0.4rem;
+    padding: 0.35rem 0.3rem 0;
+  }
+}

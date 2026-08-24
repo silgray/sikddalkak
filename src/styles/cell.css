@@ -1,0 +1,274 @@
+.cell-group {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fg) 2%, transparent);
+  /* overflow: hidden을 두지 않는다 — 선택 툴바가 셀 위로 떠야 한다.
+     긴 수식은 각 행의 min-width:0 + 필드 자체 스크롤이 처리한다. */
+}
+
+.cell-group-dragging {
+  opacity: 0.45;
+}
+
+/* 그룹 안 하위 셀(손으로 변형해 온 파생)은 위 셀과 얇은 점선으로 갈린다 —
+   그룹 최상단 셀과는 카드 테두리 자체가 경계라 겹치지 않는다. */
+.cell-group .cell + .cell {
+  border-top: 1px dashed var(--line);
+}
+
+.cell {
+  /* 카드 테두리는 `.cell-group` 몫 — 개별 셀은 그 안의 행일 뿐이다. */
+}
+
+.cell-input {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  min-width: 0;
+}
+
+.drag-handle,
+.drag-handle-spacer {
+  flex-shrink: 0;
+  width: 1.05rem;
+  text-align: center;
+}
+
+.drag-handle {
+  cursor: grab;
+  color: var(--muted);
+  user-select: none;
+  touch-action: none;
+  padding: 0.15rem 0.1rem;
+  font-size: 0.85rem;
+  line-height: 1;
+  opacity: 0.45;
+}
+
+.cell-group:hover .drag-handle {
+  opacity: 1;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.cell-disabled {
+  opacity: 0.4;
+}
+
+.cell-toggle {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  padding: 0.15rem 0.1rem;
+  font-size: 0.75rem;
+  line-height: 1;
+  opacity: 0.55;
+}
+
+.cell-group:hover .cell-toggle {
+  opacity: 1;
+}
+
+.cell-toggle:hover {
+  color: var(--accent);
+}
+
+.cell-input .mf {
+  flex: 1;
+  min-width: 0;
+}
+
+.cell-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+.cell-actions button {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.cell-actions button:hover {
+  color: var(--fg);
+  border-color: var(--muted);
+}
+
+.cell-actions .mode-toggle {
+  white-space: nowrap;
+}
+
+/* 그룹 하위 셀의 삭제 — 그룹 전체를 지우는 최상단 ×보다 눈에 덜 띄게. */
+.cell-actions .remove-sub {
+  opacity: 0.35;
+  border-color: transparent;
+}
+
+.cell-actions .remove-sub:hover {
+  opacity: 0.9;
+  border-color: var(--muted);
+}
+
+.cell-actions .transform-btn {
+  white-space: nowrap;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.cell-actions .transform-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+/* 지금 이 변수로 풀고 있다 — 채워서 강조한다 (구분 기호 툴바의 delim-btn-active와
+   같은 언어, 다만 solve는 토글 상태를 눈에 더 띄게 하려고 배경까지 채운다). */
+.cell-actions .transform-btn.solve-btn-active {
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.result {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border-top: 1px dashed var(--line);
+  min-width: 0;
+}
+
+.result-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+.result-actions button {
+  border: 1px solid var(--line);
+  background: transparent;
+  border-radius: 6px;
+  padding: 0.53rem 0.5rem;
+  font-size: 0.7rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.result-arrow {
+  color: var(--muted);
+  font-size: 0.95rem;
+  flex-shrink: 0;
+  width: 1rem;
+}
+
+.result-def .result-arrow {
+  color: var(--def);
+}
+
+.verdict {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.verdict-true {
+  color: var(--def);
+}
+
+.verdict-false {
+  color: var(--error);
+}
+
+.result-error {
+  color: var(--error);
+  font-size: 0.8rem;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+}
+
+@media (max-width: 640px) {
+  /* 데스크톱 카드와 같은 꼴로 되돌린다(전역 규칙 그대로) — 좌우 여백만 최소로 둬
+     화면을 거의 다 쓴다. */
+  .cell-group {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--fg) 2%, transparent);
+  }
+
+  .cell-input,
+  .result {
+    /* 오른쪽은 우상단 × 버튼 자리를 비워 둔다(아래 `.cell-actions .remove`). */
+    padding: 0.8rem 1.4rem 0.8rem 0.6rem;
+    /* 오른쪽 열(모드 토글·선택 경고)을 아래 줄로 내리기 위한 것 — 수식이 쓸 폭을
+       세로로 벌어 준다. 데스크톱은 한 줄 그대로다. */
+    flex-wrap: wrap;
+    /* 아래 줄이 비어 있을 때(경고 없음) 줄 간격만 남아 셀이 8px 두꺼워지는 걸 막는다.
+       가로 간격은 그대로 둔다. */
+    row-gap: 0;
+  }
+
+  /* --- 셀 컨트롤: 드래그 핸들과 삭제만 되살린다 (작게) --- */
+
+  /* 계산 포함 토글(●)은 아직 숨긴다 — 자리를 먹는 데 비해 쓰임이 드물다. */
+  .cell-toggle {
+    display: none;
+  }
+
+  .drag-handle,
+  .drag-handle-spacer {
+    display: block;
+    width: 0.8rem;
+    font-size: 0.7rem;
+    /* 터치엔 hover가 없어 `.cell-group:hover` 규칙이 안 걸린다 — 늘 보이게 둔다. */
+    opacity: 0.55;
+  }
+
+  /* `.cell-actions` 는 흐름에서 빼고, 그 안의 × 만 셀 우상단에 띄운다. 변환 버튼은
+     `.transform-popup` 이 대신하므로 여기선 안 그린다(`transformPopup.css` 가 숨긴다). */
+  /* 좁은 화면에서 오른쪽 열은 셀 폭을 잡아먹는다 — 삭제(×)는 절대배치로 우상단에
+     띄우고, 남는 것(선택 경고)은 아래 줄 오른쪽으로 내린다. `.cell-input` 이
+     wrap 하므로 `width: 100%` 면 자기 줄을 차지한다. 내용이 없으면 높이 0이라 공짜다. */
+  .cell-actions {
+    display: block;
+    width: 100%;
+    text-align: right;
+  }
+
+  .cell-actions .remove {
+    position: absolute;
+    top: 0.15rem;
+    right: 0.15rem;
+    z-index: 4;
+    padding: 0.1rem 0.3rem;
+    font-size: 0.75rem;
+    line-height: 1.2;
+    border-color: transparent;
+    opacity: 0.5;
+  }
+
+  /* 모드 토글(π/3.14)과 선택 경고를 결과 **아래 줄 오른쪽**으로 내린다 — 오른쪽에
+     세워두면 그만큼 수식 폭이 줄어든다(사용자 보고). */
+  .result-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  /* 긴 경고문이 카드를 넓히지 않게 줄여 둔다. */
+  .cell-actions .result-error,
+  .result-actions .result-error {
+    font-size: 0.7rem;
+    line-height: 1.3;
+  }
+}

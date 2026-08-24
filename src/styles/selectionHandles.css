@@ -1,0 +1,111 @@
+/* 선택 범위 양끝 드래그 핸들 — 모바일 전용. DOM은 늘 그리고 배치·표시는 아래
+   미디어쿼리가 정한다 (모바일 대원칙 1). */
+.sel-handle {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  /* `.mf math-field` 의 `font-size` 는 `mathField.css` 몫이다 — 여기 있는 건
+     터치 제스처 관련 프로퍼티뿐이라(겹치는 프로퍼티가 없다) 어느 쪽을 먼저
+     import 해도 결과가 같다. `selectionHandles.css` 를 뒤에 두는 건 이 파일이
+     `.mf` 위에 얹는 오버레이 계층이라 나중에 프로퍼티가 겹치면 이쪽이 이기는
+     게 맞기 때문이다. */
+  .mf math-field {
+    /* 가로 손짓은 우리가 가져오고(`editor/touchGesture.ts` 의 패닝), 세로 페이지
+       스크롤은 브라우저에 남긴다. */
+    touch-action: pan-y;
+    /* 꾹 눌렀을 때 뜨는 네이티브 선택 콜아웃을 막는다 — 그 자리는 홀드 선택이 쓴다.
+       ⚠ `user-select: none` 으로 막으면 안 된다: MathLive가 그걸 보고 pointerdown
+       리스너를 아예 안 달아(실측, `connectedCallback`) 필드가 통째로 죽는다. */
+    -webkit-touch-callout: none;
+  }
+
+  /* --- 선택 범위 양끝 드래그 핸들 (`SelectionHandles.tsx`) --- */
+
+  /* 핸들의 기준 상자. `math-field` 를 담은 그 상자에 바로 얹는다. */
+  .mf {
+    position: relative;
+  }
+
+  .sel-handle {
+    display: block;
+    position: absolute;
+    /* 보이는 건 얇은 막대지만 손가락이 잡을 폭은 따로 준다. */
+    width: 2rem;
+    transform: translateX(-50%);
+    /* 브라우저가 이 손짓을 스크롤로 가져가면 안 된다 — 우리가 끝까지 쓴다. */
+    touch-action: none;
+    z-index: 5;
+  }
+
+
+  /* 선택 경계에 서는 얇은 막대. */
+  .sel-handle::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    transform: translateX(-50%);
+    background: var(--accent);
+    border-radius: 1px;
+  }
+
+  /* 손잡이 — **안드로이드 스타일 물방울**. 안드로이드는 셋을 지킨다:
+     ① 둘 다 선택 줄 **아래**에 매달린다 (위/아래로 안 가른다 — 손가락이 늘
+        수식 아래에 오므로 잡는 자리가 한결같다)
+     ② **뾰족한 모서리 하나가 경계를 정확히 짚는다** — 나머지 세 모서리만 둥글다
+     ③ 좌우가 **거울상**이다: 시작은 뾰족한 쪽이 오른쪽 위(=경계가 오른쪽에
+        있으니 그쪽을 가리킨다), 끝은 왼쪽 위.
+     그래서 물방울 몸통은 경계 **바깥쪽**으로 비켜 있고 꼭짓점만 경계에 닿는다 —
+     선택된 내용을 손잡이가 가리지 않는 게 이 모양의 요점이다. */
+  .sel-handle::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 100%;
+    width: 1.125rem;
+    height: 1.125rem;
+    background: var(--accent);
+  }
+
+  /* 시작 — 몸통은 경계 왼쪽, 뾰족한 모서리는 오른쪽 위. */
+  .sel-handle-start::after {
+    transform: translateX(-100%);
+    border-radius: 50% 0 50% 50%;
+  }
+
+  /* 끝 — 거울상. 몸통은 경계 오른쪽, 뾰족한 모서리는 왼쪽 위. */
+  .sel-handle-end::after {
+    transform: translateX(0);
+    border-radius: 0 50% 50% 50%;
+  }
+
+  /* 컨테이너 밖으로 나간 선택 끝 — 숨기지 않고 그 경계에 세운다
+     (`SelectionHandles.tsx` 의 `pinned`). 선은 옅게, 손잡이는 바깥을 가리키는
+     화살촉으로 바꿔 "이쪽에 더 있다"로 읽히게 한다. 시작은 왼쪽 경계에서만,
+     끝은 오른쪽 경계에서만 붙으므로(선택은 늘 정렬돼 있다) 방향은 클래스만으로
+     정해진다 — 별도 좌/우 modifier가 필요 없다.
+
+     ⚠ **물방울의 비켜선 배치를 여기서만 되돌린다.** 평소엔 몸통이 경계 바깥쪽으로
+     비켜 있는데(위 `translateX`), 핀은 이미 컨테이너 **경계**에 서 있어서 그대로
+     두면 몸통이 통째로 셀 밖으로 나가 안 보인다. 핀일 때만 경계 위에 가운데
+     맞춤으로 되돌리고 화살촉으로 자른다. */
+  .sel-handle-pinned::before {
+    opacity: 0.5;
+  }
+
+  .sel-handle-pinned::after {
+    transform: translateX(-50%);
+    border-radius: 0;
+  }
+
+  .sel-handle-start.sel-handle-pinned::after {
+    clip-path: polygon(100% 0, 0 50%, 100% 100%);
+  }
+
+  .sel-handle-end.sel-handle-pinned::after {
+    clip-path: polygon(0 0, 100% 50%, 0 100%);
+  }
+}

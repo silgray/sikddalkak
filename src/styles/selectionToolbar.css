@@ -1,0 +1,53 @@
+/* --- 선택 위 플로팅 툴바 (행렬 구분 기호) --- */
+
+/* 툴바를 절대배치로 띄우는 기준 상자. `.cell-input` 자체의 레이아웃은
+   `cell.css` 몫이고, 여기 있는 건 오직 이 `position: relative` 뿐이다 —
+   다른 규칙과 프로퍼티가 안 겹쳐 어느 파일에 있어도 안전하다(무순서). */
+.cell-input {
+  position: relative;
+}
+
+.selection-toolbar {
+  position: absolute;
+  /* 셀 위로 완전히 띄운다 (자기 높이와 무관하게). 셀은 overflow를 두지 않아
+     잘리지 않고, z-index로 위 셀 위에 겹쳐 뜬다. */
+  bottom: calc(100% + 0.15rem);
+  left: 1.6rem; /* 드래그 핸들 폭만큼 들여 필드 시작점에 맞춘다 */
+  z-index: 5;
+  display: flex;
+  gap: 2px;
+  padding: 0.1rem 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--fg) 15%, transparent);
+}
+
+.delim-btn {
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.8rem;
+  padding: 0.1rem 0.4rem;
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.delim-btn:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+.delim-btn-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+@media (max-width: 640px) {
+  /* 행렬 구분 기호 툴바는 셀 위로 뜨는 오버레이라 수식 자리를 안 먹는다 — 남긴다.
+     `left`는 드래그 핸들 폭에 맞춘다. */
+  .selection-toolbar {
+    left: 1.4rem;
+  }
+}

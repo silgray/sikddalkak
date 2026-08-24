@@ -1,0 +1,35 @@
+/* 전역 리셋 + 앱 셸. */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+.app {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 6rem;
+}
+
+@media (max-width: 640px) {
+  /* --- 셀은 좌우로 거의 꽉 차되, 그룹은 둥근 카드로 서로 갈린다 --- */
+
+  .app {
+    max-width: none;
+    /* `--palette-h` 는 `keyPalette.css` 가 정의한다 — 팔레트 높이와 이 바닥 여백을
+       한 값으로 묶는 자리라 팔레트가 주인이다. */
+    padding: 0 0 calc(var(--palette-h) + env(safe-area-inset-bottom));
+  }
+
+  /* --- 터치 일반 --- */
+
+  button {
+    touch-action: manipulation;
+  }
+}

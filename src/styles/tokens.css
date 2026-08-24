@@ -1,0 +1,24 @@
+/* 디자인 토큰 — 라이트/다크 CSS 변수. 다른 모든 파일이 여기 변수만 쓴다. */
+
+:root {
+  --bg: #fbfbfd;
+  --fg: #1c1c1e;
+  --muted: #8a8a8e;
+  --line: #e3e3e8;
+  --accent: #3b6ef5;
+  --error: #c0392b;
+  --def: #1f7a4d;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16161a;
+    --fg: #ececf1;
+    --muted: #8a8a94;
+    --line: #2c2c33;
+    --accent: #7aa2ff;
+    --error: #ff7b6b;
+    --def: #5ed49b;
+  }
+}

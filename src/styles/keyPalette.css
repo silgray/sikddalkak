@@ -1,0 +1,152 @@
+/* 자체 키 팔레트(KeyPalette.tsx) — 데스크톱에서는 물리 키보드가 있으니 숨긴다.
+   실제 배치는 아래 모바일 미디어쿼리가 정한다. */
+.key-palette {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  :root {
+    /* 가장 높은 레이어(abc: 기호 줄 + qwerty 3줄)가 스크롤 없이 들어가는 높이.
+       `.app` 의 바닥 여백도 이 값을 쓴다(`base.css`) — 하나만 고치면 둘 다 맞는다. */
+    --palette-h: 15.5rem;
+  }
+
+  /* --- 자체 키 팔레트 (KeyPalette.tsx) --- */
+
+  .key-palette {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 8;
+    height: var(--palette-h);
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--bg);
+    border-top: 1px solid var(--line);
+  }
+
+  .key-palette-tabs {
+    display: flex;
+    align-items: stretch;
+    flex: 0 0 auto;
+    gap: 0.4rem;
+    padding: 0.3rem 0.4rem 0;
+  }
+
+  .key-palette-tablist {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    gap: 2px;
+  }
+
+  /* 탭 오른쪽 끝의 실행취소/다시실행. 레이어와 무관하게 늘 같은 자리다. */
+  .key-palette-history {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 2px;
+  }
+
+  .key-palette-history .palette-key {
+    flex: 0 0 auto;
+    width: 2.1rem;
+    padding: 0.25rem 0;
+    font-style: normal;
+    font-family: inherit;
+    font-size: 1rem;
+  }
+
+  .palette-tab {
+    flex: 1;
+    border: 1px solid var(--line);
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    background: color-mix(in srgb, var(--fg) 3%, transparent);
+    color: var(--muted);
+    font-size: 0.85rem;
+    padding: 0.35rem 0;
+    touch-action: manipulation;
+  }
+
+  .palette-tab-active {
+    background: var(--bg);
+    color: var(--fg);
+    font-weight: 600;
+  }
+
+  .key-palette-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0.3rem;
+    border-top: 1px solid var(--line);
+  }
+
+  /* 1번 탭만 좌(기호·함수) + 우(숫자·연산) 두 블록으로 갈린다. 두 블록의 열 수가
+     달라서(4 vs 5) 한 그리드로는 못 담는다 — 각자 자기 행을 갖는 flex 블록이다. */
+  .key-palette-split {
+    display: flex;
+    gap: 0.4rem;
+  }
+
+  .key-palette-split > .key-palette-block {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .key-palette-block {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  /* 키 폭은 `flex` 로 정한다 — 줄마다 칸 수가 달라도(qwerty 10 / asdf 9+반칸 둘)
+     합이 같으면 세로로 정렬된다(`PaletteKey.span`). */
+  .key-palette-row {
+    display: flex;
+    gap: 1px;
+  }
+
+  .key-palette-nav {
+    flex: 0 0 auto;
+    padding: 0.3rem;
+    border-top: 1px solid var(--line);
+  }
+
+  .palette-key {
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--fg) 3%, transparent);
+    color: var(--fg);
+    font-size: 0.95rem;
+    font-style: normal;
+    font-family: 'Times New Roman', serif;
+    padding: 0.5rem 0.1rem;
+    touch-action: manipulation;
+  }
+
+  /* 기능 키(화살표·백스페이스·행렬 등)는 수식 글자가 아니라 기호다 — 기울임 해제. */
+  .key-palette-nav .palette-key,
+  .palette-key-active {
+    font-style: normal;
+    font-family: inherit;
+  }
+
+  .palette-key:active {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
+  /* shift 켜짐 */
+  .palette-key-active {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+
+  /* 자리 맞춤용 빈 칸 — 버튼이 아니다. */
+  .palette-gap {
+    min-width: 0;
+  }
+}
