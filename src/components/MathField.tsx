@@ -18,7 +18,7 @@ import { setActiveMathField } from '../editor/activeField';
 import { PLACEHOLDER_RULES, contentCount, findViolations, repairLatex } from '../editor/wellformed';
 import { dispatchKeyOp } from '../editor/keyOps';
 import { attachTouchGesture } from '../editor/touchGesture';
-import { isMobileViewport } from '../mobile';
+import { MOBILE_QUERY, isMobileViewport } from '../mobile';
 import { ATOM_BOX_DEBUG } from '../features';
 import { SelectionHandles } from './SelectionHandles';
 import { configureKeybindings } from '../editor/keybindings';
@@ -213,6 +213,28 @@ const SHADOW_CSS = `
    menu-toggle/virtual-keyboard-toggle 둘뿐) 전역 CSS로는 못 닿는다 — 그래서 여기. */
 .ML__container > .ML__toggles {
   align-self: center;
+}
+
+/* 모바일에서만 세로 페이지 스크롤을 브라우저에 되돌려 준다.
+
+   MathLive는 \`.ML__container\` 에 \`touch-action: none\` 을 건다("Prevent the
+   browser from trying to interpret touch gestures in the field") — 그런데
+   touch-action은 히트된 요소와 그 조상들의 **교집합**이라, 호스트에 걸어둔
+   \`pan-y\`(\`styles/selectionHandles.css\`)가 이 한 줄에 통째로 무효화된다.
+   그 결과 셀 위에서 시작한 손짓으로는 페이지가 아예 안 굴러간다(사용자 보고).
+   셰도우 DOM 안이라 전역 CSS로는 못 닿아 여기서 덮는다.
+
+   가로 손짓은 그대로 우리 것이다 — \`pan-y\` 는 세로만 브라우저에 넘긴다
+   (\`editor/touchGesture.ts\` 의 패닝·홀드 선택이 가로를 계속 쓴다). 홀드
+   선택이 성립한 뒤의 **세로** 드래그(분수의 분자/분모 넘나들기)는 브라우저가
+   가져가면 안 되므로, 그때만 \`touchmove\` 로 막는다(같은 파일).
+
+   임계값은 \`src/mobile.ts\` 의 \`MOBILE_QUERY\` 하나를 쓴다 — 셰도우 CSS라
+   \`src/styles/\` 밖에 있어 \`styles/mediaQuery.test.ts\` 가 못 보는 자리다. */
+@media ${MOBILE_QUERY} {
+  .ML__container {
+    touch-action: pan-y;
+  }
 }
 `;
 

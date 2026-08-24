@@ -263,6 +263,27 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
     }
   };
 
+  /**
+   * 손짓이 **우리 것으로 확정된 뒤에는** 브라우저가 그 손가락을 스크롤로 가져가지
+   * 못하게 한다.
+   *
+   * 모바일에서는 셀 위의 세로 손짓을 페이지 스크롤로 브라우저에 넘겨 뒀다
+   * (`touch-action: pan-y` — 호스트는 `styles/selectionHandles.css`, 셰도우 안쪽
+   * `.ML__container` 는 `MathField.tsx` 의 `SHADOW_CSS`). 그런데 홀드 선택이
+   * 성립한 뒤의 세로 드래그(분수의 분자/분모 넘나들기)까지 브라우저가 가져가면
+   * 선택을 세로로 다듬을 수가 없다. `touch-action` 은 손짓 도중에 바꿔봐야 안
+   * 먹으므로(브라우저가 touchstart 때 정한다) **아직 시작되지 않은 패닝**을
+   * `touchmove` 의 `preventDefault` 로 취소한다 — 홀드는 450ms 를 안 움직이고
+   * 기다린 뒤라 그 시점엔 패닝이 아직 시작되지 않았다.
+   *
+   * `pointermove` 로는 못 한다(포인터 이벤트의 `preventDefault` 는 스크롤을 안
+   * 막는다). 그래서 이 리스너 하나만 터치 이벤트다.
+   */
+  const onTouchMove = (ev: TouchEvent): void => {
+    if (mode !== 'hold' && mode !== 'pan') return;
+    if (ev.cancelable) ev.preventDefault();
+  };
+
   const onPointerEnd = (): void => {
     // pointerup 자체는 통과시킨다 — MathLive가 자기 추적을 정리해야 한다.
     reset();
@@ -271,6 +292,7 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
   const releaseMenuBlock = retainMenuBlock();
   host.addEventListener('pointerdown', onPointerDown, { capture: true });
   host.addEventListener('pointermove', onPointerMove, { capture: true, passive: false });
+  host.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
   host.addEventListener('pointerup', onPointerEnd, { capture: true });
   host.addEventListener('pointercancel', onPointerEnd, { capture: true });
 
@@ -279,6 +301,7 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
     releaseMenuBlock();
     host.removeEventListener('pointerdown', onPointerDown, { capture: true });
     host.removeEventListener('pointermove', onPointerMove, { capture: true });
+    host.removeEventListener('touchmove', onTouchMove, { capture: true });
     host.removeEventListener('pointerup', onPointerEnd, { capture: true });
     host.removeEventListener('pointercancel', onPointerEnd, { capture: true });
   };

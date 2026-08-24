@@ -365,6 +365,10 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
   `MathField.tsx` 가 `host.append(mf)` 직후에 접는다. (예전엔 이 증상을
   "`mf.focus()` 가 내용을 통째로 선택한다" 로 잘못 읽었다 — `focus()` 는 선택을
   건드리지 않는다, `mathlive.mjs` 의 `focus()` 는 `_mathfield.focus()` 뿐이다.)
+- **`.ML__container` 에 `touch-action: none` 이 걸려 있다** — `touch-action` 은
+  히트된 요소와 조상들의 **교집합**이라, 호스트에 건 `pan-y` 가 이 한 줄에 통째로
+  무효화돼 셀 위에서는 페이지가 안 굴러간다. 셰도우 DOM 안이라 전역 CSS로는 못
+  닿고 `MathField.tsx` 의 `SHADOW_CSS` 가 모바일에서만 덮는다.
 - **호스트에 `user-select: none` 을 걸면 필드가 죽는다** — MathLive가
   `connectedCallback` 에서 그걸 보고 pointerdown 리스너를 아예 안 단다. 네이티브
   선택 콜아웃 억제는 `-webkit-touch-callout` 으로만 한다.

@@ -6,6 +6,7 @@ import '../styles.css';
 import { FieldClip } from '../components/FieldClip';
 import { MathField } from '../components/MathField';
 import { contentOf } from './internals';
+import { MOBILE_QUERY } from '../mobile';
 
 /**
  * 모바일 터치 제스처 층(`touchGesture.ts`)의 동작 핀.
@@ -128,7 +129,7 @@ describe('터치 제스처 — 스크롤과 선택 가르기', () => {
     await settle();
     // 포커스는 캐럿을 식 끝에 두고 MathLive가 거기까지 스크롤해 둔다 — 그래서
     // 지금은 **뒤쪽**이 보이고, 앞을 보려면 손가락을 오른쪽으로 끌어야 한다.
-    // ⚠ `focus()` 는 내용을 통째로 선택한다(실측) — 캐럿만 있는 상태로 시작한다.
+    // 캐럿을 식 끝에 명시적으로 둔다 — 이 테스트가 보는 건 그 자리에서의 패닝이다.
     mf.position = mf.lastOffset;
     const before = content.scrollLeft;
     expect(before).toBeGreaterThan(0);
@@ -222,6 +223,29 @@ describe('터치 제스처 — 스크롤과 선택 가르기', () => {
     expect(selectedLatex(mf)).toBe('1+xy');
   });
 
+  it('홀드가 성립한 뒤에는 세로 손짓을 브라우저에 안 넘긴다 (touchmove 취소)', async () => {
+    // `touch-action: pan-y` 로 세로를 브라우저에 넘겨 뒀지만(위 셰도우 CSS 핀),
+    // 홀드 선택이 잡힌 뒤의 세로 드래그는 분자/분모를 갈라 짚는 우리 손짓이다.
+    // `touch-action` 은 손짓 도중에 못 바꾸므로 아직 시작 안 된 패닝을 취소한다.
+    pretendMobile(true);
+    const { mf, content } = await mount('1+xy');
+    mf.focus();
+    await settle();
+    const over = pointAt(mf, 4);
+    send(content, 'pointerdown', over);
+    // 아직 모드가 안 정해졌으면 브라우저 몫이다 — 건드리지 않는다.
+    const early = new Event('touchmove', { bubbles: true, cancelable: true, composed: true });
+    content.dispatchEvent(early);
+    expect(early.defaultPrevented, '판정 전에는 스크롤을 뺏지 않는다').toBe(false);
+
+    await wait(600); // 홀드 성립
+    expect(selectedLatex(mf)).toBe('xy');
+    const held = new Event('touchmove', { bubbles: true, cancelable: true, composed: true });
+    content.dispatchEvent(held);
+    expect(held.defaultPrevented, '홀드 중에는 세로 손짓도 우리 것이다').toBe(true);
+    send(content, 'pointerup', over);
+  });
+
   it('세로로 20px(MathLive 히스테리시스)를 넘게 끌어도 선택이 안 생긴다', async () => {
     pretendMobile(true);
     const { mf, content } = await mount(LONG);
@@ -303,6 +327,23 @@ describe('터치 제스처 — 스크롤과 선택 가르기', () => {
     const ev = new Event('contextmenu', { cancelable: true });
     mf.dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it('셀 위의 세로 손짓은 브라우저에 남긴다 — 셰도우 안쪽 touch-action', async () => {
+    // 회귀 핀 — 셀 안에서 시작한 손짓으로는 페이지가 아예 안 굴러갔다(사용자 보고).
+    // MathLive가 `.ML__container` 에 `touch-action: none` 을 걸어, 호스트에 걸어둔
+    // `pan-y`(`styles/selectionHandles.css`)를 교집합으로 무효화하기 때문이다.
+    // 셰도우 DOM 안이라 전역 CSS로는 못 닿아 `MathField.tsx` 의 `SHADOW_CSS` 가 덮는다.
+    // 실제 적용 여부는 러너 창 폭에 달려 있으므로(미디어쿼리는 진짜 뷰포트를 본다)
+    // **규칙이 실려 있는지**와 **임계값이 `MOBILE_QUERY` 인지**를 본다.
+    const { mf } = await mount('1+xy');
+    const rules = mf
+      .shadowRoot!.adoptedStyleSheets.flatMap((sheet) => [...sheet.cssRules])
+      .filter((rule): rule is CSSMediaRule => rule instanceof CSSMediaRule);
+    const mobile = rules.filter((rule) => rule.conditionText === MOBILE_QUERY);
+    expect(mobile.length, `모바일 블록이 없다 (${MOBILE_QUERY})`).toBeGreaterThan(0);
+    const text = mobile.flatMap((rule) => [...rule.cssRules]).map((rule) => rule.cssText);
+    expect(text.some((css) => css.includes('.ML__container') && css.includes('pan-y'))).toBe(true);
   });
 
   it('데스크톱(넓은 뷰포트)에서는 아무 것도 가로채지 않는다', async () => {
