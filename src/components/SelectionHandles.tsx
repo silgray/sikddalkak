@@ -42,7 +42,7 @@ import { isMobileViewport, onMobileViewportChange } from '../mobile';
  * 원자마다 다시 `getBoundingClientRect` 를 재야 해서 느려진다).
  *
  * 데스크톱에는 안 뜬다 — DOM은 늘 그리고 숨김은 CSS(`@media (max-width: 640px)`)가
- * 맡는다(브랜치 대원칙 3). 다만 **측정은** 모바일에서만 돈다: 선택이 바뀔 때마다
+ * 맡는다(CLAUDE.md §모바일 대원칙 3). 다만 **측정은** 모바일에서만 돈다: 선택이 바뀔 때마다
  * 도는 자리라 데스크톱에서 헛일할 이유가 없다. 그 판정도 `mobile.ts` 하나를 쓴다.
  */
 

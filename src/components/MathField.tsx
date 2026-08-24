@@ -470,9 +470,8 @@ export function MathField({
 
     const mf = new MathfieldElement();
     mf.value = initialValue.current;
-    // MathLive 자체 가상 키보드는 항상 끈다 — 이 브랜치(mobile-kbd-palette)는
-    // 그걸 자체 팔레트(KeyPalette.tsx)로 대체하는 실험이다. 자체 VK는 우리
-    // keyOps.ts·앱 단축키·인라인 숏컷 판정 경로를 우회한다(계획 문서 Context 참고).
+    // MathLive 자체 가상 키보드는 항상 끈다 — 자체 팔레트(KeyPalette.tsx)가 그걸
+    // 대체한다. 자체 VK는 우리 keyOps.ts·앱 단축키·인라인 숏컷 판정 경로를 우회한다.
     mf.mathVirtualKeyboardPolicy = 'manual';
     // `\` 를 치면 뜨던 LaTeX 명령어 검색 팝오버를 끈다. 이 앱의 입력 수단은 인라인
     // 숏컷(`sqrt`, `sum`…)과 키바인딩이고, 그 목록은 도움말 패널이 맡는다 — 타이핑

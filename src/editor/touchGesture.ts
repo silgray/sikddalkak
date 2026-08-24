@@ -31,8 +31,8 @@ import { isMobileViewport } from '../mobile';
  * 전에는 MathLive가 아무 것도 하지 않고, 정해진 뒤에는 우리가 pointermove를 전부
  * 삼켜 MathLive의 `onPointerMove` 가 한 번도 실행되지 않는다.
  *
- * 데스크톱은 손대지 않는다 (브랜치 대원칙) — 터치 포인터가 아니거나 뷰포트가
- * 모바일 폭이 아니면 pointerdown에서 즉시 빠져나온다.
+ * 데스크톱은 손대지 않는다 (CLAUDE.md §모바일 대원칙) — 터치 포인터가 아니거나
+ * 뷰포트가 모바일 폭이 아니면 pointerdown에서 즉시 빠져나온다.
  */
 
 /** 이 거리를 넘게 움직이면 탭이 아니라 드래그. MathLive의 터치 히스테리시스(20px)보다 작아야 한다. */

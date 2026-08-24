@@ -3,8 +3,8 @@ import { getActiveMathField } from '../editor/activeField';
 import { feedKey, type KeyStroke } from '../editor/feedKey';
 
 /**
- * 자체 키 팔레트 (실험: mobile-kbd-palette). MathLive 자체 가상 키보드 대신 이걸
- * 쓴다 — 버튼이 `mf.insert()`가 아니라 `feedKey`로 **물리 키 입력과 같은 경로**를
+ * 자체 키 팔레트. MathLive 자체 가상 키보드 대신 이걸 쓴다 — 버튼이 `mf.insert()`가
+ * 아니라 `feedKey`로 **물리 키 입력과 같은 경로**를
  * 탄다(`feedKey.ts` 문서 참고).
  *
  * ⚠ **여기에 LaTeX을 적지 않는다.** `√`·`π`·`cos` 같은 키는 `chars('sqrt')` 처럼

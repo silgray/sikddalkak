@@ -10,7 +10,7 @@ import { feedKey, type KeyStroke } from './feedKey';
 /**
  * **물리 키보드 ↔ feedKey 동등성(parity) 검증.**
  *
- * 여기가 이 브랜치 설계의 핵심 주장("가상 키보드가 물리 키보드와 같은 경로를 탄다")을
+ * 여기가 `KeyPalette` 설계의 핵심 주장("가상 키보드가 물리 키보드와 같은 경로를 탄다")을
  * 실제로 반증 가능하게 만드는 자리다. `userEvent`(vitest browser mode)는 Playwright
  * CDP로 **진짜 trusted 키 이벤트**를 만든다 — `new KeyboardEvent(...)` 합성으로는
  * 절대 못 만드는 그것이다. 두 경로를 같은 초기 상태에 각각 걸고 결과를 대조한다.

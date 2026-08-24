@@ -388,7 +388,7 @@ function ResultModeToggle({
       <span className="result-mode-label">{numeric ? 'decimal' : 'formula'}</span>
       {/* 모바일용 짧은 라벨. **둘 다 렌더하고 어느 쪽을 보일지는 미디어쿼리가
           정한다** — 조건부 렌더로 가르면 JS 분기 기준이 CSS와 어긋날 자리가 하나 더
-          생긴다(CLAUDE.md "이 브랜치의 대원칙"). 위 라벨이 읽히므로 여기는 숨긴다. */}
+          생긴다(CLAUDE.md §모바일 대원칙). 위 라벨이 읽히므로 여기는 숨긴다. */}
       <span className="result-mode-label-compact" aria-hidden="true">
         {numeric ? '3.14' : 'π'}
       </span>

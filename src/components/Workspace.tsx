@@ -68,10 +68,9 @@ export function Workspace() {
       </p>
       {/* 탭이 바뀌면 CellStack을 새로 마운트한다 — 이전 탭의 mathfield DOM이 남지 않게. */}
       <CellStack key={activeTab.id} tab={activeTab} dispatch={dispatch} />
-      {/* 실험(mobile-kbd-palette): MathLive 자체 가상 키보드 대신 이걸 쓴다. `position:
-          fixed` 라 DOM 위치는 레이아웃에 안 걸리고, 640px 이하에서만 보인다
-          (styles.css). 탭 전환과 무관하게 하나만 — activeField가 어느 셀의 필드든
-          가리킬 수 있다. */}
+      {/* MathLive 자체 가상 키보드 대신 이걸 쓴다. `position: fixed` 라 DOM 위치는
+          레이아웃에 안 걸리고, 640px 이하에서만 보인다(styles/keyPalette.css). 탭
+          전환과 무관하게 하나만 — activeField가 어느 셀의 필드든 가리킬 수 있다. */}
       <KeyPalette />
     </div>
   );
