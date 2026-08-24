@@ -358,8 +358,13 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 - **컨텍스트 메뉴는 호스트에 쏘는 cancelable `contextmenu` 로 열린다**
   (`acceptContextMenu`) — `preventDefault()` 면 안 뜬다. ⚠ 그 이벤트는
   **`bubbles: false`** 라 부모가 아니라 `math-field` **자신에게** 들어야 한다.
-- **`mf.focus()` 는 내용을 통째로 선택한다** — 캐럿만 있는 상태를 만들려면
-  `mf.position` 을 따로 정해야 한다(테스트에서 자주 걸린다).
+- **append 전에 옵션을 건드리면 마운트 직후 선택이 내용 전체가 된다** —
+  `_setOptions` 가 대기 중이던 선택을 `[[0, -1]]` 로 덮어쓴다(`mf.value` 가 넣어둔
+  캐럿 하나 `[[-1, -1]]` 를 지우고 간다). `readOnly` 도 append 뒤에 켜지므로 결과
+  셀도 예외가 아니다 → 탭을 열자마자 모든 셀이 전체 선택돼 선택 핸들까지 달렸다.
+  `MathField.tsx` 가 `host.append(mf)` 직후에 접는다. (예전엔 이 증상을
+  "`mf.focus()` 가 내용을 통째로 선택한다" 로 잘못 읽었다 — `focus()` 는 선택을
+  건드리지 않는다, `mathlive.mjs` 의 `focus()` 는 `_mathfield.focus()` 뿐이다.)
 - **호스트에 `user-select: none` 을 걸면 필드가 죽는다** — MathLive가
   `connectedCallback` 에서 그걸 보고 pointerdown 리스너를 아예 안 단다. 네이티브
   선택 콜아웃 억제는 `-webkit-touch-callout` 으로만 한다.

@@ -153,12 +153,22 @@ describe('선택 핸들 — 양끝 조정', () => {
     pretendMobile(true);
     const { mf, host } = await mount('1+xy');
     mf.focus();
-    // ⚠ `focus()` 자체가 내용을 통째로 선택한다(실측) — 캐럿만 있는 상태를 보려면
-    // 명시적으로 접어야 한다.
     mf.position = 0;
     await settle();
     expect(mf.selectionIsCollapsed).toBe(true);
     expect(handles(host).start).toBeNull();
+  });
+
+  it('갓 마운트된 필드는 선택도 핸들도 없다', async () => {
+    // 회귀 핀 — 탭을 열자마자 **모든 셀**에 핸들이 달려 있었다(사용자 보고).
+    // MathLive는 append 전에 옵션을 건드리면 대기 중이던 선택을 `[[0, -1]]`(전체)로
+    // 덮는데(`mathlive.mjs` 의 `_setOptions`), 우리가 마운트 직후 접는다
+    // (`MathField.tsx` 의 `host.append` 바로 뒤).
+    pretendMobile(true);
+    const { mf, host } = await mount('1+xy');
+    expect(mf.selectionIsCollapsed, '갓 뜬 필드에 선택이 남아 있다').toBe(true);
+    expect(handles(host).start).toBeNull();
+    expect(handles(host).end).toBeNull();
   });
 
   it('핸들 위치는 그 자리를 탭했을 때와 같다 (중앙선 기준)', async () => {
@@ -518,6 +528,10 @@ describe('선택 핸들 — 쥔 자리 보정 (`editor/touchAim.ts`)', () => {
     };
 
     // 분모는 줄 한가운데보다 아래에 있다 — 그 거리만큼 손가락을 내린다.
+    // 재려면 핸들이 떠 있어야 하니 선택을 먼저 만든다 (`mf.focus()` 만으로는 안 된다 —
+    // 갓 뜬 필드의 선택은 접혀 있다, `MathField.tsx` 의 마운트 직후 접기 참고).
+    mf.selection = { ranges: [[0, 2]], direction: 'forward' };
+    await settle();
     const line = handles(host).end!.getBoundingClientRect();
     const denom = mf.getElementInfo(6)!.bounds!;
     const denomDy = denom.top + denom.height / 2 - (line.top + line.height / 2);

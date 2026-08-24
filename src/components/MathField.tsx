@@ -783,6 +783,14 @@ export function MathField({
     );
 
     host.append(mf);
+    // ⚠ **MathLive 실측 함정 — 마운트 직후 선택이 내용 전체다.** append 전에 옵션을
+    // 하나라도 건드리면(`mathVirtualKeyboardPolicy` 등, 전부 `_setOptions` 를 탄다)
+    // 대기 중이던 선택이 `[[0, -1]]`(= 전체 선택)로 덮인다 — `mf.value` 가 넣어둔
+    // 캐럿 하나(`[[-1, -1]]`)를 지우고 간다(`mathlive.mjs` 의 `_setOptions`,
+    // `readOnly` 는 append 뒤에 켜지므로 결과 셀도 예외가 아니다). 그러면 탭을
+    // 처음 열자마자 모든 셀이 포커스도 없이 전체 선택된 채로 서고 선택 핸들까지
+    // 달린다(사용자 보고). 갓 뜬 필드에 선택이 있을 이유가 없으므로 접는다.
+    mf.position = mf.lastOffset;
     // 인라인 숏컷 On/Off 커스터마이징. `inlineShortcuts` getter/setter는 mathfield가
     // mount(= append)되기 전에 부르면 "Mathfield not mounted" 에러를 던진다(실측).
     configureInlineShortcuts(mf);
