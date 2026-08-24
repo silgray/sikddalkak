@@ -2,6 +2,7 @@ import type { MathfieldElement } from 'mathlive';
 import { contentOf, resolveOffsetAt } from './internals';
 import { expandSelectionSemantic } from './selection';
 import { setRawSelection } from './rawSelection';
+import { DIRECT_AIM, aimedPoint } from './touchAim';
 import { isMobileViewport } from '../mobile';
 
 /**
@@ -238,9 +239,17 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
    * `setRawSelection` 을 거쳐 (lo, hi) 를 **원시 캐럿**으로 남긴다 — 손을 뗀
    * 뒤에도 `SelectionHandles` 가 이어받아, 구조 경계를 넘어 스냅된 선택이라도
    * 손가락을 되돌리면 다시 좁혀진다(`rawSelection.ts` 참고).
+   *
+   * ⚠ **여기는 `DIRECT_AIM` 이다** — 손가락 좌표를 손대지 않고 그대로 판정한다.
+   * 손잡이 드래그(`SelectionHandles.tsx`)는 반대로 위로 올려 잡는데(`gripAim`),
+   * 그건 손잡이가 선택 줄 아래에 매달려 있어 손가락과 가리키는 자리가 어긋나기
+   * 때문이다. 홀드는 **손가락이 내용을 직접 짚는** 손짓이라 어긋날 것이 없고,
+   * 보정을 넣으면 짚은 자리와 선택이 벌어져 그 자체가 버그가 된다.
+   * 보정 규칙은 `editor/touchAim.ts` 한 곳에 모여 있다.
    */
-  const extendToPoint = (x: number, y: number): void => {
+  const extendToPoint = (clientX: number, clientY: number): void => {
     try {
+      const { x, y } = aimedPoint(DIRECT_AIM, clientX, clientY);
       // 원자 사이 빈 자리에서 나오는 못 믿을 표본은 버린다 (`resolveOffsetAt` 참고) —
       // 그대로 쓰면 선택이 식의 엉뚱한 데로 튄다.
       const focus = resolveOffsetAt(mf, x, y, x < startX ? -1 : 1);

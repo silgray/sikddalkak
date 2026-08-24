@@ -5,8 +5,8 @@ import type { MathfieldElement } from 'mathlive';
 import '../styles.css';
 import { FieldClip } from './FieldClip';
 import { MathField } from './MathField';
-import { boundaryXOf, contentOf, resolveOffsetAt } from '../editor/internals';
-import { setRawSelection } from '../editor/rawSelection';
+import { contentOf, resolveOffsetAt } from '../editor/internals';
+import { rawSelection } from '../editor/rawSelection';
 import { HANDLE_CROSSING } from '../features';
 
 /**
@@ -109,6 +109,22 @@ function dragHandle(handle: HTMLElement, x: number, y: number): void {
   const drag = beginDrag(handle);
   drag.move(x, y);
   drag.end(x, y);
+}
+
+/**
+ * 손가락이 **어디를 쥐었는지**까지 정하는 드래그 — 물방울은 선택 줄 아래에
+ * 매달려 있어서 실제 손가락 y는 줄 밖이다(`editor/touchAim.ts`).
+ * `grabY` 를 줘서 그 상황을 그대로 재현한다.
+ */
+function dragHandleFrom(handle: HTMLElement, grabY: number, toX: number, dy = 0): void {
+  handle.setPointerCapture = () => {};
+  handle.releasePointerCapture = () => {};
+  const from = handle.getBoundingClientRect();
+  const grabX = from.left + from.width / 2;
+  const opts = DRAG_OPTS;
+  handle.dispatchEvent(new PointerEvent('pointerdown', { ...opts, clientX: grabX, clientY: grabY }));
+  handle.dispatchEvent(new PointerEvent('pointermove', { ...opts, clientX: toX, clientY: grabY + dy }));
+  handle.dispatchEvent(new PointerEvent('pointerup', { ...opts, clientX: toX, clientY: grabY + dy }));
 }
 
 describe('선택 핸들 — 양끝 조정', () => {
@@ -418,45 +434,98 @@ describe('히트테스트 — 원자 사이 빈 자리에서 오프셋이 튀지
   });
 });
 
-describe('디버그 표식 — 파생 전 원시 캐럿', () => {
-  // `features.ts` 의 `RAW_CARET_DEBUG` 는 개발 서버에서만 켜진다. 테스트도 dev
-  // 모드라 켜져 있다 — 배포본에는 DOM 자체가 안 나온다.
-  it('원시 캐럿 자리에 서고, 파생이 당긴 만큼 핸들과 벌어진다', async () => {
+describe('선택 핸들 — 자기 상자가 없는 원자로 끝나거나 시작해도 안 사라진다', () => {
+  // MathLive 실측: `subsup`/`box`(`\boxed`)/`enclose`(`\cancel`) 는 자기 몫 DOM이
+  // 없어 `id` 가 안 생기고, `accent`(`\vec`) 는 `captureSelection` 이라 안쪽
+  // 자손의 `id` 가 안 생긴다 — 그래서 `getElementInfo` 가 `bounds: undefined` 를
+  // 준다. `measure()` 의 `boundsInRange` 가 선택 범위 안에서 상자가 있는 가장
+  // 가까운 자리로 대신 재는지를 확인한다 (`SelectionHandles.tsx` 참고).
+  it.each([
+    ['x^{2}', 'x^2'],
+    ['x_{2}', 'x_2'],
+    ['x_{a}^{b}', 'x_{a}^{b}'],
+    [String.raw`\vec{a}`, String.raw`\vec{a}`],
+    [String.raw`\boxed{a}`, String.raw`\boxed{a}`],
+    [String.raw`\cancel{a}`, String.raw`\cancel{a}`],
+  ])('선택이 `%s` 로 끝나면 양끝 핸들이 선다', async (tail, expectedLatex) => {
     pretendMobile(true);
-    // 분수를 뒤에 둬야 축소가 눈에 보인다 (맨 앞이면 당길 자리가 없다).
-    const { mf, host } = await mount(String.raw`d+\frac{a}{bc}`);
+    const { mf, host } = await mount(String.raw`1+${tail}`);
     mf.focus();
+    mf.selection = { ranges: [[2, mf.lastOffset]], direction: 'forward' };
     await settle();
 
-    // 끝 캐럿이 분모 **안**(오프셋 7) — 파생은 분수를 빼고 `d+` 로 줄인다.
-    setRawSelection(mf, 0, 7);
-    await settle();
-    expect(selectedLatex(mf)).toBe('d+');
+    expect(selectedLatex(mf)).toBe(expectedLatex);
+    const { start, end } = handles(host);
+    expect(start, '시작 핸들').not.toBeNull();
+    expect(end, '끝 핸들').not.toBeNull();
+  });
+});
 
-    const box = (host.querySelector('.mf') as HTMLElement).getBoundingClientRect();
-    const marks = [...host.querySelectorAll('.sel-raw-caret')] as HTMLElement[];
-    expect(marks).toHaveLength(2);
+describe('선택 핸들 — 쥔 자리 보정 (`editor/touchAim.ts`)', () => {
+  // 물방울 손잡이는 선택 줄 **아래**에 매달려 있다(`styles.css`). 그래서 손가락
+  // y는 정작 짚고 싶은 글자보다 한참 밑이고, 그대로 판정하면 줄 밖으로 나간다.
+  // 쥔 순간의 손가락↔줄 한가운데 거리를 재두고 그만큼 올려 판정한다(`gripAim`).
 
-    // 표식은 **원시** 오프셋 자리에 선다 (파생된 선택이 아니라).
-    for (const [i, q] of [0, 7].entries()) {
-      const expected = boundaryXOf(mf, q)! - box.left;
-      expect(marks[i].offsetLeft, `원시 캐럿 ${q}`).toBeCloseTo(expected, 0);
-    }
+  it('줄 아래(물방울)를 쥐어도 줄 한가운데를 쥔 것과 같은 결과가 나온다', async () => {
+    // ⚠ **줄이 높은 식을 써야 이 테스트에 이빨이 생긴다.** 한 줄짜리 식은
+    // 콘텐츠 상자가 줄에 딱 붙어 있어서, 보정이 없어도 `resolveOffsetAt` 의
+    // 클램프가 y를 도로 줄 안으로 끌어와 우연히 같은 답이 나온다. 분수처럼
+    // 상자가 높으면 클램프가 분모 줄에 떨어져 답이 갈린다.
+    pretendMobile(true);
+    const latex = String.raw`d+\frac{a}{bc}`;
+    const sel: [number, number] = [2, 8]; // 분수 통째 — 선택 줄이 분수만큼 높다
 
-    // 그래서 끝 표식은 끝 핸들보다 **오른쪽**에 있다 — 그 간격이 곧 축소량이다.
-    expect(marks[1].offsetLeft).toBeGreaterThan(handles(host).end!.offsetLeft);
+    const dragAt = async (grabFromBelow: boolean): Promise<readonly [number, number]> => {
+      const { mf, host } = await mount(latex);
+      mf.focus();
+      mf.selection = { ranges: [sel], direction: 'forward' };
+      await settle();
+      const handle = handles(host).start!;
+      const line = handle.getBoundingClientRect();
+      const numer = mf.getElementInfo(4)!.bounds!; // 분자 `a`
+      const grabY = grabFromBelow ? line.bottom + 14 : line.top + line.height / 2;
+      dragHandleFrom(handle, grabY, numer.left + numer.width / 2);
+      await settle();
+      return rawSelection(mf)!;
+    };
 
-    // 드래그를 가리면 안 된다.
-    expect(getComputedStyle(marks[0]).pointerEvents).toBe('none');
+    const atLine = await dragAt(false); // 줄 한가운데를 쥔 이상적인 경우
+    const atKnob = await dragAt(true); // 실제로 손가락이 가는 물방울 자리
+    expect(atKnob, '물방울을 쥐면 판정이 달라진다').toEqual(atLine);
   });
 
-  it('선택이 없으면 표식도 없다', async () => {
+  it('세로 이동은 죽이지 않는다 — 손가락을 내리면 판정도 내려간다', async () => {
+    // 보정이 "y를 줄 한가운데로 못박는" 것이었다면 손잡이로는 분자/분모를
+    // 갈라 짚을 수 없다. 쥔 자리를 기준으로 **상대 이동이 보존**되는지 본다.
+    //
+    // ⚠ 여기서 보는 건 **원시 캐럿**이다. 화면에 보이는 선택으로는 확인이 안 된다 —
+    // `caretRunRange` 가 "끝 캐럿이 자식 안이면 그 자식을 뺀다" 라서, 분모로
+    // 내려가면 분수가 통째로 빠져 위/아래 결과가 똑같이 `d+` 로 보인다
+    // (`editor/selection.ts` 참고). 보정이 사는 층은 그 앞이다.
     pretendMobile(true);
-    const { mf, host } = await mount('1+xy');
+    const { mf, host } = await mount(String.raw`d+\frac{a}{bc}`);
     mf.focus();
-    mf.position = 0;
-    await settle();
-    expect(host.querySelectorAll('.sel-raw-caret')).toHaveLength(0);
+
+    const readRawAfterDrag = async (dy: number): Promise<readonly [number, number]> => {
+      mf.selection = { ranges: [[0, 2]], direction: 'forward' };
+      await settle();
+      const handle = handles(host).end!;
+      const line = handle.getBoundingClientRect();
+      const target = mf.getElementInfo(6)!.bounds!; // 분모 `bc` 의 `b`
+      dragHandleFrom(handle, line.bottom + 14, target.left + target.width / 2, dy);
+      await settle();
+      return rawSelection(mf)!;
+    };
+
+    // 분모는 줄 한가운데보다 아래에 있다 — 그 거리만큼 손가락을 내린다.
+    const line = handles(host).end!.getBoundingClientRect();
+    const denom = mf.getElementInfo(6)!.bounds!;
+    const denomDy = denom.top + denom.height / 2 - (line.top + line.height / 2);
+    expect(denomDy, '분모가 줄 한가운데보다 아래인지').toBeGreaterThan(2);
+
+    const level = await readRawAfterDrag(0);
+    const down = await readRawAfterDrag(denomDy);
+    expect(down[0], '내려도 판정이 그대로다 — 세로 입력이 뭉개졌다').not.toBe(level[0]);
   });
 });
 

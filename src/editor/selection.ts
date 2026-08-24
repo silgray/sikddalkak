@@ -151,6 +151,11 @@ export function siblingRunRange(
 /**
  * **원시 캐럿 두 개에서 화면 선택을 파생**한다 (`editor/rawSelection.ts`).
  *
+ * **드래그 파이프라인 ② — 오프셋 → 범위.** ①(`resolveOffsetAt`, `editor/internals.ts`)이
+ * 낸 원시 캐럿 두 개를 파랗게 칠할 **선택 범위** 하나로 바꾼다. 이 파이프라인에서
+ * 범위를 만드는 곳은 여기뿐이다 — ③(`measure`, `components/SelectionHandles.tsx`)은
+ * 여기 결과를 받아쓰기만 한다.
+ *
  * `siblingRunRange` 와 최소 공통 부모까지는 같고, **끝을 안쪽으로 당기는** 것만
  * 다르다 — 끝 캐럿이 어떤 자식 *안*에 있으면 그 자식은 선택에서 **뺀다**. 그래야
  * 분모 안에서 잡은 선택을 오른쪽으로 조금 끌었을 때 분수가 통째로 삼켜지지 않는다.

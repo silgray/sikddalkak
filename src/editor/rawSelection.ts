@@ -32,6 +32,7 @@ const store = new WeakMap<MathfieldElement, RawPair>();
  * 된다(`caretRunRange` 가 min/max로 정렬한다). 넘어간 뒤엔 그쪽이 새 시작이 된다.
  */
 export function setRawSelection(mf: MathfieldElement, a: number, b: number): void {
+  // console.log(`[setRawSelection] moving:${a}, fixed:${b}`);
   const model = modelOf(mf);
   if (model === null) return;
   const snapped = caretRunRange(model, a, b);

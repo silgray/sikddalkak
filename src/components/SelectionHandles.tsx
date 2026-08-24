@@ -1,13 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MathfieldElement } from 'mathlive';
-import {
-  boundaryXOf,
-  clearAtomBoundsCache,
-  contentOf,
-  resolveOffsetAt,
-} from '../editor/internals';
+import { clearAtomBoundsCache, contentOf, resolveOffsetAt } from '../editor/internals';
 import { rawSelection, setRawSelection } from '../editor/rawSelection';
-import { HANDLE_CROSSING, RAW_CARET_DEBUG } from '../features';
+import { aimedPoint, gripAim, type TouchAim } from '../editor/touchAim';
+import { HANDLE_CROSSING } from '../features';
 import { isMobileViewport, onMobileViewportChange } from '../mobile';
 
 /**
@@ -29,8 +25,14 @@ import { isMobileViewport, onMobileViewportChange } from '../mobile';
  * 원자의 뷰포트 좌표 DOMRect를 준다(실측: `1+xy` 의 오프셋 4 = `y`). 거꾸로
  * 드래그 중에는 `mf.getOffsetFromPoint(x, y)` 로 화면 좌표를 오프셋으로 되돌린다.
  *
- * ⚠ **세로 좌표는 손가락이 아니라 선택 줄의 한가운데를 쓴다.** 핸들을 잡은 손가락은
- * 수식 아래(또는 위)에 있어서, 그 y를 그대로 넘기면 히트테스트가 줄 밖으로 나간다.
+ * ⚠ **세로 좌표는 손가락 자리를 그대로 안 쓴다.** 손잡이(물방울)는 선택 줄 아래에
+ * 매달려 있어서 손가락은 정작 짚고 싶은 글자보다 한참 밑에 있다 — 그 y를 그대로
+ * 넘기면 판정이 줄 밖으로 나간다. 쥔 **그 순간** 손가락과 선택 줄 한가운데의
+ * 거리를 한 번 재두고(`gripAim`, `editor/touchAim.ts`) 손짓 내내 그만큼 올려
+ * 판정한다. 고정 px 이 아니라 실측 거리라 글꼴·분수 높이가 바뀌어도 따라오고,
+ * 손가락을 위아래로 옮기면 판정도 같은 양만큼 움직여 분자/분모를 넘나들 수 있다.
+ * ⚠ **홀드 선택(`editor/touchGesture.ts`)은 이 보정을 안 쓴다**(`DIRECT_AIM`) —
+ * 거긴 손가락이 내용을 직접 짚는 손짓이라 어긋날 것이 없다.
  *
  * ⚠ **MathLive는 원자 상자를 뷰포트 좌표로 캐싱한다**(`atomBoundsCache`, 실측) —
  * 그 캐시를 비우는 곳은 원래 렌더 전후와 자기 `onPointerDown` 뿐이다. 우리 패닝은
@@ -59,11 +61,6 @@ type Placement = {
   readonly end: Edge;
   /** 선택 줄 한가운데의 **뷰포트** y. 드래그 히트테스트가 쓴다. */
   readonly midY: number;
-  /**
-   * 디버그 전용 — 확장/축소되기 **전** 원시 캐럿 두 개의 컨테이너 기준 x
-   * (`features.ts` 의 `RAW_CARET_DEBUG`). 꺼져 있으면 빈 배열.
-   */
-  readonly rawCarets: readonly number[];
 };
 
 /** 핸들이 컨테이너 경계에 갇혀 자동 스크롤할 때의 걸음 — MathLive 자신의
@@ -71,19 +68,58 @@ type Placement = {
 const AUTO_SCROLL_STEP_PX = 16;
 const AUTO_SCROLL_INTERVAL_MS = 32;
 
-function measure(
+/**
+ * **드래그 파이프라인 ③ — 오프셋 → 픽셀.** 확정된 선택 범위의 양끝이 화면
+ * 어디에 서는지를 재서 **핸들을 그릴 자리**를 낸다. 반환하는 `Placement` 에
+ * 범위가 하나도 없고 전부 px인 게 그 증거다.
+ *
+ * ⚠ **범위를 만들지 않는다.** 입력은 원시 캐럿이 아니라 이미 스냅이 끝난
+ * `mf.selection` 이다 — ②(`caretRunRange`, `editor/selection.ts`)가 낸 것을
+ * 받아쓸 뿐이다. 그래서 원시 캐럿만 움직이고 스냅 결과가 그대로면 여기를 다시
+ * 불러도 같은 픽셀이 나온다(핸들이 안 움직이는 게 맞다). 그래서 이 함수는
+ * pointermove가 아니라 **기하가 바뀌는 신호**(선택 변경·스크롤·리사이즈)에만 붙는다.
+ *
+ * (① `resolveOffsetAt`(`editor/internals.ts`) → ② `caretRunRange` → ③ 여기)
+ *
+ * ⚠ **오프셋 하나가 상자를 못 낼 수 있다** — MathLive 실측, 두 갈래.
+ * (1) `subsup`/`box`(`\boxed` 등)/`enclose`(`\cancel` 등)처럼 **자기 몫 DOM이 없는
+ * 구조 원자**는 `Atom.bind` 를 아예 안 거쳐 `id` 가 안 생긴다(`mathlive.mjs` 의
+ * `SubsupAtom.render` 등, `attachSupsub`/`result.wrap` 를 바로 반환하고 `bind` 를
+ * 안 부른다) — 그 원자가 자기 **끝**(`b`) 자리에 오면 못 잰다.
+ * (2) `accent`(`\vec` 등)처럼 **`captureSelection=true`** 인 원자는 안쪽 자손의
+ * `bind` 를 의도적으로 막는다(`Atom.bind` 가 부모 체인에서 `captureSelection` 을
+ * 만나면 조기 반환) — 그 원자가 선택의 **첫** 원자면, 오프셋이 가지·본문을 먼저
+ * 매기고 그 원자 자신을 마지막에 매기는 순서라(`\frac` 도 같다) `a+1` 이 안쪽
+ * 자손 자리로 떨어져 못 잰다.
+ * 두 경우 다 **원자 자체**(구조 원자의 끝 슬롯, 또는 captureSelection 원자 자신의
+ * 슬롯)는 멀쩡히 잡힌다 — 그래서 못 잰 쪽으로 한 칸씩 걸어 선택 범위 안에서 상자가
+ * 있는 가장 가까운 자리를 대신 쓴다. (1)은 안쪽 마지막 자손의 오른쪽 끝을 쓰므로
+ * `subsup`/`enclose` 처럼 자기 몫 폭이 없는 원자는 정확하고, `box` 처럼 패딩이
+ * 있는 원자는 그 패딩만큼 어긋난다(이 앱에서 안 쓰는 명령이라 감수). (2)는 결국
+ * 그 원자 자신의 상자에 닿으므로 정확하다.
+ */
+function boundsInRange(
   mf: MathfieldElement,
-  container: HTMLElement,
-  logDraw = false,
-): Placement | null {
+  from: number,
+  step: 1 | -1,
+  to: number,
+): DOMRect | null {
+  for (let q = from; step > 0 ? q <= to : q >= to; q += step) {
+    const bounds = mf.getElementInfo(q)?.bounds;
+    if (bounds !== undefined) return bounds;
+  }
+  return null;
+}
+
+function measure(mf: MathfieldElement, container: HTMLElement): Placement | null {
   if (mf.selectionIsCollapsed) return null;
   const range = mf.selection.ranges[0];
   if (range === undefined) return null;
   const [a, b] = range;
   // 선택된 원자는 a+1 … b 다 (오프셋은 원자 **사이**의 경계다).
-  const first = mf.getElementInfo(a + 1)?.bounds;
-  const last = mf.getElementInfo(b)?.bounds;
-  if (first === undefined || last === undefined) return null;
+  const first = boundsInRange(mf, a + 1, 1, b);
+  const last = boundsInRange(mf, b, -1, a + 1);
+  if (first === null || last === null) return null;
 
   const box = container.getBoundingClientRect();
   const contentBox = contentOf(mf)?.getBoundingClientRect() ?? box;
@@ -97,40 +133,12 @@ function measure(
     return { x: x - box.left, pinned: x !== trueX };
   };
 
-  // 디버그: 파생 전 원시 캐럿. 파생된 선택과 벌어진 정도가 곧 확장/축소량이다.
-  const raw = RAW_CARET_DEBUG ? rawSelection(mf) : null;
-  const rawCarets =
-    raw === null
-      ? []
-      : ([Math.min(raw[0], raw[1]), Math.max(raw[0], raw[1])]
-          .map((q) => boundaryXOf(mf, q))
-          .filter((v): v is number => v !== null)
-          // 핸들과 같은 규율로 컨테이너 안에 가둔다 — 안 그러면 셀 밖에 그려진다.
-          .map((v) => clampEdge(v).x));
-
-  // 드래그 중일 때만 — **그리는 그 시점의** 좌표를 찍는다. `applyDragAt` 에서
-  // 찍으면 아직 렌더 전이라 늘 한 스텝 낡은 값이 나온다(실측).
-  if (logDraw && raw !== null) {
-    const trueX = [Math.min(raw[0], raw[1]), Math.max(raw[0], raw[1])].map((q) => {
-      const v = boundaryXOf(mf, q);
-      return v === null ? NaN : Math.round(v - box.left);
-    });
-    // eslint-disable-next-line no-console
-    console.log(
-      `[rawCaret:draw] raw=[${raw[0]},${raw[1]}]` +
-        ` trueX=[${trueX.join(',')}]` +
-        ` drawX=[${rawCarets.map((v) => Math.round(v)).join(',')}]` +
-        ` shown=[${a},${b}]`,
-    );
-  }
-
   return {
     top: top - box.top,
     bottom: bottom - box.top,
     start: clampEdge(first.left),
     end: clampEdge(last.right),
     midY: (top + bottom) / 2,
-    rawCarets,
   };
 }
 
@@ -145,7 +153,12 @@ type Props = {
 type Drag = {
   /** 잡은 **물리 핸들**의 정체. 교차해도 안 바뀐다 (포인터 캡처가 이 노드에 걸려 있다). */
   readonly which: 'start' | 'end';
-  readonly midY: number;
+  /**
+   * 손가락 좌표 → 히트테스트 좌표 보정 (`editor/touchAim.ts`). 쥔 **그 순간**
+   * 한 번 재고 손짓 내내 고정이다 — 손잡이는 선택 줄 아래에 매달려 있어서
+   * 손가락 y를 그대로 넘기면 판정이 줄 밖으로 나간다.
+   */
+  readonly aim: TouchAim;
   /** 반대쪽(안 움직이는) 원시 캐럿 — `editor/rawSelection.ts` 참고. */
   readonly fixed: number;
   /**
@@ -159,6 +172,8 @@ type Drag = {
   autoScrollTimer: ReturnType<typeof setInterval> | null;
   /** 오토스크롤 틱마다 다시 쓸 마지막 손가락 x. */
   lastClientX: number;
+  /** 오토스크롤 틱마다 다시 쓸 마지막 손가락 y. */
+  lastClientY: number;
 };
 
 export function SelectionHandles({ mf, container }: Props) {
@@ -172,11 +187,7 @@ export function SelectionHandles({ mf, container }: Props) {
     let disposed = false;
     const remeasure = (): void => {
       if (disposed) return;
-      setPlacement(
-        isMobileViewport()
-          ? measure(mf, container, RAW_CARET_DEBUG && dragRef.current !== null)
-          : null,
-      );
+      setPlacement(isMobileViewport() ? measure(mf, container) : null);
     };
     // MathLive는 rAF에서 렌더한다 — 선택이 바뀐 직후 바로 재면 옛 위치를 본다.
     const schedule = (): void => {
@@ -215,19 +226,27 @@ export function SelectionHandles({ mf, container }: Props) {
 
   if (placement === null || mf === null) return null;
 
-  /** 손가락 x(경계로 클램프한 값)에서 오프셋을 다시 재고 원시 캐럿을 갱신한다. */
-  const applyDragAt = (drag: Drag, clientX: number): void => {
+  /** 손가락 x/y(경계로 클램프한 값)에서 오프셋을 다시 재고 원시 캐럿을 갱신한다. */
+  const applyDragAt = (drag: Drag, clientX: number, clientY: number): void => {
+    // 손잡이를 쥔 손가락은 선택 줄 **아래**에 있다 — 판정은 쥔 순간 재둔 만큼
+    // 위로 올려서 한다 (`editor/touchAim.ts`). 클램프는 **그 뒤**여야 콘텐츠
+    // 상자를 벗어난 판정점이 다시 안으로 들어온다.
+    const aimed = aimedPoint(drag.aim, clientX, clientY);
     const contentBox = contentOf(mf)?.getBoundingClientRect();
     const x =
       contentBox === undefined
-        ? clientX
-        : Math.min(Math.max(clientX, contentBox.left), contentBox.right);
+        ? aimed.x
+        : Math.min(Math.max(aimed.x, contentBox.left), contentBox.right);
+    const y =
+      contentBox === undefined
+        ? aimed.y
+        : Math.min(Math.max(aimed.y, contentBox.top), contentBox.bottom);
     // **bias 0 — 네이티브 탭과 똑같이.** 그래야 원시 캐럿이 "그 자리를 탭했을 때
     // 캐럿이 서는 자리" 와 정확히 일치한다(사용자 요구). 예전엔 ±1 로 "손가락 밑
     // 원자를 무조건 선택에 넣는" 쪽으로 밀었는데, 그러면 탭 위치와 늘 한 경계씩
     // 어긋났다(실측: 표본 14개 중 4개가 어긋남). bias가 방향을 안 타므로 어느
     // 쪽 끝인지 미리 가늠하던 두 번 재기도 통째로 사라졌다.
-    const offset = resolveOffsetAt(mf, x, drag.midY, 0);
+    const offset = resolveOffsetAt(mf, x, y, 0);
     if (offset === null) return;
     let moving = offset;
     if (HANDLE_CROSSING) {
@@ -249,44 +268,7 @@ export function SelectionHandles({ mf, container }: Props) {
         ? Math.min(moving, drag.fixed - 1)
         : Math.max(moving, drag.fixed + 1);
     }
-    if (RAW_CARET_DEBUG) logDrag(drag, clientX, x, offset, moving);
     setRawSelection(mf, moving, drag.fixed);
-  };
-
-  /**
-   * 드래그 중인 **원시 캐럿**을 콘솔로 흘린다 (`RAW_CARET_DEBUG`).
-   *
-   * "빨간 표식이 클릭 자리와 다르다" 를 가리려고 만들었다 — **오프셋이 틀린 건지**
-   * (`off`/`tapOff` 비교) **그리는 자리가 틀린 건지**(`caretX`/`drawX` 비교)를
-   * 갈라 볼 수 있게 셋을 다 찍는다.
-   * - `tapOff` : 그 x를 **탭했을 때** 나오는 오프셋 (네이티브와 같은 bias 0)
-   * - `off`    : 우리가 실제로 쓴 오프셋 (bias ±1)
-   * - `caretX` : `off` 가 화면에서 서는 자리 (컨테이너 기준)
-   *
-   * 실제로 **그린** 자리는 여기서 못 찍는다 — 아직 렌더 전이라 늘 한 스텝 낡은
-   * 값이 나온다(실측). 그건 `measure()` 의 `[rawCaret:draw]` 가 찍는다.
-   */
-  const logDrag = (
-    drag: Drag,
-    clientX: number,
-    clampedX: number,
-    offset: number,
-    moving: number,
-  ): void => {
-    try {
-      const boxLeft = container?.getBoundingClientRect().left ?? 0;
-      const tapOff = resolveOffsetAt(mf, clampedX, drag.midY, 0);
-      const caretVp = boundaryXOf(mf, moving);
-      // eslint-disable-next-line no-console
-      console.log(
-        `[rawCaret] fingerX=${Math.round(clientX - boxLeft)}` +
-          ` clampX=${Math.round(clampedX - boxLeft)}` +
-          ` tapOff=${tapOff} off=${offset} moving=${moving} fixed=${drag.fixed}` +
-          ` caretX=${caretVp === null ? 'null' : Math.round(caretVp - boxLeft)}`,
-      );
-    } catch {
-      /* 디버그 로그가 드래그를 막으면 안 된다 */
-    }
   };
 
   /** 손가락이 컨테이너 밖이면 그 방향으로 자동 스크롤을 걸거나 뗀다. */
@@ -310,7 +292,7 @@ export function SelectionHandles({ mf, container }: Props) {
       content.scrollLeft += dir * AUTO_SCROLL_STEP_PX;
       // 우리가 직접 옮긴 스크롤이라 렌더를 안 거친다 — 다음 히트테스트 전에 비운다.
       clearAtomBoundsCache(mf);
-      applyDragAt(drag, drag.lastClientX);
+      applyDragAt(drag, drag.lastClientX, drag.lastClientY);
     }, AUTO_SCROLL_INTERVAL_MS);
   };
 
@@ -334,13 +316,17 @@ export function SelectionHandles({ mf, container }: Props) {
       const [ra, rb] = raw;
       dragRef.current = {
         which,
-        midY: placement.midY,
+        // 쥔 순간의 손가락 y가 선택 줄 한가운데를 가리키게 맞춘다. 이후 손가락을
+        // 위아래로 옮기면 판정도 같은 양만큼 따라 움직인다 (분수의 분자/분모처럼
+        // 세로로 갈라진 구조를 손잡이로도 넘나들 수 있어야 한다).
+        aim: gripAim(ev.clientY, placement.midY),
         fixed: which === 'start' ? Math.max(ra, rb) : Math.min(ra, rb),
         // 잡은 순간에는 잡은 쪽이 곧 그쪽 끝이다. 교차하면 `applyDragAt` 이 뒤집는다.
         movingIsMin: which === 'start',
         autoScrollDir: 0,
         autoScrollTimer: null,
         lastClientX: ev.clientX,
+        lastClientY: ev.clientY,
       };
     };
 
@@ -349,7 +335,8 @@ export function SelectionHandles({ mf, container }: Props) {
     if (drag === null) return;
     ev.preventDefault();
     drag.lastClientX = ev.clientX;
-    applyDragAt(drag, ev.clientX);
+    drag.lastClientY = ev.clientY;
+    applyDragAt(drag, ev.clientX, ev.clientY);
     updateAutoScroll(drag, ev.clientX);
   };
 
@@ -400,19 +387,6 @@ export function SelectionHandles({ mf, container }: Props) {
     <>
       {handle(minId, 'start', placement.start)}
       {handle(flip(minId), 'end', placement.end)}
-      {/* 디버그 표식 — 파생 전 원시 캐럿. 이벤트를 안 받게 두어 드래그를 안 가린다. */}
-      {placement.rawCarets.map((x, i) => (
-        <div
-          key={`raw-${i}`}
-          className={`sel-raw-caret sel-raw-caret-${i === 0 ? 'min' : 'max'}`}
-          data-testid="sel-raw-caret"
-          style={{
-            left: `${x}px`,
-            top: `${placement.top}px`,
-            height: `${placement.bottom - placement.top}px`,
-          }}
-        />
-      ))}
     </>
   );
 }

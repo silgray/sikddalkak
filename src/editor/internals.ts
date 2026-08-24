@@ -124,6 +124,11 @@ function nearestBoundaryInBranch(
 /**
  * 화면 좌표 → 모델 오프셋. **네이티브 탭과 같은 경로**로 물어본다.
  *
+ * **드래그 파이프라인 ① — 픽셀 → 오프셋.** 손가락이 짚은 좌표를 **원시 캐럿**
+ * 하나로 바꾼다. 여기서 나온 값은 아직 선택이 아니다 — 선택으로 만드는 건 ②의
+ * `caretRunRange`(`editor/selection.ts`)고, 그 결과를 다시 화면 좌표로 되돌리는
+ * 건 ③의 `measure`(`components/SelectionHandles.tsx`)다.
+ *
  * ⚠ **실측한 진짜 함정은 `atomBoundsCache` 다.** `getOffsetFromPoint` 한 번이
  * 트리를 훑으며 원자 상자를 재고 그 결과를 캐시에 쌓는데, 거기 `first` 센티넬의
  * 상자가 들어가면 **그 다음 호출부터** 그 센티넬이 자기 branch 어디서나 이겨버린다.
@@ -158,6 +163,7 @@ export function resolveOffsetAt(
     // (한 번만 비우는 걸로는 안 된다 — 그 다음 첫 호출이 다시 오염시킨다, 실측.)
     clearAtomBoundsCache(mf);
     const offset = mf.getOffsetFromPoint(x, y, { bias });
+    // console.log(`[resolve] x:${x}, y:${y}, offset:${offset}`);
     if (offset < 0) return null;
     const model = modelOf(mf);
     // 내부 model을 못 잡으면 걸러낼 방법이 없다 — 기존 동작(그대로 쓰기)으로 폴백.

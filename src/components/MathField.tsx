@@ -802,6 +802,7 @@ export function MathField({
     // 모바일 터치 제스처(가로 스크롤 / 홀드 선택 / 컨텍스트 메뉴 차단).
     // 데스크톱에서는 아무 것도 가로채지 않는다 (`editor/touchGesture.ts`).
     const detachTouchGesture = attachTouchGesture(mf, host);
+
     mfRef.current = mf;
     setMounted(mf);
     return () => {
