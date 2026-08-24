@@ -81,34 +81,46 @@ const AUTO_SCROLL_INTERVAL_MS = 32;
  *
  * (① `resolveOffsetAt`(`editor/internals.ts`) → ② `caretRunRange` → ③ 여기)
  *
- * ⚠ **오프셋 하나가 상자를 못 낼 수 있다** — MathLive 실측, 두 갈래.
- * (1) `subsup`/`box`(`\boxed` 등)/`enclose`(`\cancel` 등)처럼 **자기 몫 DOM이 없는
- * 구조 원자**는 `Atom.bind` 를 아예 안 거쳐 `id` 가 안 생긴다(`mathlive.mjs` 의
- * `SubsupAtom.render` 등, `attachSupsub`/`result.wrap` 를 바로 반환하고 `bind` 를
- * 안 부른다) — 그 원자가 자기 **끝**(`b`) 자리에 오면 못 잰다.
- * (2) `accent`(`\vec` 등)처럼 **`captureSelection=true`** 인 원자는 안쪽 자손의
- * `bind` 를 의도적으로 막는다(`Atom.bind` 가 부모 체인에서 `captureSelection` 을
- * 만나면 조기 반환) — 그 원자가 선택의 **첫** 원자면, 오프셋이 가지·본문을 먼저
- * 매기고 그 원자 자신을 마지막에 매기는 순서라(`\frac` 도 같다) `a+1` 이 안쪽
- * 자손 자리로 떨어져 못 잰다.
- * 두 경우 다 **원자 자체**(구조 원자의 끝 슬롯, 또는 captureSelection 원자 자신의
- * 슬롯)는 멀쩡히 잡힌다 — 그래서 못 잰 쪽으로 한 칸씩 걸어 선택 범위 안에서 상자가
- * 있는 가장 가까운 자리를 대신 쓴다. (1)은 안쪽 마지막 자손의 오른쪽 끝을 쓰므로
- * `subsup`/`enclose` 처럼 자기 몫 폭이 없는 원자는 정확하고, `box` 처럼 패딩이
- * 있는 원자는 그 패딩만큼 어긋난다(이 앱에서 안 쓰는 명령이라 감수). (2)는 결국
- * 그 원자 자신의 상자에 닿으므로 정확하다.
+ * ⚠ **양끝 오프셋의 상자만 봐서는 안 된다** — 범위 안 **모든** 오프셋의 상자를
+ * 합집합으로 두른다. 이유가 둘이다.
+ *
+ * (1) **오프셋 번호는 자손을 먼저 매기고 구조 원자 자신을 마지막에 매긴다**
+ * (`\sqrt`·`\frac` 다 같다, 실측: `1+\sqrt{1+x^2}+3` 에서 근호 원자 자신은 10,
+ * 그 안쪽 자손은 3…9). 그래서 근호 하나만 고른 선택 `[2, 10]` 의 `a+1` 은 근호
+ * **안쪽 첫 자손**을 가리켜, 그 상자의 왼쪽을 쓰면 시작 핸들이 근호 기호를
+ * 건너뛰고 안쪽에 선다 — 하이라이트와 눈에 띄게 어긋난다(사용자 보고).
+ * 자손 상자는 언제나 그 구조 원자의 상자 안에 들어가므로, 합집합을 두르면
+ * 자손을 몇 개 훑든 결과는 바깥 원자의 상자다.
+ *
+ * (2) **오프셋 하나가 상자를 아예 못 낼 수 있다** — MathLive 실측, 두 갈래.
+ * `subsup`/`box`(`\boxed`)/`enclose`(`\cancel`)처럼 **자기 몫 DOM이 없는 구조
+ * 원자**는 `Atom.bind` 를 안 거쳐 `id` 가 안 생기고(`mathlive.mjs` 의
+ * `SubsupAtom.render` 등), `accent`(`\vec`)처럼 **`captureSelection=true`** 인
+ * 원자는 안쪽 자손의 `bind` 를 의도적으로 막는다. 어느 쪽이든 그 자리만 건너뛰면
+ * 되고, 같은 원자를 가리키는 다른 오프셋이 범위 안에 있어 합집합이 메운다.
+ *
+ * 범위 안 오프셋이 하나도 상자를 못 내면 `null` — 그때만 핸들이 사라진다.
  */
-function boundsInRange(
+function extentOfRange(
   mf: MathfieldElement,
   from: number,
-  step: 1 | -1,
   to: number,
-): DOMRect | null {
-  for (let q = from; step > 0 ? q <= to : q >= to; q += step) {
-    const bounds = mf.getElementInfo(q)?.bounds;
-    if (bounds !== undefined) return bounds;
+): { left: number; right: number; top: number; bottom: number } | null {
+  let box: { left: number; right: number; top: number; bottom: number } | null = null;
+  for (let q = from; q <= to; q += 1) {
+    const b = mf.getElementInfo(q)?.bounds;
+    if (b === undefined) continue;
+    box =
+      box === null
+        ? { left: b.left, right: b.right, top: b.top, bottom: b.bottom }
+        : {
+            left: Math.min(box.left, b.left),
+            right: Math.max(box.right, b.right),
+            top: Math.min(box.top, b.top),
+            bottom: Math.max(box.bottom, b.bottom),
+          };
   }
-  return null;
+  return box;
 }
 
 function measure(mf: MathfieldElement, container: HTMLElement): Placement | null {
@@ -117,14 +129,13 @@ function measure(mf: MathfieldElement, container: HTMLElement): Placement | null
   if (range === undefined) return null;
   const [a, b] = range;
   // 선택된 원자는 a+1 … b 다 (오프셋은 원자 **사이**의 경계다).
-  const first = boundsInRange(mf, a + 1, 1, b);
-  const last = boundsInRange(mf, b, -1, a + 1);
-  if (first === null || last === null) return null;
+  const span = extentOfRange(mf, a + 1, b);
+  if (span === null) return null;
 
   const box = container.getBoundingClientRect();
   const contentBox = contentOf(mf)?.getBoundingClientRect() ?? box;
-  const top = Math.min(first.top, last.top);
-  const bottom = Math.max(first.bottom, last.bottom);
+  const top = span.top;
+  const bottom = span.bottom;
 
   // 컨테이너 밖으로 나간 쪽은 숨기지 않고 그 경계에 세운다 — 핀으로 읽히게 하고
   // (`.sel-handle-pinned`), 언제든 잡아서 다시 안으로 끌어올 수 있게 둔다.
@@ -136,8 +147,8 @@ function measure(mf: MathfieldElement, container: HTMLElement): Placement | null
   return {
     top: top - box.top,
     bottom: bottom - box.top,
-    start: clampEdge(first.left),
-    end: clampEdge(last.right),
+    start: clampEdge(span.left),
+    end: clampEdge(span.right),
     midY: (top + bottom) / 2,
   };
 }

@@ -171,6 +171,26 @@ describe('선택 핸들 — 양끝 조정', () => {
     expect(handles(host).end).toBeNull();
   });
 
+  it('구조 원자 하나만 골라도 시작 핸들이 그 바깥 왼쪽에 선다', async () => {
+    // 회귀 핀 — 오프셋 번호는 자손을 먼저, 구조 원자 자신을 마지막에 매긴다.
+    // 그래서 `a+1` 은 근호 **안쪽** 첫 자손이고, 그 상자의 왼쪽을 쓰면 시작 핸들이
+    // 근호 기호를 건너뛰고 안쪽에 섰다(사용자 보고). 범위 전체의 합집합을 둘러야
+    // 바깥 원자의 왼쪽이 나온다 (`SelectionHandles.tsx` 의 `extentOfRange`).
+    pretendMobile(true);
+    const { mf, host } = await mount(String.raw`1+\sqrt{1+x^2}+3`);
+    mf.focus();
+    const sqrt = mf.lastOffset - 2; // 근호 원자 자신 (뒤로 `+`, `3` 둘)
+    mf.selection = { ranges: [[2, sqrt]], direction: 'forward' };
+    await settle();
+    expect(selectedLatex(mf)).toBe(String.raw`\sqrt{1+x^2}`);
+
+    const { start, end } = handles(host);
+    const box = (host.querySelector('.mf') as HTMLElement).getBoundingClientRect();
+    const bounds = mf.getElementInfo(sqrt)!.bounds!;
+    expect(start!.offsetLeft, '시작 핸들이 근호 왼쪽에 선다').toBeCloseTo(bounds.left - box.left, 0);
+    expect(end!.offsetLeft, '끝 핸들이 근호 오른쪽에 선다').toBeCloseTo(bounds.right - box.left, 0);
+  });
+
   it('핸들 위치는 그 자리를 탭했을 때와 같다 (중앙선 기준)', async () => {
     // 원시 캐럿은 `bias 0` 으로 잡는다 — 네이티브 탭과 **같은 규칙**이라, 원자의
     // 어느 쪽 절반을 짚었느냐로 경계가 갈린다. 예전엔 ±1 로 "손가락 밑 원자를
@@ -448,8 +468,8 @@ describe('선택 핸들 — 자기 상자가 없는 원자로 끝나거나 시�
   // MathLive 실측: `subsup`/`box`(`\boxed`)/`enclose`(`\cancel`) 는 자기 몫 DOM이
   // 없어 `id` 가 안 생기고, `accent`(`\vec`) 는 `captureSelection` 이라 안쪽
   // 자손의 `id` 가 안 생긴다 — 그래서 `getElementInfo` 가 `bounds: undefined` 를
-  // 준다. `measure()` 의 `boundsInRange` 가 선택 범위 안에서 상자가 있는 가장
-  // 가까운 자리로 대신 재는지를 확인한다 (`SelectionHandles.tsx` 참고).
+  // 준다. `measure()` 의 `extentOfRange` 가 그 자리만 건너뛰고 나머지 오프셋의
+  // 상자로 범위를 두르는지 확인한다 (`SelectionHandles.tsx` 참고).
   it.each([
     ['x^{2}', 'x^2'],
     ['x_{2}', 'x_2'],
