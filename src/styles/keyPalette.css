@@ -13,6 +13,19 @@
 
   /* --- 자체 키 팔레트 (KeyPalette.tsx) --- */
 
+  /* 포커스된 셀이 없으면 접는다(`KeyPalette.tsx` 가 `hidden` 을 건다).
+     `display` 만 꺼서는 안 된다 — `.app` 의 바닥 여백이 `--palette-h` 로 묶여 있어
+     (`base.css`) 팔레트 자리만큼 빈 공간이 그대로 남는다. 그래서 변수도 함께 0으로
+     돌린다. `.key-palette[hidden]` 은 아래 `display: flex` 보다 특정도가 높아
+     순서와 무관하게 이긴다(UA 기본 `[hidden]` 은 반대로 져서 명시가 필요하다). */
+  :root:has(.key-palette[hidden]) {
+    --palette-h: 0rem;
+  }
+
+  .key-palette[hidden] {
+    display: none;
+  }
+
   .key-palette {
     display: flex;
     flex-direction: column;

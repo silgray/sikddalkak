@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { getActiveMathField } from '../editor/activeField';
+import { useState, useSyncExternalStore } from 'react';
+import { getActiveMathField, isFieldFocused, subscribeFieldFocus } from '../editor/activeField';
 import { feedKey, type KeyStroke } from '../editor/feedKey';
 
 /**
@@ -297,6 +297,15 @@ export function KeyPalette() {
   const [layerId, setLayerId] = useState<string>(PALETTE_LAYERS[0].id);
   const [upper, setUpper] = useState(false);
   const layer = PALETTE_LAYERS.find((l) => l.id === layerId) ?? PALETTE_LAYERS[0];
+  /**
+   * 포커스된 셀이 하나도 없으면 접는다 — 물리 키보드가 안 뜨는 것과 같은 규칙이다.
+   * 판정은 `editor/activeField.ts` 의 게이트가 통째로 하고 여기는 구독만 한다
+   * (모바일 분기가 아니다 — 데스크톱에서는 CSS가 어차피 늘 숨긴다).
+   *
+   * 접는 일 자체는 CSS 몫이다: `hidden` 만 걸고 `display` 와 `.app` 바닥 여백은
+   * `styles/keyPalette.css` 가 정한다(대원칙 3 — 그리기만 하고 숨김은 CSS에).
+   */
+  const focused = useSyncExternalStore(subscribeFieldFocus, isFieldFocused, () => false);
 
   const renderRow = (keys: PaletteKey[], i: number) => (
     <div className="key-palette-row" key={i}>
@@ -314,7 +323,7 @@ export function KeyPalette() {
   );
 
   return (
-    <div className="key-palette" role="group" aria-label="Symbol keyboard">
+    <div className="key-palette" role="group" aria-label="Symbol keyboard" hidden={!focused}>
       <div className="key-palette-tabs">
         <div className="key-palette-tablist" role="tablist">
           {PALETTE_LAYERS.map((l) => (

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { createElement, Fragment } from 'react';
 import type { MathfieldElement } from 'mathlive';
+import '../styles.css';
 import { MathField } from './MathField';
 import { KeyPalette, PALETTE_LAYERS, type PaletteKey } from './KeyPalette';
 
@@ -239,4 +240,65 @@ describe('KeyPalette — 인라인 숏컷 의존 키가 실제로 변환된다',
       expect(mf.value).not.toBe('');
     });
   }
+});
+
+describe('KeyPalette — 포커스된 셀이 없으면 접힌다', () => {
+  /**
+   * 실제 트리와 같은 중첩(`.app` 안에 팔레트)으로 띄운다 — 접힘이 `display` 뿐
+   * 아니라 **바닥 여백까지** 풀어주는지 재려는 것이라 `.app` 이 있어야 한다.
+   */
+  async function mountInApp(): Promise<{
+    mf: MathfieldElement;
+    palette: HTMLElement;
+    app: HTMLElement;
+  }> {
+    const app = document.createElement('div');
+    app.className = 'app';
+    document.body.append(app);
+    const root = createRoot(app);
+    root.render(
+      createElement(Fragment, null, createElement(MathField, { value: 'x' }), createElement(KeyPalette)),
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    cleanups.push(() => {
+      root.unmount();
+      app.remove();
+    });
+    return {
+      mf: app.querySelector('math-field') as MathfieldElement,
+      palette: app.querySelector('.key-palette') as HTMLElement,
+      app,
+    };
+  }
+
+  it('아무 셀도 포커스가 없으면 접혀 있다', async () => {
+    const { palette } = await mountInApp();
+    await settle();
+    expect(palette.hasAttribute('hidden')).toBe(true);
+  });
+
+  it('셀에 포커스가 들어오면 펴지고, 빠지면 다시 접힌다', async () => {
+    const { mf, palette } = await mountInApp();
+    mf.focus();
+    await settle();
+    expect(palette.hasAttribute('hidden')).toBe(false);
+    mf.blur();
+    await settle();
+    expect(palette.hasAttribute('hidden')).toBe(true);
+  });
+
+  it('접히면 자리도 안 남는다 — `.app` 바닥 여백이 함께 풀린다', async () => {
+    // `display` 만 꺼서는 안 되는 자리다: 바닥 여백이 `--palette-h` 로 팔레트 높이와
+    // 묶여 있어(`styles/base.css`) 끄기만 하면 그 높이만큼 빈 자리가 그대로 남는다.
+    const { mf, palette, app } = await mountInApp();
+    mf.focus();
+    await settle();
+    expect(getComputedStyle(palette).display).toBe('flex');
+    expect(parseFloat(getComputedStyle(app).paddingBottom)).toBeGreaterThan(0);
+
+    mf.blur();
+    await settle();
+    expect(getComputedStyle(palette).display).toBe('none');
+    expect(parseFloat(getComputedStyle(app).paddingBottom)).toBe(0);
+  });
 });
