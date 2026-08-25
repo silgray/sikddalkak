@@ -137,11 +137,68 @@ describe('KeyPalette — 버튼 클릭이 activeField에 반영된다', () => {
     expect(mf.value).toBe('1=');
   });
 
-  it('행렬 키는 2×2 를 넣는다 (키 입력 경로가 없는 유일한 예외)', async () => {
+  it('행렬 키는 짧게 누르면(홀드 미만) 기본 2×2 를 넣는다', async () => {
+    // `.click()` 은 pointerdown/up 없이 click만 합성한다 — `MatrixKeyButton` 의
+    // "홀드 못 채우고 뗀 경우" 경로(onClick)와 정확히 같은 조건이다.
     const { mf, host } = await mount();
-    clickKey(host, 'matrix (2×2)');
+    clickKey(host, 'matrix (hold for size)');
     await settle();
+    // `#?` 로 넣은 placeholder는 되읽으면 `\placeholder{}` 로 나온다(실측) —
+    // 정확한 문자열 대신 구조(2행: `\\` 1개, 행마다 `&` 1개)로 잰다.
     expect(mf.value).toContain('pmatrix');
+    expect((mf.value.match(/\\\\/g) ?? []).length).toBe(1);
+    expect((mf.value.match(/&/g) ?? []).length).toBe(2);
+  });
+
+  it('행렬 키를 길게 눌러 드래그하면 고른 크기로 넣는다', async () => {
+    const { mf, host } = await mount();
+    const btn = [...host.querySelectorAll<HTMLButtonElement>('.palette-key')].find(
+      (b) => b.title === 'matrix (hold for size)',
+    );
+    if (btn === undefined) throw new Error('matrix key not found');
+    const start = btn.getBoundingClientRect();
+    const opts = {
+      pointerId: 7,
+      isPrimary: true,
+      pointerType: 'touch' as const,
+      bubbles: true,
+      cancelable: true,
+    };
+    btn.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        ...opts,
+        clientX: start.left + start.width / 2,
+        clientY: start.top + start.height / 2,
+      }),
+    );
+    // 홀드 임계(450ms)를 넘겨야 격자가 뜬다.
+    await new Promise((r) => setTimeout(r, 500));
+    const grid = host.querySelector('.matrix-picker-grid');
+    expect(grid, '홀드 뒤에도 격자가 안 떴다').not.toBeNull();
+    const label = host.querySelector('.matrix-picker-label');
+    expect(label?.textContent).toBe('2 × 2 matrix'); // 기본값(막 뜬 직후)
+
+    // 격자의 3번째 행·4번째 열 칸으로 손가락을 옮긴다 → 3×4 미리보기.
+    const gridRect = grid!.getBoundingClientRect();
+    const cellW = gridRect.width / 5;
+    const cellH = gridRect.height / 5;
+    const targetX = gridRect.left + cellW * 3.5; // 4번째 칸(1-based) 한가운데
+    const targetY = gridRect.top + cellH * 2.5; // 3번째 칸(1-based) 한가운데
+    btn.dispatchEvent(
+      new PointerEvent('pointermove', { ...opts, clientX: targetX, clientY: targetY }),
+    );
+    await settle();
+    expect(host.querySelector('.matrix-picker-label')?.textContent).toBe('3 × 4 matrix');
+
+    btn.dispatchEvent(
+      new PointerEvent('pointerup', { ...opts, clientX: targetX, clientY: targetY }),
+    );
+    await settle();
+
+    expect(host.querySelector('.matrix-picker-grid')).toBeNull(); // 격자가 닫혔다
+    // 3행×4열: 행 구분 `\\` 이 2개(행-1), 각 행의 칸 구분 `&` 가 3개(열-1) × 3행.
+    expect((mf.value.match(/\\\\/g) ?? []).length).toBe(2);
+    expect((mf.value.match(/&/g) ?? []).length).toBe(9);
   });
 });
 
