@@ -155,7 +155,7 @@ function digit(ch: string): PaletteKey {
 // 두 블록 사이 20px 틈 + 36px 전용 열. `.key-palette-split`/`.key-palette-aside`,
 // `keyPalette.css`).
 const NUM_RIGHT: PaletteKey[][] = [
-  [digit('7'), digit('8'), digit('9'), { label: '÷', strokes: chars('div'), title: 'divide' }],
+  [digit('7'), digit('8'), digit('9'), { label: '÷', strokes: key('/', 'Slash'), title: 'fraction' }],
   [digit('4'), digit('5'), digit('6'), { label: '×', strokes: chars('*'), title: 'cdot' }],
   [digit('1'), digit('2'), digit('3'), { label: '−', strokes: chars('-') }],
   [
