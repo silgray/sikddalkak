@@ -1,0 +1,120 @@
+/* 결과 토글의 짧은 라벨(π / 3.14). 데스크톱은 `formula`/`decimal` 낱말을 쓰므로
+   숨긴다 — 둘 다 렌더되고 어느 쪽을 보일지는 미디어쿼리가 정한다(CellGroup.tsx). */
+.result-mode-label-compact {
+  display: none;
+}
+
+/* --- 결과 표시 모드 스위치 (symbolic ↔ numeric) --- */
+
+/* 손잡이가 좌우로 미끄러지는 슬라이드 토글. 폭을 고정해 두 낱말 중 긴 쪽
+   ("symbolic")이 들어가게 하고, 손잡이 위치는 그 안에서 계산한다. */
+.result-mode {
+  --knob: 0.85rem;
+  --rail-pad: 0.12rem;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  width: 5rem;
+  height: calc(var(--knob) + var(--rail-pad) * 2);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  font-family: inherit;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.result-mode:hover {
+  border-color: var(--muted);
+}
+
+.result-mode-numeric {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* 이름은 손잡이 **반대쪽**에 놓인다 — 손잡이가 왼쪽이면 오른쪽 여백이 좁아진다. */
+.result-mode-label {
+  width: 100%;
+  text-align: center;
+  padding-left: var(--knob);
+  color: var(--muted);
+  font-size: 0.62rem;
+  letter-spacing: 0.01em;
+  transition: padding 0.15s ease, color 0.15s ease;
+}
+
+.result-mode-numeric .result-mode-label {
+  padding-left: 0;
+  padding-right: var(--knob);
+  color: var(--accent);
+}
+
+.result-mode-knob {
+  position: absolute;
+  top: var(--rail-pad);
+  left: var(--rail-pad);
+  width: var(--knob);
+  height: var(--knob);
+  border-radius: 50%;
+  background: var(--muted);
+  transition: left 0.15s ease, background 0.15s ease;
+}
+
+.result-mode-numeric .result-mode-knob {
+  left: calc(100% - var(--knob) - var(--rail-pad));
+  background: var(--accent);
+}
+
+@media (max-width: 640px) {
+  /* 슬라이드 토글 → **사각 라운드 칩**(시안). 손잡이가 좌우로 미끄러지는 대신,
+     칩 전체의 배경·테두리·글자색이 상태를 말한다 — 라벨도 늘 가운데 하나만
+     찍히므로(π 또는 3.14) 손잡이 자리를 비키는 padding 곡예가 필요 없어졌다.
+
+     ⚠ **선택자가 `.result-actions .result-mode` 인 이유**: `.result-actions
+     button`(`cell.css`, 데스크톱 범위)가 명시도 (0,1,1)로 이 버튼의 배경·테두리·
+     radius·padding을 이미 덮어쓰고 있었다(`.result-mode` 단독은 (0,1,0)로 진다 —
+     데스크톱에도 있던 기존 버그, 실측). 데스크톱은 안 건드리는 게 원칙이라
+     `cell.css` 를 고치는 대신, **모바일 블록 안에서만** 명시도를 (0,2,0)으로
+     올려 이 요소에 한해 이긴다 — 다른 버튼(`.transform-btn` 등)은 그대로 영향
+     안 받는다. */
+  .result-actions .result-mode {
+    width: 3.25rem; /* 52px */
+    height: auto;
+    padding: 0.375rem 0;
+    border-radius: 8px;
+    background: var(--pad-bg);
+    border-color: var(--key-tint-line);
+  }
+
+  .result-actions .result-mode-numeric {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 33%, transparent);
+  }
+
+  /* 칩엔 미끄러질 손잡이가 없다. */
+  .result-mode-knob {
+    display: none;
+  }
+
+  .result-mode-label {
+    display: none;
+  }
+
+  .result-mode-label-compact {
+    display: block;
+    width: 100%;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.9375rem; /* 15px, 시안 */
+    line-height: 1;
+    transition: color 0.15s ease;
+  }
+
+  .result-mode-numeric .result-mode-label-compact {
+    color: var(--accent);
+  }
+}

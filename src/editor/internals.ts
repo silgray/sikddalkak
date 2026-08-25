@@ -43,6 +43,164 @@ export function modelOf(mf: MathfieldElement): InternalModel | null {
 }
 
 /**
+ * MathLive가 원자 화면 상자를 **뷰포트 좌표로 캐싱**해 두는 곳
+ * (`mathfield.atomBoundsCache`, `getAtomBounds`/`getElementInfo` 가 읽는다). 비우는
+ * 곳은 원래 셋뿐이다(실측): 재렌더 직전(rAF), 렌더 끝, 그리고 자기 자신의
+ * `onPointerDown`. **패닝은 렌더도 pointerdown도 없이 `scrollLeft` 만 옮기므로**
+ * 캐시가 안 비워져 핸들이 스크롤을 따라가지 않는다 — `SelectionHandles.tsx` 가
+ * 기하 변화(스크롤·리사이즈)를 감지했을 때만 이걸 불러 강제로 비운다.
+ *
+ * ⚠ 매 프레임 부르면 안 된다 — 캐시가 비면 `getOffsetFromPoint` 가 원자마다
+ * `querySelectorAll`+`getBoundingClientRect` 를 다시 돌아 홀드 드래그 같은
+ * 프레임마다 히트테스트하는 경로에서 버벅인다.
+ */
+export function clearAtomBoundsCache(mf: MathfieldElement): void {
+  const internal = (mf as unknown as { _mathfield?: { atomBoundsCache?: Map<string, unknown> } })
+    ._mathfield;
+  internal?.atomBoundsCache?.clear();
+}
+
+/**
+ * 오프셋 하나가 화면에서 서는 **뷰포트 x**. 못 재면 `null`.
+ *
+ * 오프셋은 원자 **사이**의 경계라, 그 자리는 "오프셋 `q` 로 끝나는 원자의 오른쪽"
+ * 이다. 예외는 branch 맨 앞(`first` 센티넬) — 거기선 뒤따르는 첫 원자의 **왼쪽**을
+ * 쓴다. ⚠ **센티넬 자기 상자를 쓰면 안 된다**: 그 값은 자기가 아니라 부모 컨테이너
+ * 전체로 나오고 레이아웃 타이밍까지 탄다(`resolveOffsetAt` 의 ⚠ 참고). 진짜 원자
+ * 상자만 믿는다.
+ */
+export function boundaryXOf(mf: MathfieldElement, offset: number): number | null {
+  try {
+    const model = modelOf(mf);
+    const isSentinel = model !== null && model.at(offset)?.type === 'first';
+    const box = isSentinel
+      ? mf.getElementInfo(offset + 1)?.bounds
+      : mf.getElementInfo(offset)?.bounds;
+    if (box === undefined) return null;
+    return isSentinel ? box.left : box.right;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 센티넬이 나왔을 때, **그 센티넬의 branch 안에서** 손가락에 가장 가까운 형제
+ * 경계를 직접 고른다. MathLive는 "점이 이 branch 안에 있다"까지는 맞게 알려준
+ * 셈이라(센티넬의 부모 상자가 점을 품었으니), 그 안에서 자리만 우리가 정한다.
+ */
+function nearestBoundaryInBranch(
+  mf: MathfieldElement,
+  model: InternalModel,
+  sentinel: number,
+  x: number,
+  bias: -1 | 0 | 1,
+): number | null {
+  const home = model.at(sentinel);
+  if (home === undefined) return null;
+  const parent = home.parent ?? null;
+  const branch = JSON.stringify(home.parentBranch ?? null);
+
+  let best: number | null = null;
+  let bestDist = Infinity;
+  // 센티넬은 그 branch의 첫 오프셋이라 형제 경계는 전부 그 뒤에 있다. 중간에
+  // 끼는 중첩 내용은 (parent, branch) 비교가 걸러낸다.
+  for (let q = sentinel; q <= model.lastOffset; q += 1) {
+    const atom = model.at(q);
+    if (atom === undefined) continue;
+    if ((atom.parent ?? null) !== parent) continue;
+    if (JSON.stringify(atom.parentBranch ?? null) !== branch) continue;
+    const edge = boundaryXOf(mf, q);
+    if (edge === null) continue;
+    const d = Math.abs(x - edge);
+    // 같은 거리면 bias가 가리키는 쪽을 고른다 (왼쪽 -1 / 오른쪽 +1).
+    if (d < bestDist || (d === bestDist && bias > 0)) {
+      bestDist = d;
+      best = q;
+    }
+  }
+  return best;
+}
+
+/**
+ * 화면 좌표 → 모델 오프셋. **네이티브 탭과 같은 경로**로 물어본다.
+ *
+ * **드래그 파이프라인 ① — 픽셀 → 오프셋.** 손가락이 짚은 좌표를 **원시 캐럿**
+ * 하나로 바꾼다. 여기서 나온 값은 아직 선택이 아니다 — 선택으로 만드는 건 ②의
+ * `caretRunRange`(`editor/selection.ts`)고, 그 결과를 다시 화면 좌표로 되돌리는
+ * 건 ③의 `measure`(`components/SelectionHandles.tsx`)다.
+ *
+ * ⚠ **실측한 진짜 함정은 `atomBoundsCache` 다.** `getOffsetFromPoint` 한 번이
+ * 트리를 훑으며 원자 상자를 재고 그 결과를 캐시에 쌓는데, 거기 `first` 센티넬의
+ * 상자가 들어가면 **그 다음 호출부터** 그 센티넬이 자기 branch 어디서나 이겨버린다.
+ * 센티넬 상자는 자기 자신이 아니라 **부모 컨테이너 전체**로 재지기 때문이다
+ * (`getNodeBounds` 가 높이 0인 노드에서 부모로 올라간다) — `distance()` 는 점이
+ * 상자 안이면 0을 주므로 무조건 이긴다.
+ *
+ * MathLive 자신의 탭(`onPointerDown`)이 **항상 정확한 이유가 바로 이것**이다:
+ * 탭마다 캐시를 비우고 시작한다. 우리 드래그는 pointermove마다 히트테스트하므로
+ * 안 비우면 두 번째 이동부터 오염된 값을 쓴다 — 그게 "커서가 엉뚱한 데로 튀는"
+ * 증상이었다(실측: 매 호출 비우면 결과가 진짜 탭과 **정확히 일치**한다).
+ *
+ * ⚠ **한 번만 비우는 걸로는 안 된다** — 그 다음 첫 호출이 다시 오염시킨다(실측).
+ *
+ * 뒤의 센티넬 보정은 캐시를 비운 뒤에도 남는 가장자리를 메우는 **2차 안전망**이다.
+ * (센티넬 오프셋 자체는 branch 맨 앞을 가리키는 정당한 값이라, 캐시가 깨끗하면
+ * 거의 안 걸린다.)
+ */
+export function resolveOffsetAt(
+  mf: MathfieldElement,
+  x: number,
+  y: number,
+  bias: -1 | 0 | 1,
+): number | null {
+  try {
+    // ⚠ **매 호출 직전에 캐시를 비워야 한다.** `getOffsetFromPoint` 한 번이 트리를
+    // 훑으며 `atomBoundsCache` 를 채우는데, 거기 센티넬의 부모-크기 상자가 들어가면
+    // **그 다음 호출부터** 그 센티넬이 자기 branch 어디서나 이겨버린다(실측).
+    // MathLive 자신의 탭(`onPointerDown`)이 항상 정확한 이유가 바로 이것 —
+    // 탭마다 캐시를 비우고 시작한다. 우리는 pointermove마다 히트테스트하므로
+    // 안 비우면 두 번째 이동부터 오염된 값을 쓴다.
+    // (한 번만 비우는 걸로는 안 된다 — 그 다음 첫 호출이 다시 오염시킨다, 실측.)
+    clearAtomBoundsCache(mf);
+    const offset = mf.getOffsetFromPoint(x, y, { bias });
+    // console.log(`[resolve] x:${x}, y:${y}, offset:${offset}`);
+    if (offset < 0) return null;
+    const model = modelOf(mf);
+    // 내부 model을 못 잡으면 걸러낼 방법이 없다 — 기존 동작(그대로 쓰기)으로 폴백.
+    if (model === null) return offset;
+    if (model.at(offset)?.type !== 'first') return offset;
+    return nearestBoundaryInBranch(mf, model, offset, x, bias);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 셰도우 DOM 안의 키보드 이벤트 싱크(`.ML__keyboard-sink`, contenteditable 스팬).
+ * MathLive는 여기서 keydown/keypress/input을 듣는다(`delegateKeyboardEvents`,
+ * mathlive.mjs 실측) — 호스트(`math-field` 엘리먼트)에 이벤트를 쏘면 이 리스너들을
+ * 아예 안 거친다. `feedKey.ts` 가 물리 키 입력과 같은 경로를 타려고 여기로 합성
+ * `KeyboardEvent`를 디스패치한다(브라우저 테스트 하네스의 `pressKey`와 같은 자리).
+ */
+export function keyboardSinkOf(mf: MathfieldElement): HTMLElement | null {
+  return mf.shadowRoot?.querySelector<HTMLElement>('.ML__keyboard-sink') ?? null;
+}
+
+/**
+ * 셰도우 DOM 안의 콘텐츠 상자(`.ML__content`). **가로 스크롤 컨테이너**다 —
+ * `overflow: hidden` 이라(mathlive.mjs 실측) 브라우저 네이티브 패닝은 없고,
+ * MathLive 자신도 캐럿을 따라갈 때 `field.scroll({left})` 로 여기를 직접 옮긴다
+ * (`Mathfield.scrollIntoView`). 그래서 넘침 측정(`FieldClip.tsx`)과 터치 패닝
+ * (`touchGesture.ts`)이 둘 다 이 요소의 `scrollLeft`/`scrollWidth` 를 본다.
+ *
+ * ⚠ `::part(content)` 에 `overflow` 를 덮어쓰면 이 스크롤 컨테이너가 사라진다
+ * (`styles.css` 의 경고 참고).
+ */
+export function contentOf(mf: Element): HTMLElement | null {
+  return mf.shadowRoot?.querySelector<HTMLElement>('.ML__content') ?? null;
+}
+
+/**
  * MathLive의 인라인 숏컷 키 버퍼를 비운다. 외부에서 값을 밀어넣을 때(실행취소
  * 등) 같이 불러야 한다 — 안 그러면 버퍼에 남은 옛 글자와 다음 입력이 이어붙어
  * 숏컷 매칭돼, 이미 되돌린 글자가 되살아난다 (예: s → undo → 'in' 입력 = \sin).

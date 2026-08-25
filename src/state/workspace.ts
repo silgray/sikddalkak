@@ -1,6 +1,7 @@
 import { groupAt, groupsOf } from '../cellGroup';
 import type { CellMode, FormulaObject } from '../types';
 import { repairLatex } from '../editor/wellformed';
+import { makeId } from '../id';
 
 /**
  * 셀 안 캐럿 위치. id는 오브젝트, offset은 MathLive 오프셋.
@@ -160,7 +161,7 @@ const HISTORY_LIMIT = 500;
 const emptyHistory = (): History => ({ past: [], future: [] });
 
 export function makeObject(): FormulaObject {
-  const id = crypto.randomUUID();
+  const id = makeId();
   return {
     id,
     latex: '',
@@ -175,7 +176,7 @@ export function makeObject(): FormulaObject {
 
 export function makeTab(name: string): Tab {
   return {
-    id: crypto.randomUUID(),
+    id: makeId(),
     name,
     objects: [makeObject()],
     focus: null,
@@ -353,7 +354,7 @@ function reduceContent(tab: Tab, action: ObjectAction): Content {
       if (index === -1) return { objects: tab.objects, focus: tab.focus };
       const source = tab.objects[index];
       const group = groupAt(tab.objects, index);
-      const copyId = crypto.randomUUID();
+      const copyId = makeId();
       const copy: FormulaObject = { ...source, id: copyId, groupId: copyId, entered: false };
       const insertAt = action.position === 'above' ? group.start : group.end;
       const objects = [...tab.objects.slice(0, insertAt), copy, ...tab.objects.slice(insertAt)];
@@ -373,10 +374,10 @@ function reduceContent(tab: Tab, action: ObjectAction): Content {
       const index = tab.objects.findIndex((o) => o.id === action.id);
       if (index === -1) return { objects: tab.objects, focus: tab.focus };
       const group = groupAt(tab.objects, index);
-      const copyGroupId = crypto.randomUUID();
+      const copyGroupId = makeId();
       const copies = tab.objects
         .slice(group.start, group.end)
-        .map((o) => ({ ...o, id: crypto.randomUUID(), groupId: copyGroupId }));
+        .map((o) => ({ ...o, id: makeId(), groupId: copyGroupId }));
       const insertAt = action.position === 'above' ? group.start : group.end;
       const objects = [...tab.objects.slice(0, insertAt), ...copies, ...tab.objects.slice(insertAt)];
       // 포커스는 원본 그룹의 result 필드에 남는다 — `groupId` 는 안 바뀌므로 그대로 쓴다.

@@ -71,19 +71,22 @@ function meaningfulAtoms(model: InternalModel, range: [number, number]): Interna
 }
 
 /**
- * **선택 불변식의 핵심**: [a,b]를 포함하는 최소한의 "한 문맥 연속 형제 열"을 구한다.
+ * `siblingRunRange` 와 `caretRunRange` 의 공통 뼈대.
  *
  * MathLive의 선택은 atom 트리를 평탄하게 훑은 정수 오프셋이라, 서로 다른 부모의
  * atom을 걸치는 구간도 표현할 수 있다. 그런 구간은 부분식이 아니고(LaTeX로 뽑으면
  * 행렬 셀 구분이 사라진다), 렌더도 층층이 겹친 박스로 어긋난다. 그래서 양 끝의
- * 문맥 사슬에서 최초 공통 문맥을 찾아 그 레벨의 형제 경계로 넓힌다.
+ * 문맥 사슬에서 **최초 공통 문맥**을 찾아 그 레벨의 형제 경계로 스냅한다.
  *
- * 성질: 멱등(이미 정규형이면 그대로) · 포함(원래 범위를 잃지 않음) · 결정적.
+ * 두 공개 함수의 차이는 **끝을 어느 쪽으로 스냅하느냐 하나뿐**이다(`shrinkEnd`).
+ * 시작은 언제나 바깥(왼쪽)으로 넓힌다 — 첨자 보정도 왼쪽으로 넓히는 방향이라
+ * 둘이 같은 뼈대를 쓸 수 있다.
  */
-export function siblingRunRange(
+function runRange(
   model: InternalModel,
   a0: number,
   b0: number,
+  shrinkEnd: boolean,
 ): [number, number] | null {
   const a = Math.min(a0, b0);
   const b = Math.max(a0, b0);
@@ -95,24 +98,27 @@ export function siblingRunRange(
   const whole = branchRange(model, common);
   if (whole === null) return null;
 
-  // 왼쪽: a 이하의 가장 가까운 형제 경계 (a가 어떤 형제의 내부면 그 형제 앞).
-  let left: number | null = null;
-  for (let q = a; q >= 0; q -= 1) {
-    if (inCtx(model.at(q), common)) {
-      left = q;
-      break;
+  /** offset에서 `dir` 방향으로 가장 가까운 common 형제 경계. 없으면 null. */
+  const boundaryFrom = (offset: number, dir: -1 | 1): number | null => {
+    for (let q = offset; q >= 0 && q <= model.lastOffset; q += dir) {
+      if (inCtx(model.at(q), common)) return q;
     }
+    return null;
+  };
+
+  // 시작: a 이하의 가장 가까운 형제 경계 (a가 어떤 형제의 내부면 그 형제 앞까지 넓힌다).
+  let lo = boundaryFrom(a, -1) ?? whole[0];
+  let hi: number;
+  if (shrinkEnd) {
+    // 끝을 **안쪽으로** 당긴다 — b가 어떤 형제의 내부면 그 형제를 통째로 뺀다.
+    const shrunk = boundaryFrom(b, -1);
+    // 당긴 결과가 시작을 넘어서 아무 것도 안 남으면, 그 끝만 확장으로 되돌린다.
+    // (드래그 상태를 안 보는 순수 폴백이라 같은 입력이면 늘 같은 출력이다.)
+    hi = shrunk !== null && shrunk > lo ? shrunk : (boundaryFrom(b, 1) ?? whole[1]);
+  } else {
+    // 끝: b 이상의 가장 가까운 형제 경계 (b가 내부면 그 형제 끝까지 넓힌다).
+    hi = boundaryFrom(b, 1) ?? whole[1];
   }
-  // 오른쪽: b 이상의 가장 가까운 형제 경계 (b가 내부면 그 형제 끝).
-  let right: number | null = null;
-  for (let q = b; q <= model.lastOffset; q += 1) {
-    if (inCtx(model.at(q), common)) {
-      right = q;
-      break;
-    }
-  }
-  let lo = left ?? whole[0];
-  const hi = right ?? whole[1];
 
   // 첨자(subsup)는 밑에 붙는 조각이라 혼자 떼면 `^{2y}`처럼 파싱 불가한 LaTeX가
   // 된다(실측). 앞 형제(밑)를 포함할 때까지 왼쪽으로 넓힌다.
@@ -124,6 +130,50 @@ export function siblingRunRange(
     lo = prev;
   }
   return [lo, hi];
+}
+
+/**
+ * **선택 불변식의 핵심**: [a,b]를 **포함하는** 최소한의 "한 문맥 연속 형제 열".
+ *
+ * 성질: 멱등(이미 정규형이면 그대로) · **포함(원래 범위를 잃지 않음)** · 결정적.
+ * `normalizeSelection` 게이트가 이걸 쓴다 — MathLive가 만든 선택까지 여기를 지나므로
+ * **절대 좁히면 안 된다**(좁히면 게이트가 멀쩡한 선택을 지운다). 손가락으로 만든
+ * 선택을 파생할 때는 `caretRunRange` 쪽이다.
+ */
+export function siblingRunRange(
+  model: InternalModel,
+  a0: number,
+  b0: number,
+): [number, number] | null {
+  return runRange(model, a0, b0, false);
+}
+
+/**
+ * **원시 캐럿 두 개에서 화면 선택을 파생**한다 (`editor/rawSelection.ts`).
+ *
+ * **드래그 파이프라인 ② — 오프셋 → 범위.** ①(`resolveOffsetAt`, `editor/internals.ts`)이
+ * 낸 원시 캐럿 두 개를 파랗게 칠할 **선택 범위** 하나로 바꾼다. 이 파이프라인에서
+ * 범위를 만드는 곳은 여기뿐이다 — ③(`measure`, `components/SelectionHandles.tsx`)은
+ * 여기 결과를 받아쓰기만 한다.
+ *
+ * `siblingRunRange` 와 최소 공통 부모까지는 같고, **끝을 안쪽으로 당기는** 것만
+ * 다르다 — 끝 캐럿이 어떤 자식 *안*에 있으면 그 자식은 선택에서 **뺀다**. 그래야
+ * 분모 안에서 잡은 선택을 오른쪽으로 조금 끌었을 때 분수가 통째로 삼켜지지 않는다.
+ *
+ * ⚠ **비대칭이 의도다.** 시작 캐럿은 여전히 바깥으로 넓힌다 — 양끝을 다 당기면
+ * "온전히 들어온 자식이 하나도 없는" 상태가 잦아져 드래그 도중 선택이 자주 깜빡인다
+ * (설계 논의에서 실제로 걸렸다). 지금은 양끝이 **둘 다 자기 이하의 가장 가까운
+ * 경계**로 스냅한다.
+ *
+ * 결과는 유효한 형제 열이라 `normalizeSelection`(=`siblingRunRange`)을 **멱등하게**
+ * 통과한다 — 게이트가 우리 결과를 되돌려 놓지 않는다.
+ */
+export function caretRunRange(
+  model: InternalModel,
+  a0: number,
+  b0: number,
+): [number, number] | null {
+  return runRange(model, a0, b0, true);
 }
 
 /** 덧셈 경계가 되는 연산자인지 (`+`/`-`만; `\cdot`·`\times`는 곱셈이라 항 안에 남는다). */

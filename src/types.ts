@@ -12,7 +12,7 @@ export type CellMode = 'symbolic' | 'scoped';
  * 캔버스 좌표는 캔버스 뷰를 만들 때 별도로 붙인다.
  */
 export type FormulaObject = {
-  /** crypto.randomUUID() — 세션/저장 경계를 넘어 안정적이어야 한다. */
+  /** `makeId()`(`src/id.ts`) — 세션/저장 경계를 넘어 안정적이어야 한다. */
   id: string;
   /** 확정된 LaTeX (평가 대상) */
   latex: string;

@@ -334,6 +334,13 @@ function ResultRow({
           onMoveOut={onMoveOut}
         />
       </FieldClip>
+      {/* 변환 버튼의 모바일용 플로팅 사본 — `Cell.tsx` 와 같은 이유
+          (`.result-actions` 안 인라인 버튼은 좁은 화면에서 숨는다). */}
+      {selection !== null && (
+        <div className="transform-popup">
+          <TransformButtons selection={selection} onApply={onApply} />
+        </div>
+      )}
       <div className="result-actions">
         {selection !== null && <TransformButtons selection={selection} onApply={onApply} />}
         <ResultModeToggle numeric={numericMode} onChange={onNumericModeChange} />
@@ -378,7 +385,13 @@ function ResultModeToggle({
       {/* 손잡이가 미끄러지고 지금 고른 쪽 이름이 그 옆에 뜬다. 이름은 늘 하나만
           보인다 — 두 낱말을 다 띄우면 어느 쪽이 켜진 건지 오히려 헷갈린다. */}
       <span className="result-mode-knob" />
-      <span className="result-mode-label">{numeric ? 'decimal' : 'formula'}</span> {/* name changed */}
+      <span className="result-mode-label">{numeric ? 'decimal' : 'formula'}</span>
+      {/* 모바일용 짧은 라벨. **둘 다 렌더하고 어느 쪽을 보일지는 미디어쿼리가
+          정한다** — 조건부 렌더로 가르면 JS 분기 기준이 CSS와 어긋날 자리가 하나 더
+          생긴다(CLAUDE.md §모바일 대원칙). 위 라벨이 읽히므로 여기는 숨긴다. */}
+      <span className="result-mode-label-compact" aria-hidden="true">
+        {numeric ? '3.14' : 'π'}
+      </span>
     </button>
   );
 }

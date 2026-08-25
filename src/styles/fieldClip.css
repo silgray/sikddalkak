@@ -1,0 +1,50 @@
+/* --- 긴 식 축약 (입력 행) --- */
+
+.field-clip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.field-clip {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ⚠ MathLive의 콘텐츠 상자(`::part(content)` = `.ML__content`)에 `overflow` 를
+   덮어쓰지 말 것. 거기 걸린 `overflow: hidden` 이 곧 가로 스크롤 컨테이너이고,
+   MathLive가 캐럿을 따라 그걸 직접 스크롤한다(`Mathfield.scrollIntoView`).
+   예전에 여기에 `overflow: visible` 을 걸어 그 컨테이너를 없앴고, 그 바람에
+   `scrollWidth` 가 늘 `clientWidth` 와 같아 넘침을 못 쟀다 — `FieldClip` 문서 참고. */
+
+/* 가려진 쪽에만 옅어지는 페이드 + 말줄임표. 카드 배경(`--bg` 위에 옅게 덮인 색)과
+   완전히 같지는 않지만(실측상 2% 정도 차이) 눈에 띌 만큼은 아니다. */
+.field-clip-more-left::before,
+.field-clip-more-right::after {
+  content: '…';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.3rem;
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.field-clip-more-left::before {
+  left: 0;
+  justify-content: flex-start;
+  background: linear-gradient(to right, var(--bg) 55%, transparent);
+}
+
+.field-clip-more-right::after {
+  right: 0;
+  justify-content: flex-end;
+  background: linear-gradient(to left, var(--bg) 55%, transparent);
+}

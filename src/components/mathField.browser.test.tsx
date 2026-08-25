@@ -3,6 +3,13 @@ import { createRoot, type Root } from 'react-dom/client';
 import { createElement } from 'react';
 import type { MathfieldElement } from 'mathlive';
 import { MathField } from './MathField';
+import { MOBILE_QUERY } from '../mobile';
+import {
+  getActiveMathField,
+  getFocusedMathField,
+  isFieldFocused,
+  subscribeFieldFocus,
+} from '../editor/activeField';
 
 /**
  * `MathField` 의 셀 조작 단축키(Enter 계열, Alt+화살표) 회귀 테스트.
@@ -199,7 +206,14 @@ describe('MathField — 셀 그룹 밖으로 나가면 선택을 해제한다', 
     expect(mfA.selectionIsCollapsed).toBe(true);
   });
 
-  it('그룹 밖을 클릭하면(포커스 이동이 없어도) 선택이 풀린다', async () => {
+  /** 바깥을 눌렀다 뗀다. 떼는 지점이 누른 지점과 멀면 그건 탭이 아니라 스크롤이다. */
+  function tapOutside(el: Element, x0: number, y0: number, x1: number, y1: number): void {
+    const base = { bubbles: true, composed: true, pointerId: 3, isPrimary: true, pointerType: 'touch' };
+    el.dispatchEvent(new PointerEvent('pointerdown', { ...base, clientX: x0, clientY: y0 }));
+    document.dispatchEvent(new PointerEvent('pointerup', { ...base, clientX: x1, clientY: y1 }));
+  }
+
+  it('그룹 밖을 탭하면(포커스 이동이 없어도) 선택이 풀린다', async () => {
     // 스택 배경 같은 빈 여백을 누르면 포커스가 어디로도 안 옮겨가 focusout 이
     // 아예 안 난다 — 그래서 document pointerdown 경로가 따로 있다.
     const { mfA, onSelA, outside } = await mountGroup();
@@ -208,10 +222,24 @@ describe('MathField — 셀 그룹 밖으로 나가면 선택을 해제한다', 
     mfA.selection = { ranges: [[0, 3]], direction: 'forward' };
     await settle();
     onSelA.mockClear();
-    outside.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
+    tapOutside(outside, 100, 100, 100, 100);
     await settle();
     expect(mfA.selectionIsCollapsed).toBe(true);
     expect(onSelA).toHaveBeenCalledWith(null);
+  });
+
+  it('그룹 밖에서 시작한 **스크롤**로는 선택이 안 풀린다', async () => {
+    // 모바일에서 바깥을 짚는 손짓의 대부분은 페이지 스크롤이다 — 누른 즉시 풀면
+    // 선택을 잡아둔 채 아래로 훑어보는 게 불가능해진다(사용자 보고). 그래서 손을
+    // 뗄 때까지 기다렸다가 거의 안 움직였을 때만(=탭) 푼다.
+    const { mfA, outside } = await mountGroup();
+    mfA.focus();
+    await settle();
+    mfA.selection = { ranges: [[0, 3]], direction: 'forward' };
+    await settle();
+    tapOutside(outside, 100, 100, 104, 180);
+    await settle();
+    expect(mfA.selectionIsCollapsed).toBe(false);
   });
 
   it('같은 그룹 안을 클릭하면 선택이 살아 있다 (변환 버튼 클릭)', async () => {
@@ -352,5 +380,176 @@ describe('MathField — 셰도우 DOM 스타일', () => {
     const glyphWidth = glyphs.reduce((sum, g) => sum + g.getBoundingClientRect().width, 0);
     expect(glyphs.length).toBeGreaterThan(0);
     expect(line!.getBoundingClientRect().width).toBeGreaterThan(glyphWidth);
+  });
+
+  /** `\sqrt` 본문 오른쪽 끝의 탭 여백 칸(`MathField.tsx` 의 `SHADOW_CSS`)을 찾는다. */
+  function sqrtContentBox(mf: MathfieldElement): HTMLElement | null {
+    return mf.shadowRoot?.querySelector(
+      '.ML__sqrt-sign + .ML__vlist-t2 > .ML__vlist-r > .ML__vlist > span:first-child > span:not(.ML__pstrut)',
+    ) as HTMLElement | null;
+  }
+
+  it(String.raw`\sqrt 안쪽 끝에 탭 여백이 붙는다`, async () => {
+    // 회귀 핀 — 근호 본문(vinculum)이 마지막 글자에 딱 맞게 렌더돼, "본문 맨 끝,
+    // 근호 안쪽"에 캐럿을 두려는 탭이 짚을 자리가 없었다(사용자 보고, `\sqrt{1+x^2}`).
+    // `.overline` 과 같은 트릭 — 내용 칸에만 오른쪽 패딩을 주면 vinculum(width:100%)이
+    // 그만큼 길어진다. ⚠ 깨지면 MathLive가 `.ML__sqrt-sign`/`.ML__vlist-t2` 구조를 바꾼 것이다.
+    //
+    // ⚠ 이 규칙은 모바일 전용 `@media` 블록 안에 있다(아래 다른 테스트가 그 조건문
+    // 자체를 확인한다). 실제로 적용되는지는 이 브라우저 러너의 뷰포트가 이미 640px
+    // 아래라 여기서도 관찰된다 — `window.matchMedia` 를 흉내 내는 건 소용없다:
+    // 셰도우 스타일시트의 `@media` 는 우리 JS가 아니라 브라우저 CSS 엔진이 진짜
+    // 뷰포트 폭으로 직접 평가한다(`touchGesture.browser.test.tsx` 도 같은 이유로
+    // 실제 적용 대신 `CSSMediaRule.conditionText` 만 구조로 확인한다).
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    root.render(createElement(MathField, { value: String.raw`1+\sqrt{1+x^2}+3` }));
+    await settle();
+    const mf = host.querySelector('math-field') as MathfieldElement;
+    cleanups.push(() => {
+      root.unmount();
+      host.remove();
+    });
+
+    const contentBox = sqrtContentBox(mf);
+    expect(contentBox, '근호 본문 칸을 못 찾았다 — MathLive 구조가 바뀌었나?').not.toBeNull();
+    expect(parseFloat(getComputedStyle(contentBox!).paddingRight)).toBeGreaterThan(0);
+
+    // 줄은 내용 칸 폭을 따라간다 — 패딩이 붙었으니 본문 글자들의 오른쪽 끝(`x^2`)
+    // 보다 더 오른쪽까지 뻗는다.
+    const line = mf.shadowRoot?.querySelector('.ML__sqrt-line') as HTMLElement | null;
+    const lastGlyph = [...contentBox!.querySelectorAll('.ML__mathit, .ML__cmr')].at(-1) as
+      | HTMLElement
+      | undefined;
+    expect(line, '줄(vinculum)을 못 찾았다').not.toBeNull();
+    expect(lastGlyph, '본문 글자를 못 찾았다').not.toBeUndefined();
+    expect(line!.getBoundingClientRect().right).toBeGreaterThan(lastGlyph!.getBoundingClientRect().right);
+  });
+
+  it(String.raw`\sqrt 탭 여백 규칙은 모바일 전용 @media 블록 안에 있다`, async () => {
+    // CLAUDE.md §모바일 대원칙 — 데스크톱 레이아웃은 건드리지 않는다. 실제
+    // 뷰포트로 판정하는 건 위 테스트가 이미 하니, 여기서는 **그 규칙이 데스크톱에서
+    // 안 걸리게 막는 조건문 자체**가 셰도우 스타일시트에 실려 있는지만 구조로 본다.
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    root.render(createElement(MathField, { value: String.raw`1+\sqrt{1+x^2}+3` }));
+    await settle();
+    const mf = host.querySelector('math-field') as MathfieldElement;
+    cleanups.push(() => {
+      root.unmount();
+      host.remove();
+    });
+
+    const topLevel = mf.shadowRoot!.adoptedStyleSheets.flatMap((sheet) => [...sheet.cssRules]);
+    const leaked = topLevel.some((rule) => !(rule instanceof CSSMediaRule) && rule.cssText.includes('0.35em'));
+    expect(leaked, '탭 여백 규칙이 @media 블록 밖(전역)에 있다').toBe(false);
+
+    const mediaRules = topLevel.filter((rule): rule is CSSMediaRule => rule instanceof CSSMediaRule);
+    const mobile = mediaRules.filter((rule) => rule.conditionText === MOBILE_QUERY);
+    expect(mobile.length, `모바일 블록이 없다 (${MOBILE_QUERY})`).toBeGreaterThan(0);
+    const insideMobile = mobile.some((rule) =>
+      [...rule.cssRules].some((r) => r.cssText.includes('ML__sqrt-sign')),
+    );
+    expect(insideMobile, '탭 여백 규칙을 모바일 블록 안에서 못 찾았다').toBe(true);
+  });
+});
+
+describe('MathField — 포커스 게이트 (editor/activeField.ts)', () => {
+  /** 셀 그룹 하나에 필드 둘. 셀 간 이동을 진짜 `focus()` 로 재현하려면 둘이 필요하다. */
+  async function mountPair() {
+    const group = document.createElement('div');
+    group.className = 'cell-group';
+    document.body.append(group);
+    const hostA = document.createElement('div');
+    const hostB = document.createElement('div');
+    group.append(hostA, hostB);
+
+    const rootA = createRoot(hostA);
+    const rootB = createRoot(hostB);
+    rootA.render(createElement(MathField, { value: 'x+y' }));
+    rootB.render(createElement(MathField, { value: 'a+b' }));
+    await settle();
+
+    cleanups.push(() => {
+      rootA.unmount();
+      rootB.unmount();
+      group.remove();
+    });
+    return {
+      mfA: hostA.querySelector('math-field') as MathfieldElement,
+      mfB: hostB.querySelector('math-field') as MathfieldElement,
+      rootA,
+    };
+  }
+
+  it('포커스가 들어오면 "지금"과 "마지막"이 둘 다 그 필드다', async () => {
+    const { mfA } = await mountPair();
+    mfA.focus();
+    await settle();
+    expect(isFieldFocused()).toBe(true);
+    expect(getFocusedMathField()).toBe(mfA);
+    expect(getActiveMathField()).toBe(mfA);
+  });
+
+  it('포커스가 빠지면 "지금"은 비고 "마지막"은 남는다', async () => {
+    // 이 비대칭이 이 모듈의 존재 이유다 — 팔레트는 포커스가 빠진 뒤에도 대상을
+    // 알아야 하고(끈끈함), 가상 키보드는 빠졌다는 걸 알아야 한다(지금).
+    const { mfA } = await mountPair();
+    mfA.focus();
+    await settle();
+    mfA.blur();
+    await settle();
+    expect(isFieldFocused()).toBe(false);
+    expect(getActiveMathField()).toBe(mfA);
+  });
+
+  it('셀에서 셀로 옮기는 동안 포커스가 한 번도 안 끊긴다', async () => {
+    // 깜빡임 회귀 핀. focusout(A) → focusin(B) 사이에서 `false` 를 한 번이라도
+    // 내보내면 팔레트가 접혔다 펴지고, `--palette-h` 로 묶인 `.app` 바닥 여백까지
+    // 함께 움직여 내용이 통째로 튄다(`styles/base.css`).
+    const { mfA, mfB } = await mountPair();
+    mfA.focus();
+    await settle();
+
+    const seen: boolean[] = [];
+    const unsubscribe = subscribeFieldFocus(() => seen.push(isFieldFocused()));
+    cleanups.push(unsubscribe);
+
+    mfB.focus();
+    await settle();
+
+    expect(getFocusedMathField()).toBe(mfB);
+    expect(seen).not.toContain(false);
+  });
+
+  it('창 포커스 전환(relatedTarget 없는 focusout)으로는 안 놓는다', async () => {
+    // alt-tab/앱 전환에서는 focusout 이 나지만 `document.activeElement` 는 그대로다 —
+    // 돌아왔을 때 하던 자리가 살아 있어야 하므로 포커스를 놓지 않는다. 같은 필드가
+    // 여전히 진짜로 포커스돼 있으니 합성 이벤트만 쏘면 그 상황이 그대로 재현된다.
+    const { mfA } = await mountPair();
+    mfA.focus();
+    await settle();
+    mfA.dispatchEvent(new FocusEvent('focusout', { relatedTarget: null }));
+    await settle();
+    expect(isFieldFocused()).toBe(true);
+    expect(getFocusedMathField()).toBe(mfA);
+  });
+
+  it('포커스된 채 언마운트되면 게이트가 비고, 사라진 필드를 대상으로 안 남긴다', async () => {
+    // `mf.remove()` 는 포커스된 필드에서도 focusout 을 안 쏜다 — 정리 경로가 직접
+    // 알리지 않으면 이미 떨어져 나간 필드가 "포커스 중"으로 남고, 팔레트는 detached
+    // 엘리먼트로 키를 흘린다.
+    const { mfA, rootA } = await mountPair();
+    mfA.focus();
+    await settle();
+    expect(getActiveMathField()).toBe(mfA);
+
+    rootA.unmount();
+    await settle();
+
+    expect(isFieldFocused()).toBe(false);
+    expect(getActiveMathField()).not.toBe(mfA);
   });
 });

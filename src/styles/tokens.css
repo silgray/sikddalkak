@@ -1,0 +1,75 @@
+/* 디자인 토큰 — 라이트/다크 CSS 변수. 다른 모든 파일이 여기 변수만 쓴다. */
+
+:root {
+  --bg: #fbfbfd;
+  --fg: #1c1c1e;
+  --muted: #8a8a8e;
+  --line: #e3e3e8;
+  --accent: #3b6ef5;
+  --error: #c0392b;
+  --def: #1f7a4d;
+  color-scheme: light dark;
+}
+
+/* 모바일 **종이 팔레트** — 디자인 시안(Claude Design)의 따뜻한 회백색 계열.
+   데스크톱의 푸른 회색(위 `:root`)은 그대로 둔다(대원칙 1).
+
+   ⚠ 이 블록은 **라이트 `:root` 다음, 다크 블록 앞**에 와야 한다. 셋 다 같은
+   프로퍼티라 순서가 이기는데, 다크가 맨 뒤여야 모바일에서도 다크가 살아난다
+   (시안은 라이트 전용이라 다크는 기존 팔레트를 그대로 쓴다).
+   미디어쿼리를 `and (prefers-color-scheme: light)` 로 합치면 안 된다 —
+   `mediaQuery.test.ts` 가 임계값 문자열을 한 벌로 묶어 두고 있다. */
+@media (max-width: 640px) {
+  :root {
+    --bg: #fbfaf9;
+    --fg: #1a1c20;
+    --muted: #8b8e94;
+    --line: #ecebe7;
+    --accent: #2f6fe4;
+
+    /* --- 시안에만 있는 것들. 모바일 블록 안에서만 쓴다(`--palette-h` 와 같은 꼴) --- */
+
+    /* 셀 카드는 배경(`--bg`)보다 한 톤 밝다 — 이 대비가 카드를 띄운다. */
+    --card: #ffffff;
+    /* 키 팔레트 바닥. 카드 영역보다 살짝 어두워 "여기부터 키보드" 가 읽힌다. */
+    --pad-bg: #f2f0ec;
+    /* 키 표면과 테두리. 카드 테두리(`--line`)보다 진하다 — 키는 눌리는 것이라 윤곽이 또렷해야 한다. */
+    --key-face: #ffffff;
+    --key-line: #e0ded9;
+    /* 숫자 키는 톤을 깔아 기호 키와 갈라 놓는다(시안의 numpadTint). */
+    --key-tint: #e2dfd9;
+    --key-tint-line: #d8d5cf;
+    /* 눌린 순간. 톤 키는 한 단계 더 어둡게 눌린다. */
+    --key-down: #e2dfd9;
+    --key-tint-down: #cfccc5;
+    /* `--muted` 보다 한 단계 더 옅다 — × 삭제·결과 화살표처럼 "있지만 안 서두르는"
+       요소용(시안). `--muted` 는 여전히 결과 아래 줄의 π/3.14 라벨처럼 읽혀야
+       하는 텍스트를 맡는다 — 눈에 덜 띄는 정도가 둘이라 갈랐다. */
+    --faint: #b6b4af;
+    /* 결과 행 위 점선. `--line` 보다 살짝 진해 "여기서 계산이 끝났다" 가 또렷하다. */
+    --dashed: #e2e0dc;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16161a;
+    --fg: #ececf1;
+    --muted: #8a8a94;
+    --line: #2c2c33;
+    --accent: #7aa2ff;
+    --error: #ff7b6b;
+    --def: #5ed49b;
+    /* 위 모바일 블록이 정의한 것들의 다크 짝 — 모바일에서 다크면 여기가 이긴다. */
+    --card: #1d1d22;
+    --pad-bg: #131317;
+    --key-face: #212127;
+    --key-line: #34343c;
+    --key-tint: #2a2a31;
+    --key-tint-line: #3a3a43;
+    --key-down: #34343c;
+    --key-tint-down: #40404a;
+    --faint: #6a6d74;
+    --dashed: #34343c;
+  }
+}

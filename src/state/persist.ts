@@ -1,6 +1,7 @@
 import type { CellMode, FormulaObject } from '../types';
 import type { WorkspaceState } from './workspace';
 import { hydrateTab } from './workspace';
+import { makeId } from '../id';
 
 /**
  * 워크스페이스 영속화. localStorage I/O와 순수 검증/직렬화/마이그레이션을 분리한다 —
@@ -63,7 +64,7 @@ function normalizeObjects(raw: unknown): FormulaObject[] | null {
 /** 탭에 최소 하나의 오브젝트를 보장한다(편집할 셀). */
 function ensureNonEmpty(objects: FormulaObject[]): FormulaObject[] {
   if (objects.length > 0) return objects;
-  const id = crypto.randomUUID();
+  const id = makeId();
   return [{ id, latex: '', mode: 'scoped', groupId: id, entered: false, enabled: true, solveFor: null }];
 }
 
@@ -85,7 +86,7 @@ export function parseWorkspace(raw: string | null): WorkspaceState | null {
   if (parsed.version === 1) {
     const objects = normalizeObjects(parsed.objects);
     if (objects === null) return null;
-    const tab = hydrateTab({ id: crypto.randomUUID(), name: 'Tab 1', objects: ensureNonEmpty(objects) });
+    const tab = hydrateTab({ id: makeId(), name: 'Tab 1', objects: ensureNonEmpty(objects) });
     return { tabs: [tab], activeTabId: tab.id };
   }
 

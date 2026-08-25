@@ -247,7 +247,8 @@
 MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **버전 업 시 재확인 지점.**
 
 - **`internals.ts`** — MathLive 내부 API 접근 **단일 창구** (model, 숏컷 버퍼
-  flush, dispose-포커스 크래시 패치). 전부 try/catch 방어.
+  flush, dispose-포커스 크래시 패치, 콘텐츠 상자 `contentOf`, 원자 상자 캐시 비우기
+  `clearAtomBoundsCache`, 히트테스트 `resolveOffsetAt`). 전부 try/catch 방어.
 - **`latexScan.ts`** — 위치 붙은 LaTeX 토큰/그룹 스캐너. 재직렬화 없이 원본에
   대한 `Splice`만 만든다 (손대지 않은 부분은 바이트 보존).
 - **`rules.ts`** — 구조 규칙 **레지스트리** (데이터). `{id, find, fix, examples}`.
@@ -256,9 +257,176 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 - **`keyOps.ts`** — 키 연산 **레지스트리** (데이터). `{id, when, run, scenarios}`.
   파손을 애초에 막는 예방 층 — 괄호 쌍 생성/제거, 밑 없는 `^`/`_` 차단, 첨자 강등.
 - **`selection.ts`** — 선택을 "한 레벨 연속 형제 열"로 강제. `normalizeSelection`
-  (게이트), `siblingRunRange`, shift+화살표·Ctrl+D 확장 로직.
+  (게이트), shift+화살표·Ctrl+D 확장 로직, 그리고 **형제 열 스냅 두 짝**:
+  - **`siblingRunRange`** — [a,b]를 **포함하는** 최소 형제 열(양끝 확장).
+    `normalizeSelection` 전용이다. MathLive가 만든 선택까지 이 게이트를 지나므로
+    **절대 좁히면 안 된다** — 좁히면 게이트가 멀쩡한 선택을 지운다.
+  - **`caretRunRange`** — 손가락이 만든 선택의 **파생**용. 최소 공통 부모까지는
+    같고 **끝만 안쪽으로 당긴다**: 끝 캐럿이 어떤 자식 *안*이면 그 자식을 뺀다.
+    시작은 여전히 바깥으로 넓히는 **비대칭이 의도**다 — 양끝을 다 당기면 "온전히
+    들어온 자식이 없는" 상태가 잦아져 드래그 중 선택이 깜빡인다. 당긴 결과가
+    시작을 넘어 아무 것도 안 남으면 **그 끝만 확장으로 되돌린다**(순수 폴백).
+    ⚠ 결과가 `siblingRunRange` 를 **멱등하게** 통과해야 게이트가 도로 안 넓힌다 —
+    첨자(subsup) 보정을 양쪽이 같이 갖는 이유가 이것이다.
+
+    두 함수는 사설 `runRange(…, shrinkEnd)` 한 벌을 공유한다. ⚠ 구조가 식 **맨
+    앞**에 있으면 둘의 결과가 같다(당길 자리가 없다, 실측) — 차이는 그 구조 앞에
+    온전한 형제가 있을 때만 드러나므로 테스트도 `d+\frac{a}{bc}` 쪽을 쓴다.
+- **`rawSelection.ts`** — **원시 캐럿** 두 개를 필드별로 기억한다(`WeakMap`).
+  화면에 보이는 `mf.selection` 은 이 둘에서 `caretRunRange` 로 **파생**된 값일
+  뿐이다 — 홀드 드래그로 상위 구조까지 스냅된 뒤에도, 원시 좌표를 따로 쥐고
+  있으면 손가락을 되돌렸을 때 다시 좁아진다
+  (스냅 **결과**를 다음 조작의 출발점으로 삼으면 못 되돌린다). `setRawSelection`
+  이 유일한 쓰기 창구고, `rawSelection` 은 다른 경로(타이핑·Ctrl+D·팔레트·탭)가
+  선택을 바꿔 캐시가 낡았으면 지금 보이는 범위로 조용히 씨를 다시 뿌린다.
+  `touchGesture.ts` 의 홀드 드래그와 `SelectionHandles.tsx` 의 핸들 드래그
+  둘 다 이걸 거친다. 두 캐럿의 **순서는 안 가린다** — 핸들이 반대쪽을 넘어가면
+  그대로 넘겨도 되고, 넘어간 쪽이 새 시작이 된다.
+- **`touchAim.ts`** — **손가락 좌표 → 히트테스트 좌표** 보정. 히트테스트
+  (`resolveOffsetAt`)는 넘긴 점이 곧 찍고 싶은 자리라고 믿는데, 그게 참인 건
+  **손가락으로 내용을 직접 짚는 손짓뿐**이다. 손짓마다 다른 그 차이를 값
+  하나(`TouchAim`)로 굳혀 둔다 — 보정 규칙이 히트테스트 안으로 새어 들어가지
+  않게 하려는 것이다(`resolveOffsetAt` 은 "이 점" 만 안다).
+  - **`DIRECT_AIM`** — 보정 없음. **홀드 선택**(`touchGesture.ts`)이 쓴다. 손가락이
+    내용을 직접 가리키는 손짓이라 어긋날 게 없고, 보정을 넣으면 짚은 자리와
+    선택이 벌어져 그 자체가 버그다.
+  - **`gripAim(fingerY, referenceY)`** — **손잡이 드래그**(`SelectionHandles.tsx`)가
+    쓴다. 물방울 손잡이는 선택 줄 **아래**에 매달려 있어 손가락이 짚고 싶은
+    글자보다 한참 밑이다. 쥔 **그 순간** 손가락↔선택 줄 한가운데 거리를 한 번
+    재서 손짓 내내 그만큼 올려 판정한다. **고정 px 이 아닌 게 요점** — 글꼴
+    크기·분수 높이가 바뀌면 상수는 곧바로 틀린다. 상대 이동도 보존되므로
+    (`①` 쥔 순간은 정확히 기준선, `②` 이후 세로 이동은 1:1) 분수의 분자/분모를
+    손잡이로도 넘나들 수 있다.
+  ⚠ **클램프(`contentBox`)는 보정 뒤에 와야 한다** — 순서가 바뀌면 올려놓은
+  판정점이 다시 상자 밖으로 나간다.
+  ⚠ 한 줄짜리 식으로는 이 보정을 **테스트할 수 없다** — 콘텐츠 상자가 줄에 딱
+  붙어 있어 클램프가 y를 도로 줄 안으로 끌어와 보정이 없어도 같은 답이 나온다.
+  분수처럼 상자가 높은 식을 써야 답이 갈린다(`selectionHandles.browser.test.tsx`).
+  손짓을 하나 더 만들면 그 손짓이 쓸 `TouchAim` 을 여기 하나 더 만든다.
+- **`touchGesture.ts`** — **모바일 터치 제스처 층.** 한 손짓을 다섯으로 가른다:
+  짧은 탭=캐럿, 짧은 터치 후 가로 드래그=**셀 수식 가로 스크롤**, 홀드=손가락 밑
+  **항** 선택(`expandSelectionSemantic` 2칸), 홀드 후 드래그=그 항을 품은 채 확장
+  (`rawSelection.ts` 를 거쳐 원시 캐럿으로 남긴다), 세로 드래그=**페이지 스크롤**
+  (`stopPropagation` 만 하고 `preventDefault` 는 안 한다 — 걸면 브라우저의 세로
+  패닝(`touch-action: pan-y`)까지 죽는다). 한번 세로로 정해지면 손 뗄 때까지
+  그 모드다(중간에 가로로 꺾여도 안 바뀐다).
+  MathLive는 pointerdown을 잡는 순간부터 드래그를 선택으로만 쓰고 `.ML__content` 는
+  `overflow: hidden` 이라, 이게 없으면 넘치는 식을 손으로 옮길 방법이 아예 없다.
+  **pointerdown을 삼킨다** — `preventDefault`+`stopPropagation` 둘 다. 손짓이
+  뭐가 될지 모르는 채로 MathLive가 먼저 포커스·캐럿을 옮기고 스크롤로 판명되면
+  되돌리는 사후 복구 방식을 예전엔 썼는데, ⚠ **`MathfieldElement.onPointerDown`
+  (`mathlive.mjs`)이 `window` 에 pointerup 을 걸어두고 `defaultPrevented` 를
+  **안 보는 채로** 뗀 좌표로 캐럿을 다시 계산한다**(좌표가 수식 밖이면
+  `lastOffset` 로 튄다, 실측 — "가로 드래그 끝나면 캐럿이 끝으로 튀는" 버그의
+  진범이었다). `preventDefault` 로는 못 막고 **capture 단계 `stopPropagation`
+  만이 유일한 차단 수단**이라, 사후 복구보다 원천 차단이 더 간단하고 정확하다.
+  포커스도 마찬가지 — MathLive는 `onPointerDown` 안에서 **명시적으로**
+  `onFocus()` 를 부르므로(브라우저 기본 포커스에 안 기댄다) `stopPropagation`
+  이 그 경로를 끊는다. 다만 셰도우 루트가 `delegatesFocus: true` 라 네이티브
+  기본 동작으로도 포커스가 들어오므로 그건 `preventDefault` 가 막는다 — **둘 다
+  필요하다.** 데스크톱은 안 건드린다 — `pointerType==='touch' &&
+  isMobileViewport()` 게이트가 두 preventDefault/stopPropagation 호출보다 먼저다.
+  pointerdown을 막았으니 **탭·홀드는 우리가 직접 캐럿을 놓는다**(`placeCaretAt`,
+  `resolveOffsetAt(mf, x, y, 0)` — bias 0 은 `SelectionHandles.tsx` 의 핸들
+  위치 계산과 같은 "탭했을 때 캐럿이 서는 자리" 규칙). **홀드는 특히 이게
+  필수다** — `expandSelectionSemantic` 이 `model.position` 만 보는데, 그건
+  우리가 놓기 전엔 "직전 캐럿"일 뿐 손가락 밑이 아니다(`beginHold` 가
+  `placeCaretAt(startX, startY)` 를 확장 전에 먼저 부른다).
+  ⚠ **더블탭(그룹 선택)·트리플탭(전체 선택)은 지금 없다** — MathLive의 전역
+  탭 카운터(`gTapCount`)가 pointerdown과 함께 죽는다. 판정 지점이
+  `onPointerEnd` 한 곳에 모여 있어 필요해지면 거기 얹으면 된다.
+  ⚠ **placeholder 특례(탭하면 통째로 선택되는 3중 분기)도 복제 안 했다** —
+  실측해 보니 `placeCaretAt` 이 접힌 캐럿만 놓아도, 타이핑하면 MathLive의
+  **입력 경로** 자체가 "placeholder 앞 캐럿" 을 알아서 인식해 치환한다
+  (`\sqrt{\placeholder{}}` 를 탭하고 `x` 를 치면 `\sqrt{x}`, 선택 여부와
+  무관 — `touchGesture.browser.test.tsx` 가 핀으로 박아둔다). 그래서 탭이
+  선택을 안 만들어도 실사용엔 영향이 없다.
+  **홀드 메뉴 차단은 document capture 한 곳**에서 한다(참조 세기). 셀의 빈 자리를
+  꾹 누르면 뜨는 건 MathLive가 아니라 브라우저 네이티브 콜아웃이라 필드에 건
+  리스너로는 안 잡힌다(사용자 보고). 예외는 `input`/`textarea` 뿐(탭 이름 바꾸기).
+- **`activeField.ts`** — **포커스의 단일 게이트.** 쓰는 곳은 `MathField.tsx` 의
+  focusin/focusout/언마운트 셋뿐이고 나머지는 읽기만 한다(`repairLatex` 가 구조를,
+  `normalizeSelection` 이 선택을 맡는 것과 같은 자리). **뜻이 다른 둘을 이름으로
+  가른다**: `focused`(**지금** 포커스를 쥔 필드, 없으면 `null` — 키 팔레트를 접을지가
+  여기 걸린다)와 `active`(**마지막** non-null 값, 안 지운다 — 팔레트 버튼은
+  `pointerdown` 에서 `preventDefault` 해 포커스를 안 뺏으므로 클릭으로는 애초에
+  focusout 이 안 나지만, "필드 밖을 눌렀다가 팔레트로 돌아온" 경우까지 버티려면
+  끈끈해야 한다). `active` 는 `focused` 의 **파생**이다 — 예전엔 `focusin` 에서 따로
+  갱신해 같은 사실을 두 곳이 각각 추적했다.
+  ⚠ **blur 는 한 태스크 미뤄 확정한다.** 셀 간 이동은 focusout(A) → focusin(B) 가
+  잇따르므로 즉시 놓으면 팔레트가 접혔다 펴지고, `--palette-h` 로 묶인 `.app` 바닥
+  여백까지 함께 움직여 내용이 통째로 튄다. 창 포커스 전환(alt-tab)은
+  `document.activeElement` 가 그대로 남는 것으로 가려내 **안 놓는다** — `focusout` 이
+  `relatedTarget === null` 일 때 선택을 안 푸는 것과 같은 판단이다.
+  ⚠ **`mf.remove()` 는 포커스된 필드에서도 focusout 을 안 쏜다**(실측, 그 통지를 빼면
+  브라우저 테스트가 빨간불) — 언마운트 경로가 직접 알려야 사라진 필드가 "포커스 중"
+  으로 남지 않는다. `active` 는 그때 **즉시** 지운다: 끈끈한 게 존재 이유지만 떨어져
+  나간 필드까지 붙들면 팔레트가 detached 엘리먼트로 키를 흘린다.
+  ⚠ **"포커스" 라는 말이 이 앱에 넷 있다. 여기 사는 건 위 둘뿐**이고 나머지는 합칠
+  것이 아니다: `tab.focus`(`state/workspace.ts`)는 "여기로 **보내라**" 는 명령이고
+  (토큰 일회성), `touchGesture.ts` 의 캐럿 이동단은 DOM Selection 의 anchor/focus
+  어휘다(그래서 그쪽 지역변수는 `caret` 으로 부른다).
 - **`wellformed.ts`** — 위 규칙들의 파사드 (`repairLatex`/`findViolations` 재노출).
 - **`harness.ts`** — 브라우저 테스트용 실제 MathLive 구동 하네스.
+
+⚠ **MathLive 0.110 실측 함정** (터치·포인터 쪽, `touchGesture.browser.test.tsx` 가 핀):
+- **`MathfieldElement.onPointerDown` 은 `window` 에 pointerup 을 걸고
+  `defaultPrevented` 를 안 본다** — `preventDefault` 로는 못 막고, **capture
+  단계에서 pointerdown 자체를 `stopPropagation` 해야** 이 등록 자체가 안
+  일어난다(`touchGesture.ts` 가 pointerdown을 삼기는 이유, 위 항목 참고). 안
+  막으면 그 리스너가 pointerup 시점 좌표로 캐럿을 다시 계산해 — 좌표가 수식
+  밖이면 `lastOffset` 로 튄다("가로 드래그 끝나면 캐럿이 끝으로 튀는" 버그의
+  진범이었다, `mathlive.mjs` 실측).
+- **`(500ms && 20px)` 터치 드래그 히스테리시스**(`onPointerDown` 안의
+  `onPointerMove`)는 MathLive가 pointerdown부터 받아야만 의미가 있다 —
+  지금은 pointerdown 자체를 삼키므로 이 히스테리시스와 우리 제스처 임계
+  (`450ms / 8px`)를 견줄 필요가 없어졌다(예전엔 대소 관계가 설계의 전제였다).
+  임계값 자체는 조작감 손잡이로 그대로 남아 있다.
+- **`mf.getOffsetFromPoint(x, y, {bias})` 는 공개 API다** — 화면 좌표 → 모델 오프셋.
+  짝인 **`mf.getElementInfo(offset).bounds` 는 뷰포트 좌표 DOMRect**를 주고, 그
+  오프셋 **자리의** 원자를 가리킨다(실측: `1+xy` 에서 오프셋 4 = `y`).
+  ⚠ **이 히트테스트는 `atomBoundsCache` 가 더러우면 튄다.** 호출 한 번이 트리를
+  훑으며 원자 상자를 캐시에 쌓는데, 거기 `first` 센티넬 상자가 들어가면 **그 다음
+  호출부터** 그 센티넬이 자기 branch 어디서나 이긴다(상자가 자기가 아니라 부모
+  컨테이너 전체로 재진다). **MathLive 자신의 탭이 항상 정확한 건 탭마다 캐시를
+  비우고 시작하기 때문**이고, 그래서 우리 드래그도 `internals.ts` 의
+  `resolveOffsetAt` 을 써야 한다 — **매 호출 직전에** 비운다(한 번만 비우면 그 다음
+  첫 호출이 다시 오염시킨다, 실측). 비우고 부르면 결과가 진짜 탭과 정확히 일치한다.
+  아래는 그 캐시가 더러울 때 실제로 관찰됐던 증상이다:
+  **`first` 센티넬로 튄다.** 센티넬 원자의 상자를 재면
+  자기 자신이 아니라 **부모 컨테이너 전체**가 나오고(`getNodeBounds` 가 높이 0인
+  노드에서 부모로 올라간다), MathLive의 `distance()` 는 점이 상자 안이면 0을 주므로
+  그 센티넬이 자기 branch 어디서나 이겨버린다. 특히 원자 사이 **빈 자리**(연산자
+  둘레 여백)에서는 유일한 승자다. 더 나쁜 건 이긴 센티넬이 **더 바깥 branch**의
+  것일 수 있다는 점 — `x-\left(a+b\right)` 에서 `b` 오른쪽 빈 자리는 괄호 **안**
+  인데도 root 센티넬(오프셋 0)을 준다(실측). 언제 걸리는지는 **레이아웃 타이밍을
+  탄다**(span 높이가 0이어야 부모로 올라가므로, 민짜 하네스는 재현이 안 되고 실제
+  `MathField` 렌더는 걸린다) — 그 "타이밍" 의 정체가 곧 캐시 상태였다.
+  `resolveOffsetAt` 은 캐시를 비운 뒤에도 남는 가장자리를 위해 센티넬 보정도
+  갖고 있지만, 캐시가 깨끗하면 거의 안 걸리는 2차 안전망이다.
+- **컨텍스트 메뉴는 호스트에 쏘는 cancelable `contextmenu` 로 열린다**
+  (`acceptContextMenu`) — `preventDefault()` 면 안 뜬다. ⚠ 그 이벤트는
+  **`bubbles: false`** 라 부모가 아니라 `math-field` **자신에게** 들어야 한다.
+- **append 전에 옵션을 건드리면 마운트 직후 선택이 내용 전체가 된다** —
+  `_setOptions` 가 대기 중이던 선택을 `[[0, -1]]` 로 덮어쓴다(`mf.value` 가 넣어둔
+  캐럿 하나 `[[-1, -1]]` 를 지우고 간다). `readOnly` 도 append 뒤에 켜지므로 결과
+  셀도 예외가 아니다 → 탭을 열자마자 모든 셀이 전체 선택돼 선택 핸들까지 달렸다.
+  `MathField.tsx` 가 `host.append(mf)` 직후에 접는다. (예전엔 이 증상을
+  "`mf.focus()` 가 내용을 통째로 선택한다" 로 잘못 읽었다 — `focus()` 는 선택을
+  건드리지 않는다, `mathlive.mjs` 의 `focus()` 는 `_mathfield.focus()` 뿐이다.)
+- **`.ML__container` 에 `touch-action: none` 이 걸려 있다** — `touch-action` 은
+  히트된 요소와 조상들의 **교집합**이라, 호스트에 건 `pan-y` 가 이 한 줄에 통째로
+  무효화돼 셀 위에서는 페이지가 안 굴러간다. 셰도우 DOM 안이라 전역 CSS로는 못
+  닿고 `MathField.tsx` 의 `SHADOW_CSS` 가 모바일에서만 덮는다.
+- **호스트에 `user-select: none` 을 걸면 필드가 죽는다** — MathLive가
+  `connectedCallback` 에서 그걸 보고 pointerdown 리스너를 아예 안 단다. 네이티브
+  선택 콜아웃 억제는 `-webkit-touch-callout` 으로만 한다.
+- **원자 화면 상자는 `atomBoundsCache` 에 뷰포트 좌표로 캐시된다**
+  (`getAtomBounds`/`getOffsetFromPoint`/`getElementInfo` 가 다 이걸 거친다). 비우는
+  곳은 원래 셋뿐이다: 재렌더 직전(rAF), 렌더 끝, 자기 `onPointerDown`. **패닝처럼
+  렌더도 pointerdown도 없이 `scrollLeft` 만 옮기는 코드는 캐시를 안 비운다** —
+  `clearAtomBoundsCache`(`internals.ts`)로 직접 비워야 한다. 매 프레임 부르면 안
+  된다: 비면 히트테스트가 원자마다 `getBoundingClientRect` 를 다시 돈다.
 
 ### `src/state/` — 상태 관리
 
@@ -277,7 +445,69 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 - **`MathField.tsx`** — `<math-field>` React 래퍼. **UI↔에디터 경계.** input마다
   `repairLatex` 게이트, selection-change마다 `normalizeSelection` 게이트,
   keydown을 `dispatchKeyOp`로. uncontrolled(`new MathfieldElement()`).
+  선택 해제(그룹 밖 pointerdown)는 **모바일에서만 손 뗄 때까지 기다린다** — 바깥을
+  짚는 손짓 대부분이 페이지 스크롤이라, 누른 즉시 풀면 선택을 잡아둔 채 훑어보는 게
+  불가능하다(사용자 보고). 거의 안 움직였으면(=탭) 그때 푼다. 데스크톱은 즉시.
+- **`SelectionHandles.tsx`** — **모바일 선택 범위 양끝 드래그 핸들.** 홀드로 잡은
+  선택(`editor/touchGesture.ts`)을 손가락으로 다듬는다. `MathField` 안에 오버레이로
+  들어간다(`math-field` 는 이펙트가 append 하고, React 자식은 이 핸들뿐).
+  위치는 `mf.getElementInfo(offset).bounds` 실측, 드래그는 `mf.getOffsetFromPoint`.
+  **스냅을 자기가 계산하지 않는다** — 선택을 그냥 세팅하면 `MathField` 의
+  selection-change 게이트(`normalizeSelection`)가 형제 열로 교정한다. 불변식의 단일
+  게이트를 두 벌로 만들지 않으려는 것. **bias는 0 — 네이티브 탭과 같은 규칙**이라,
+  원시 캐럿이 "그 자리를 탭했을 때 캐럿이 서는 자리" 와 정확히 일치한다. 예전엔
+  ±1 로 손가락 밑 원자를 무조건 포함시켰는데, 그러면 탭 위치와 늘 한 경계씩
+  어긋났다(사용자 보고 → 실측 확인). 대신 원자의 **어느 쪽 절반**을 짚었느냐로
+  경계가 갈린다(중앙선 기준).
+  **드래그는 `editor/rawSelection.ts` 의 원시 캐럿을 옮긴다** — 스냅된 선택 자체를
+  옮기면, 홀드 드래그가 구조 경계를 넘어 상위로 스냅된 뒤엔 되돌릴 방법이 없다
+  (스냅된 결과가 다음 조작의 출발점이 되어버리므로).
+  **핸들이 반대쪽 캐럿을 넘어갈 수 있는지**는 `features.ts` 의 `HANDLE_CROSSING`
+  으로 켜고 끈다(지금은 **꺼짐** — 조작감을 견줘보려고 남긴 스위치다). 켜면
+  넘어간 쪽이 새 시작이 되고, 막는 건 교차가 아니라 **겹침**뿐이다(두 캐럿이 같은 자리면 선택할 게 없다): 그때만 가던
+  방향으로 한 칸 더 보내고, 그쪽에 자리가 없으면(문서 양 끝) 반대로 한 칸 물려
+  원자 하나를 남긴다. 넘어간 뒤에도 **쥔 노드가 손가락 쪽에 남아야** 하므로,
+  렌더가 핸들의 **정체**(React 키·포인터 캡처가 걸린 노드)와 **화면상 위치**
+  (물방울 좌우 거울상·핀 화살촉 방향)를 갈라 놓는다 — 안 그러면 교차하는 순간 쥔
+  핸들이 반대편으로 순간이동한다.
+  **모양은 안드로이드 물방울이다**(`styles.css`): 둘 다 선택 줄 **아래**에 매달리고
+  (위/아래로 안 가른다 — 손가락이 늘 수식 아래라 잡는 자리가 한결같다), 네 모서리
+  중 **하나만 뾰족해 그 꼭짓점이 경계를 짚는다**. 좌우가 거울상이라 몸통은 경계
+  **바깥쪽**으로 비켜 있다(시작은 왼쪽·뾰족한 쪽이 오른쪽 위, 끝은 그 반대) —
+  선택된 내용을 손잡이가 가리지 않는 게 이 모양의 요점이다.
+  ⚠ 그 비켜선 배치는 **핀일 때만 되돌린다**(경계 위 가운데 맞춤) — 핀은 이미
+  컨테이너 경계에 서 있어서 그대로 두면 몸통이 통째로 셀 밖으로 나간다.
+  컨테이너 밖으로 나간 끝은
+  숨기지 않고 그 경계에 **핀**으로 세운다(`.sel-handle-pinned`, 화살촉 모양) —
+  언제든 잡아 안으로 끌어올 수 있다. 드래그 중엔 손가락 x를 콘텐츠 상자 안으로
+  **클램프**해 핸들이 컨테이너 밖으로 못 나가게 하고, 클램프 전 위치가 경계 밖이면
+  MathLive의 자체 드래그 선택과 같은 간격(32ms/16px, 실측)으로 자동 스크롤한다.
+  ⚠ **MathLive는 원자 상자를 뷰포트 좌표로 캐싱한다**(`atomBoundsCache`, 실측) —
+  비우는 곳이 원래 렌더 전후와 자기 `onPointerDown` 뿐이라, 렌더 없이 `scrollLeft`
+  만 옮기는 우리 패닝·자동 스크롤 뒤엔 `editor/internals.ts` 의
+  `clearAtomBoundsCache` 를 명시적으로 불러야 핸들이 스크롤을 따라간다.
+  **드래그 한 번은 세 단계고, 셋의 방향이 다 다르다** (각 함수 주석에 ①②③으로
+  달아뒀다): ① `resolveOffsetAt`(`editor/internals.ts`) = **픽셀 → 오프셋**,
+  ② `caretRunRange`(`editor/selection.ts`, `setRawSelection` 이 부른다) =
+  **오프셋 → 범위**, ③ `measure`(여기) = **오프셋 → 픽셀**.
+  ⚠ **③은 범위를 만들지 않는다** — 입력이 원시 캐럿이 아니라 이미 스냅이 끝난
+  `mf.selection` 이다. 그래서 ①②는 pointermove마다 돌지만 ③은 기하가 바뀌는
+  신호(`selection-change`·스크롤·리사이즈)에만 붙는다. 원시 캐럿이 움직여도
+  ②의 스냅 결과가 같으면 `mf.selection` 이 안 바뀌고 — MathLive가
+  `deferNotifications` 에서 옛 선택과 비교해 같으면 `selection-change` 를 아예
+  안 쏜다(실측, `mathlive.mjs` 의 `compareSelection`) — ③은 안 돈다. **버그가
+  아니라 같은 픽셀을 다시 재지 않는 것뿐이다.**
 - **`SelectionToolbar.tsx`** — 행렬 통째 선택 시 뜨는 구분 기호 플로팅 툴바.
+- **`KeyPalette.tsx`** — 자체 키 팔레트(MathLive 자체 가상 키보드 대신). 버튼이
+  `mf.insert()` 가 아니라 `feedKey` 로 **물리 키 입력과 같은 경로**를 탄다. ⚠ **여기에
+  LaTeX을 적지 않는다** — 트리거 글자를 흘리고 변환은 인라인 숏컷 엔진이 한다(예외는
+  키 입력 경로가 없는 행렬뿐). 대상은 `editor/activeField.ts` 의 **끈끈한** `active`
+  이고, **접을지 말지는 같은 모듈의 `focused`** 를 `useSyncExternalStore` 로 구독해
+  정한다 — 포커스된 셀이 하나도 없으면 접힌다(모바일 분기가 아니다: 데스크톱은 CSS가
+  어차피 늘 숨긴다). 컴포넌트는 `hidden` 만 걸고 접는 일은 CSS 몫이다(대원칙 3).
+  ⚠ **`display` 만 꺼서는 안 된다** — `.app` 바닥 여백이 `--palette-h` 로 팔레트
+  높이와 묶여 있어(`styles/base.css`) 그 높이만큼 빈 자리가 그대로 남는다.
+  `styles/keyPalette.css` 가 변수도 함께 0으로 돌린다.
 - **`HelpPanel.tsx`** / **`TabBar.tsx`** — 도움말 패널, 탭 바.
 - **`App.tsx`** / **`main.tsx`** — 진입점. main.tsx에서 MathLive 전역 설정
   (폰트/로케일/CE 비활성화).
@@ -314,7 +544,19 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
   그래프 구성 자체는 안 한다 — 그건 `cellGraph.ts` 몫. `splitRelation` 은
   `Cell.tsx` 도 같이 쓴다(solve 버튼 노출 판정 — 판정이 두 벌이면 어긋난다).
 - **`types.ts`** — `FormulaObject`(정본), `EvalResult`, `CellMode` 등 공용 타입.
-- **`styles.css`** — 전역 CSS (라이트/다크 자동, CSS 변수).
+- **`mobile.ts`** — `isMobileViewport()`. 모바일 판정의 **단일 기준점**(위 대원칙 2).
+- **`features.ts`** — 기능 플래그. `SOLVE_ENABLED`(등식 풀기, CE 한계로 꺼둠),
+  `HANDLE_CROSSING`(핸들이 반대쪽 캐럿을 넘어갈 수 있는지, 지금은 꺼둠),
+  `ATOM_BOX_DEBUG`(원자 상자 1px 테두리, **`?atombox`** 질의 문자열로 켠다 —
+  실기기 확인은 폰에서 배포본을 여는 식이라 상수로는 못 켠다). 셰도우 CSS라
+  `MathField.tsx` 의 `ATOM_BOX_CSS` 가 붙인다.
+- **`styles.css` / `styles/`** — 전역 CSS. `styles.css` 는 `@import` 만 있는 입구이고
+  (import 하는 4곳 — `main.tsx` 와 브라우저 테스트 셋 — 을 안 건드리려고 이름과 자리를
+  그대로 뒀다), 규칙은 `src/styles/` 밑 **기능당 한 파일**에 있다. 각 파일이 자기
+  데스크톱 규칙과 자기 `@media (max-width: 640px)` 블록을 **둘 다** 갖는다(위 대원칙 1).
+  라이트/다크는 `tokens.css` 의 CSS 변수 — 그 안에서 라이트 `:root` 가 다크보다
+  **먼저** 와야 한다(같은 프로퍼티라 순서가 이긴다). `--palette-h` 만은 `keyPalette.css`
+  가 갖는다 — 팔레트 높이와 `.app` 바닥 여백을 한 값으로 묶는 자리라 팔레트가 주인이다.
 - **`scripts/copy-mathlive-assets.mjs`** — 빌드 전 MathLive 폰트를 public으로 복사.
 
 ## UI ↔ 계산 경계
@@ -333,6 +575,56 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 - **로컬**: 컴포넌트별 UI 상태만 (선택 영역, 드래그, 도움말 열림 등 `useState`).
 - **파생값**: 계산 결과는 상태가 아니라 `useMemo(evaluateCells)` — 엔진 캐시가 담당.
 
+## ⚠ 모바일 작업의 대원칙 — 모바일에만 적용한다
+
+**여기서 하는 변경은 가능한 한 전부 모바일 환경에서만 적용되어야 한다.**
+데스크톱 동작·레이아웃은 건드리지 않는다.
+
+이 규칙은 **이 파일이 놓인 브랜치와 거기서 갈라져 나가는 모든 브랜치**에 적용된다.
+브랜치 이름은 적지 않는다 — 브랜치는 지워지고 이름은 곧 낡는다. 모바일 실험은
+나란히 갈라져 서로 견줘 보는 식으로 진행되므로, 데스크톱이 한쪽에서 흔들리면
+비교 자체가 무너진다. 그게 이 규칙이 있는 유일한 이유다.
+
+지키는 방법은 넷이다:
+
+1. **CSS는 기능별 파일에 쓰고, 모바일 규칙은 그 파일 **자기** `@media (max-width: 640px)`
+   블록 안에만 쓴다.** `src/styles.css` 는 `@import` 만 있는 얇은 입구이고, 실제 규칙은
+   `src/styles/` 밑 기능당 한 파일에 있다. 파일 이름은 그 기능을 그리는 컴포넌트를
+   따른다 (`selectionHandles.css` ↔ `SelectionHandles.tsx`).
+
+   - **한 기능의 데스크톱 기본값과 모바일 덮어쓰기는 같은 파일에 둔다.** 전역 규칙에는
+     기본값(대개 `display: none`)만 두고 실제 배치는 그 파일 **맨 아래** 미디어 블록이
+     정한다 — `.key-palette`·`.transform-popup`·`.sel-handle`·`.result-mode-label-compact`
+     가 그 꼴이다. 예전엔 이 짝이 한 파일 안에서 300~950줄씩 떨어져 있어 규칙이 있는지
+     자체를 못 봤다.
+   - **미디어 블록 밖에 모바일 규칙을 쓰지 않는다.** 데스크톱을 안 건드린다는 보장은
+     여전히 이 한 줄이 전부다.
+   - **임계값 문자열은 한 벌이다.** 파일마다 미디어 블록이 생겨 640px 이 여러 곳
+     적힌다 — `src/styles/mediaQuery.test.ts` 가 `src/styles/*.css` 를 전부 읽어
+     `src/mobile.ts` 의 `MOBILE_QUERY` 와 대조한다. 기준을 바꾸려면 `mobile.ts` 를
+     고치고 테스트가 짚어 주는 파일들을 따라 고친다.
+   - **새 기능은 새 파일이다.** 남의 파일 맨 아래에 덧붙이지 않는다 — 나란히 도는
+     실험 브랜치들이 **같은 자리**에 끼워 넣어 매번 충돌하던 걸 없애려고 가른 것이다.
+     새 파일을 만들면 `styles.css` 에 `@import` 를 반드시 더한다(빠뜨리면 그 파일은
+     조용히 안 실린다 — 위 테스트가 잡는다).
+   - **`@import` 순서가 곧 캐스케이드 순서다.** 같은 셀렉터의 같은 프로퍼티가 두
+     파일에 있으면 **뒤에 import 된 쪽이 이긴다**(`@media` 는 우선순위를 안 올린다).
+     순서는 `토큰 → 뼈대 → 구조 → 위젯 → 오버레이` 다. **남의 요소를 숨기거나 그 위에
+     얹는 기능일수록 뒤**에 온다 (`transformPopup`·`selectionHandles`·`keyPalette` 가
+     맨 뒤인 이유).
+2. **JS 분기가 꼭 필요하면 같은 640px 기준을 쓴다** (`window.matchMedia`). 그
+   기준은 **`src/mobile.ts` 의 `isMobileViewport()` 하나뿐**이다 — 새로 만들지 말고
+   이걸 쓴다. 지금 쓰는 곳은 터치 제스처 층(`editor/touchGesture.ts`) 하나다.
+3. **컴포넌트에 모바일 전용 DOM을 넣어야 하면, 그리기만 하고 숨김은 CSS에 맡긴다.**
+   예: 결과 토글의 `π`/`3.14` 라벨은 데스크톱 `formula`/`decimal` 라벨과 **둘 다**
+   렌더되고, 어느 쪽을 보일지는 미디어쿼리가 정한다. 조건부 렌더로 가르지 않는다 —
+   그러면 JS 분기 기준이 CSS와 어긋날 자리가 하나 더 생긴다.
+4. **주석·문서에 그 결정이 사는 브랜치 이름을 적지 않는다** — 아래 코딩 컨벤션 참고.
+
+예외를 둘 수밖에 없었던 곳은 그 자리에 이유를 적는다(현재: `MathField.tsx`의
+`mathVirtualKeyboardPolicy`를 항상 `'manual'`로 둔 것 — MathLive 자체 가상 키보드는
+데스크톱에서도 원래 안 썼으므로 실질 변화가 없다).
+
 ## 코딩 컨벤션
 
 - 주석·커밋·계획은 **한국어**, 코드 식별자·UI 문자열은 **영어**.
@@ -344,6 +636,9 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 - **실측 우선**: MathLive/CE 동작은 문서(부정확)가 아니라 브라우저에서 실측해
   확인하고, 그 결과를 브라우저 테스트에 "동작 핀"으로 고정한다.
 - MathLive 내부 API는 `internals.ts`에만, 전부 try/catch 폴백.
+- **주석·문서에 브랜치 이름을 적지 않는다.** 브랜치는 지워지고 이름은 낡는다.
+  그 결정이 왜 그런지는 결정이 **사는 파일**을 가리켜 적는다
+  (`MathField.tsx` 의 `mathVirtualKeyboardPolicy`, `CLAUDE.md §모바일 대원칙`).
 
 ## 명령어
 

@@ -1,0 +1,89 @@
+.tabbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+  /* `.topbar`(제목+도움말과 한 줄) 안에서 늘 다음 줄로 떨어진다 — 데스크톱의
+     "제목 줄 / 탭 줄" 2단 배치. 모바일 블록이 auto로 되돌려 한 줄에 흡수한다. */
+  flex-basis: 100%;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--line);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: -1px;
+}
+
+.tab-active {
+  background: var(--bg);
+  color: var(--fg);
+  border-color: var(--line);
+  border-bottom: 1px solid var(--bg);
+  font-weight: 600;
+}
+
+.tab-name {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-rename {
+  font: inherit;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0.05rem 0.25rem;
+  width: 7rem;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.tab-close,
+.tab-add {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0.1rem 0.25rem;
+  border-radius: 4px;
+}
+
+.tab-close:hover,
+.tab-add:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+
+.tab-add {
+  align-self: center;
+  font-size: 1.1rem;
+  padding: 0.15rem 0.5rem;
+}
+
+/* `+`(데스크톱, 탭 바 인라인)와 "+ New tab"(모바일, 서랍 안) 라벨 짝 — 둘 다
+   늘 렌더되고(`TabBar.tsx`) 어느 쪽을 보일지는 미디어쿼리가 정한다(`π`/`3.14`
+   라벨과 같은 요령, 대원칙 3). 기본값(=데스크톱)은 짧은 쪽 — 모바일에서 긴
+   쪽으로 뒤집는 규칙은 `drawer.css`(`.drawer-panel .tab-add-*`)에 있다, `TabBar`
+   가 모바일에서 항상 서랍 안에만 있기 때문이다. */
+.tab-add-full {
+  display: none;
+}
+
+/* ⚠ **모바일 전용 규칙은 여기 없다.** `TabBar`는 모바일에서 늘 서랍 안에서만
+   보이므로(`Workspace.tsx`), 탭 모양·배치의 모바일 버전은 전부
+   `drawer.css`(`.drawer-panel .tab*`)가 정한다 — 여기 두면 그 규칙과 같은
+   선택자를 낮은 명시도로 두 번 정의하는 꼴이라 죽은 코드가 된다. */

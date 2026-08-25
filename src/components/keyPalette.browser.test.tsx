@@ -1,0 +1,429 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import { createRoot, type Root } from 'react-dom/client';
+import { createElement, Fragment } from 'react';
+import type { MathfieldElement } from 'mathlive';
+import '../styles.css';
+import { MathField } from './MathField';
+import { KeyPalette, PALETTE_LAYERS, type PaletteKey } from './KeyPalette';
+
+/**
+ * `KeyPalette` 종단 검증 — 버튼 클릭이 실제로 `MathField`에 반영되는지.
+ * `MathField`와 `KeyPalette`를 **함께** 마운트한다 — 팔레트는 `activeField`
+ * (모듈 전역, `editor/activeField.ts`)로 대상을 찾으므로, `MathField`의
+ * `focusin` 리스너가 실제로 등록·발화해야 하고 그건 진짜 마운트 없인 안 된다.
+ * `mathField.browser.test.tsx`와 같은 마운트 규율.
+ */
+
+const cleanups: (() => void)[] = [];
+afterEach(() => {
+  while (cleanups.length > 0) cleanups.pop()?.();
+});
+
+const settle = () => new Promise((r) => setTimeout(r, 60));
+
+async function mount(): Promise<{ mf: MathfieldElement; root: Root; host: HTMLElement }> {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  root.render(createElement(Fragment, null, createElement(MathField, { value: '' }), createElement(KeyPalette)));
+  await new Promise((r) => setTimeout(r, 30));
+  const mf = host.querySelector('math-field') as MathfieldElement;
+  cleanups.push(() => {
+    root.unmount();
+    host.remove();
+  });
+  mf.focus();
+  await settle();
+  return { mf, root, host };
+}
+
+/** 라벨(버튼 텍스트) 또는 title로 팔레트 버튼을 찾아 클릭한다. */
+function clickKey(host: HTMLElement, labelOrTitle: string): void {
+  const btn = [...host.querySelectorAll<HTMLButtonElement>('.palette-key')].find(
+    (b) => b.textContent === labelOrTitle || b.title === labelOrTitle,
+  );
+  if (btn === undefined) throw new Error(`palette key not found: ${labelOrTitle}`);
+  btn.click();
+}
+
+function clickTab(host: HTMLElement, label: string): void {
+  const btn = [...host.querySelectorAll<HTMLButtonElement>('.palette-tab')].find((b) => b.textContent === label);
+  if (btn === undefined) throw new Error(`palette tab not found: ${label}`);
+  btn.click();
+}
+
+describe('KeyPalette — 버튼 클릭이 activeField에 반영된다', () => {
+  it('숫자 레이어: 여러 글자를 이어 눌러도 순서대로 쌓인다', async () => {
+    const { mf, host } = await mount();
+    for (const ch of ['1', '+', '2']) {
+      clickKey(host, ch);
+      await settle();
+    }
+    expect(mf.value).toBe('1+2');
+  });
+
+  it('abc 레이어: 여러 글자를 이어 눌러도 순서대로 쌓인다 (숏컷 미완성 접두어)', async () => {
+    const { mf, host } = await mount();
+    clickTab(host, 'abc');
+    await settle();
+    for (const ch of ['x', 'y', 'z']) {
+      clickKey(host, ch);
+      await settle();
+    }
+    expect(mf.value).toBe('xyz');
+  });
+
+  it('sym 레이어: sqrt 키 — 인라인 숏컷이 발동해 \\sqrt가 된다', async () => {
+    const { mf, host } = await mount();
+    clickTab(host, 'ƒ(x)');
+    await settle();
+    clickKey(host, '√');
+    await settle();
+    expect(mf.value).toBe(String.raw`\sqrt{\placeholder{}}`);
+  });
+
+  it('sym 레이어: cos 키 — 세 글자가 이어져 \\cos가 된다', async () => {
+    const { mf, host } = await mount();
+    clickTab(host, 'ƒ(x)');
+    await settle();
+    clickKey(host, 'cos');
+    await settle();
+    expect(mf.value).toBe(String.raw`\cos`);
+  });
+
+  it('nav 줄: backspace가 직전 글자를 지운다', async () => {
+    const { mf, host } = await mount();
+    for (const ch of ['1', '2']) {
+      clickKey(host, ch);
+      await settle();
+    }
+    expect(mf.value).toBe('12');
+    clickKey(host, 'backspace');
+    await settle();
+    expect(mf.value).toBe('1');
+  });
+
+  it('nav 줄은 레이어를 바꿔도 항상 같은 자리에 있다', async () => {
+    const { mf, host } = await mount();
+    clickTab(host, 'abc');
+    await settle();
+    clickKey(host, 'a');
+    await settle();
+    clickKey(host, 'backspace');
+    await settle();
+    expect(mf.value).toBe('');
+  });
+
+  it('abc 레이어: ⇧ 를 누르면 대문자가 나오고, 한 글자 쓰면 풀린다', async () => {
+    const { mf, host } = await mount();
+    clickTab(host, 'abc');
+    await settle();
+    clickKey(host, 'shift (uppercase)');
+    await settle();
+    clickKey(host, 'A'); // ⇧ 가 켜져 라벨도 대문자다
+    await settle();
+    expect(mf.value).toBe('A');
+    clickKey(host, 'b'); // one-shot 이라 이미 풀렸다
+    await settle();
+    expect(mf.value).toBe('Ab');
+  });
+
+  it('숫자 레이어의 = 는 평가가 아니라 문자 입력이다', async () => {
+    const { mf, host } = await mount();
+    for (const ch of ['1', '=']) {
+      clickKey(host, ch);
+      await settle();
+    }
+    expect(mf.value).toBe('1=');
+  });
+
+  it('행렬 키는 짧게 누르면(홀드 미만) 기본 2×2 를 넣는다', async () => {
+    // `.click()` 은 pointerdown/up 없이 click만 합성한다 — `MatrixKeyButton` 의
+    // "홀드 못 채우고 뗀 경우" 경로(onClick)와 정확히 같은 조건이다.
+    const { mf, host } = await mount();
+    clickKey(host, 'matrix (hold for size)');
+    await settle();
+    // `#?` 로 넣은 placeholder는 되읽으면 `\placeholder{}` 로 나온다(실측) —
+    // 정확한 문자열 대신 구조(2행: `\\` 1개, 행마다 `&` 1개)로 잰다.
+    expect(mf.value).toContain('pmatrix');
+    expect((mf.value.match(/\\\\/g) ?? []).length).toBe(1);
+    expect((mf.value.match(/&/g) ?? []).length).toBe(2);
+  });
+
+  it('행렬 키를 길게 눌러 드래그하면 고른 크기로 넣는다', async () => {
+    const { mf, host } = await mount();
+    const btn = [...host.querySelectorAll<HTMLButtonElement>('.palette-key')].find(
+      (b) => b.title === 'matrix (hold for size)',
+    );
+    if (btn === undefined) throw new Error('matrix key not found');
+    const start = btn.getBoundingClientRect();
+    const opts = {
+      pointerId: 7,
+      isPrimary: true,
+      pointerType: 'touch' as const,
+      bubbles: true,
+      cancelable: true,
+    };
+    btn.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        ...opts,
+        clientX: start.left + start.width / 2,
+        clientY: start.top + start.height / 2,
+      }),
+    );
+    // 홀드 임계(450ms)를 넘겨야 격자가 뜬다.
+    await new Promise((r) => setTimeout(r, 500));
+    const grid = host.querySelector('.matrix-picker-grid');
+    expect(grid, '홀드 뒤에도 격자가 안 떴다').not.toBeNull();
+    const label = host.querySelector('.matrix-picker-label');
+    expect(label?.textContent).toBe('2 × 2 matrix'); // 기본값(막 뜬 직후)
+
+    // 격자의 3번째 행·4번째 열 칸으로 손가락을 옮긴다 → 3×4 미리보기.
+    const gridRect = grid!.getBoundingClientRect();
+    const cellW = gridRect.width / 5;
+    const cellH = gridRect.height / 5;
+    const targetX = gridRect.left + cellW * 3.5; // 4번째 칸(1-based) 한가운데
+    const targetY = gridRect.top + cellH * 2.5; // 3번째 칸(1-based) 한가운데
+    btn.dispatchEvent(
+      new PointerEvent('pointermove', { ...opts, clientX: targetX, clientY: targetY }),
+    );
+    await settle();
+    expect(host.querySelector('.matrix-picker-label')?.textContent).toBe('3 × 4 matrix');
+
+    btn.dispatchEvent(
+      new PointerEvent('pointerup', { ...opts, clientX: targetX, clientY: targetY }),
+    );
+    await settle();
+
+    expect(host.querySelector('.matrix-picker-grid')).toBeNull(); // 격자가 닫혔다
+    // 3행×4열: 행 구분 `\\` 이 2개(행-1), 각 행의 칸 구분 `&` 가 3개(열-1) × 3행.
+    expect((mf.value.match(/\\\\/g) ?? []).length).toBe(2);
+    expect((mf.value.match(/&/g) ?? []).length).toBe(9);
+  });
+});
+
+/**
+ * 실행취소/다시실행은 리듀서로 직접 배선되지 않는다 — `feedKey` 로 Ctrl+Z/Y 를
+ * 흘려보내고 `Workspace.tsx` 가 **window capture** 에서 받는다. 그 경로가 실제로
+ * 이어지는지 여기서 본다(안 이어지면 버튼이 조용히 아무것도 안 한다).
+ */
+describe('KeyPalette — 실행취소/다시실행 버튼', () => {
+  it('탭 줄 오른쪽에 있고, 레이어를 바꿔도 그대로 있다', async () => {
+    const { host } = await mount();
+    const inHistory = () =>
+      [...host.querySelectorAll<HTMLButtonElement>('.key-palette-history .palette-key')].map(
+        (b) => b.title,
+      );
+    expect(inHistory()).toEqual(['undo (Ctrl+Z)', 'redo (Ctrl+Y)']);
+    clickTab(host, 'abc');
+    await settle();
+    expect(inHistory()).toEqual(['undo (Ctrl+Z)', 'redo (Ctrl+Y)']);
+  });
+
+  it('Ctrl+Z 가 window capture 리스너까지 도달한다 (Workspace 배선의 전제)', async () => {
+    const { host } = await mount();
+    // `Workspace.tsx` 와 같은 자리·같은 조건으로 듣는다. 실제 리듀서 연결은
+    // 앱에서만 되지만, **이벤트가 거기까지 가는지**가 이 버튼의 유일한 전제다.
+    const seen: string[] = [];
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (!(ev.ctrlKey || ev.metaKey)) return;
+      const k = ev.key.toLowerCase();
+      if (k === 'z' || k === 'y') seen.push(ev.shiftKey ? `shift+${k}` : k);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    cleanups.push(() => window.removeEventListener('keydown', onKeyDown, true));
+
+    clickKey(host, 'undo (Ctrl+Z)');
+    await settle();
+    clickKey(host, 'redo (Ctrl+Y)');
+    await settle();
+
+    expect(seen).toEqual(['z', 'y']);
+  });
+
+  it('실행취소 키는 수식에 글자를 남기지 않는다', async () => {
+    const { mf, host } = await mount();
+    clickKey(host, '1');
+    await settle();
+    clickKey(host, 'undo (Ctrl+Z)');
+    await settle();
+    // Ctrl 조합이라 `feedKey` 의 문자 삽입 폴백을 안 탄다 — 'z' 가 박히면 안 된다.
+    expect(mf.value).not.toContain('z');
+  });
+});
+
+/**
+ * **인라인 숏컷 의존 키의 자동 검증 — 하드코딩 방지 장치.**
+ *
+ * 팔레트는 LaTeX을 안 적고 트리거 글자(`sqrt`, `cos`…)만 흘린다. 그래서 변환 결과가
+ * 바뀌면 자동 반영되지만, **트리거 이름 자체는 이 파일 밖(`MathField.tsx`의
+ * `DISABLED_INLINE_SHORTCUTS`/`CUSTOM_INLINE_SHORTCUTS`)에서 사라질 수 있다.**
+ * 그러면 팔레트는 조용히 리터럴(`cos`)을 입력하게 된다.
+ *
+ * 여기서 **여러 글자짜리 알파벳 트리거를 가진 키를 전부 자동으로 찾아** 실제로 눌러보고,
+ * 결과가 리터럴 그대로면 실패시킨다. 팔레트에 키를 추가해도 목록을 따로 관리할 필요가
+ * 없고, 숏컷을 끄면 여기서 바로 잡힌다.
+ */
+describe('KeyPalette — 인라인 숏컷 의존 키가 실제로 변환된다', () => {
+  /** 알파벳 여러 글자를 흘리는 키 = 인라인 숏컷에 기대는 키. */
+  const dependsOnShortcut = (k: PaletteKey): boolean =>
+    k.strokes !== undefined &&
+    k.strokes.length > 1 &&
+    k.strokes.every((s) => /^[a-zA-Z]$/.test(s.key));
+
+  const keysOf = (layer: (typeof PALETTE_LAYERS)[number]): PaletteKey[] => {
+    if (layer.kind === 'split') {
+      return [...layer.left.flat(), ...layer.right.flat(), ...(layer.aside?.flat() ?? [])];
+    }
+    if (layer.kind === 'sections') return layer.sections.flatMap((s) => s.keys);
+    return layer.rows.flat();
+  };
+
+  const targets = PALETTE_LAYERS.flatMap((layer) =>
+    keysOf(layer)
+      .filter(dependsOnShortcut)
+      .map((k) => ({ layer, k })),
+  );
+
+  it('그런 키가 실제로 존재한다 (스위트가 빈 채로 통과하지 않게)', () => {
+    expect(targets.length).toBeGreaterThan(5);
+  });
+
+  for (const { layer, k } of targets) {
+    const trigger = k.strokes!.map((s) => s.key).join('');
+    it(`[${layer.label}] "${k.label}" (${trigger}) 가 리터럴로 남지 않는다`, async () => {
+      const { mf, host } = await mount();
+      clickTab(host, layer.label);
+      await settle();
+      clickKey(host, k.title ?? k.label);
+      await settle();
+      // 숏컷이 죽었으면 트리거 글자가 그대로 남는다. 그게 이 테스트가 잡는 것이다.
+      expect(mf.value, `"${trigger}" 인라인 숏컷이 사라졌거나 이름이 바뀌었다`).not.toBe(trigger);
+      expect(mf.value).not.toBe('');
+    });
+  }
+
+  /**
+   * `upperStrokes` (⇧ 상태에서 대신 흘리는 시퀀스, 그리스 대문자 키)도 같은
+   * 위험이 있다 — 위 스위프는 `upper=false` 로만 누르므로 이건 못 잡는다.
+   * ⇧ 를 먼저 누른 뒤 같은 방식으로 훑는다.
+   */
+  const upperTargets = PALETTE_LAYERS.flatMap((layer) =>
+    keysOf(layer)
+      .filter((k) => k.upperStrokes !== undefined && k.upperStrokes.length > 1)
+      .map((k) => ({ layer, k })),
+  );
+
+  it('⇧ 상태 전용 트리거(upperStrokes)도 존재한다', () => {
+    expect(upperTargets.length).toBeGreaterThan(0);
+  });
+
+  for (const { layer, k } of upperTargets) {
+    const trigger = k.upperStrokes!.map((s) => s.key).join('');
+    it(`[${layer.label}] ⇧+"${k.label}" (${trigger}) 가 리터럴로 남지 않는다`, async () => {
+      const { mf, host } = await mount();
+      clickTab(host, layer.label);
+      await settle();
+      clickKey(host, 'shift (uppercase)');
+      await settle();
+      clickKey(host, k.title ?? k.label);
+      await settle();
+      expect(mf.value, `"${trigger}" 인라인 숏컷이 사라졌거나 이름이 바뀌었다`).not.toBe(trigger);
+      expect(mf.value).not.toBe('');
+    });
+  }
+});
+
+describe('KeyPalette — 포커스된 셀이 없으면 접힌다', () => {
+  /**
+   * 실제 트리와 같은 중첩(`.app` 안에 팔레트)으로 띄운다 — 접힘이 `display` 뿐
+   * 아니라 **바닥 여백까지** 풀어주는지 재려는 것이라 `.app` 이 있어야 한다.
+   */
+  async function mountInApp(): Promise<{
+    mf: MathfieldElement;
+    palette: HTMLElement;
+    app: HTMLElement;
+  }> {
+    const app = document.createElement('div');
+    app.className = 'app';
+    document.body.append(app);
+    const root = createRoot(app);
+    root.render(
+      createElement(Fragment, null, createElement(MathField, { value: 'x' }), createElement(KeyPalette)),
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    cleanups.push(() => {
+      root.unmount();
+      app.remove();
+    });
+    return {
+      mf: app.querySelector('math-field') as MathfieldElement,
+      palette: app.querySelector('.key-palette') as HTMLElement,
+      app,
+    };
+  }
+
+  it('아무 셀도 포커스가 없으면 접혀 있다', async () => {
+    const { palette } = await mountInApp();
+    await settle();
+    expect(palette.hasAttribute('hidden')).toBe(true);
+  });
+
+  it('셀에 포커스가 들어오면 펴지고, 빠지면 다시 접힌다', async () => {
+    const { mf, palette } = await mountInApp();
+    mf.focus();
+    await settle();
+    expect(palette.hasAttribute('hidden')).toBe(false);
+    mf.blur();
+    await settle();
+    expect(palette.hasAttribute('hidden')).toBe(true);
+  });
+
+  it('접히면 자리도 안 남는다 — `.app` 바닥 여백이 함께 풀린다', async () => {
+    // `display` 만 꺼서는 안 되는 자리다: 바닥 여백이 `--palette-h` 로 팔레트 높이와
+    // 묶여 있어(`styles/base.css`) 끄기만 하면 그 높이만큼 빈 자리가 그대로 남는다.
+    const { mf, palette, app } = await mountInApp();
+    mf.focus();
+    await settle();
+    expect(getComputedStyle(palette).display).toBe('flex');
+    expect(parseFloat(getComputedStyle(app).paddingBottom)).toBeGreaterThan(0);
+
+    mf.blur();
+    await settle();
+    expect(getComputedStyle(palette).display).toBe('none');
+    expect(parseFloat(getComputedStyle(app).paddingBottom)).toBe(0);
+  });
+});
+
+describe('KeyPalette — 숫자 키는 톤으로 갈린다 (시안)', () => {
+  /** 라벨로 팔레트 키 하나를 집는다. */
+  function keyOf(host: HTMLElement, label: string): HTMLButtonElement {
+    const btn = [...host.querySelectorAll<HTMLButtonElement>('.palette-key')].find(
+      (b) => b.textContent === label,
+    );
+    if (btn === undefined) throw new Error(`palette key not found: ${label}`);
+    return btn;
+  }
+
+  it('숫자·백스페이스만 tint 클래스를 단다', async () => {
+    const { host } = await mount();
+    // 선언 데이터(`PaletteKey.tint`)가 실제 클래스로 나오는지 — 이 둘이 끊기면
+    // 톤이 조용히 사라진다.
+    for (const label of ['7', '0', '.', '⌫']) {
+      expect(keyOf(host, label).classList.contains('palette-key-tint'), label).toBe(true);
+    }
+    for (const label of ['÷', '×', '+', '=']) {
+      expect(keyOf(host, label).classList.contains('palette-key-tint'), label).toBe(false);
+    }
+  });
+
+  it('그 클래스가 실제로 다른 배경을 만든다 (CSS까지 이어져 있다)', async () => {
+    // 클래스만 붙고 CSS가 없으면 위 테스트는 통과해도 화면은 그대로다 —
+    // 계산된 값으로 한 번 더 잰다. 정확한 색이 아니라 **갈렸다**는 것만 본다
+    // (라이트/다크 어느 쪽이든 성립해야 하므로).
+    const { host } = await mount();
+    const tinted = getComputedStyle(keyOf(host, '7')).backgroundColor;
+    const plain = getComputedStyle(keyOf(host, '÷')).backgroundColor;
+    expect(tinted).not.toBe(plain);
+  });
+});

@@ -1,4 +1,11 @@
-import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type Ref } from 'react';
+import {
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type Ref,
+} from 'react';
 import { MathfieldElement, type InlineShortcutDefinitions } from 'mathlive';
 import {
   ensureGhostLeftSupport,
@@ -7,8 +14,13 @@ import {
   modelOf,
   patchMathliveDisposedBlur,
 } from '../editor/internals';
+import { notifyFieldBlur, notifyFieldFocus, notifyFieldRemoved } from '../editor/activeField';
 import { PLACEHOLDER_RULES, contentCount, findViolations, repairLatex } from '../editor/wellformed';
 import { dispatchKeyOp } from '../editor/keyOps';
+import { attachTouchGesture } from '../editor/touchGesture';
+import { MOBILE_QUERY, isMobileViewport } from '../mobile';
+import { ATOM_BOX_DEBUG } from '../features';
+import { SelectionHandles } from './SelectionHandles';
 import { configureKeybindings } from '../editor/keybindings';
 import {
   expandSelectionSemantic,
@@ -145,6 +157,13 @@ const CUSTOM_INLINE_SHORTCUTS: InlineShortcutDefinitions = {
   // 켤레. `Alt+-` 키바인딩(`editor/keybindings.ts`)과 같은 표기를 타이핑으로도 낼 수
   // 있게 한다 — 저쪽은 선택을 감싸야 해서 `#@`, 이쪽은 감쌀 선택이 없으니 `#?`(빈 칸)다.
   conj: '\\overline{#?}',
+  // 아래 셋은 `KeyPalette.tsx` 의 ƒ(x)·αβγ 레이어 전용 — MathLive 기본 인라인 숏컷
+  // 사전에 없는 트리거라(실측, `mathlive.mjs` 의 `INLINE_SHORTCUTS`) 여기서 만든다.
+  star: '\\star',
+  // 미분 표기. `#?` 는 분모의 변수 자리(기본 `d` 뒤에 이어 쓴다, 예: `ddx` → `\frac{d}{dx}`).
+  ddx: '\\frac{d}{d#?}',
+  // 끝시그마(ς). `sigma`(→ `\sigma`)는 기본 사전에 있지만 변형은 없다.
+  varsigma: '\\varsigma',
 };
 
 /**
@@ -171,6 +190,12 @@ function configureInlineShortcuts(mf: MathfieldElement): void {
  *
  * 시트는 모듈 전역에 **한 장**만 만들어 모든 필드가 공유한다.
  */
+/**
+ * 모바일에서 "바깥을 탭했다" 로 볼 최대 이동(px). 이보다 많이 움직였으면 스크롤이라
+ * 보고 선택을 안 푼다. `editor/touchGesture.ts` 의 판정 임계와 같은 값이다.
+ */
+const TAP_SLOP_PX = 8;
+
 const SHADOW_CSS = `
 /* \\overline 은 렌더 박스가 type:'ignore' 라 원자 간 자동 간격이 아예 안 붙는다
    (mathlive.mjs 의 overline render: new Box(stack, {classes:'overline', type:'ignore'})).
@@ -196,7 +221,80 @@ const SHADOW_CSS = `
 .ML__container > .ML__toggles {
   align-self: center;
 }
+
+/* 모바일에서만 세로 페이지 스크롤을 브라우저에 되돌려 준다.
+
+   MathLive는 \`.ML__container\` 에 \`touch-action: none\` 을 건다("Prevent the
+   browser from trying to interpret touch gestures in the field") — 그런데
+   touch-action은 히트된 요소와 그 조상들의 **교집합**이라, 호스트에 걸어둔
+   \`pan-y\`(\`styles/selectionHandles.css\`)가 이 한 줄에 통째로 무효화된다.
+   그 결과 셀 위에서 시작한 손짓으로는 페이지가 아예 안 굴러간다(사용자 보고).
+   셰도우 DOM 안이라 전역 CSS로는 못 닿아 여기서 덮는다.
+
+   가로 손짓은 그대로 우리 것이다 — \`pan-y\` 는 세로만 브라우저에 넘긴다
+   (\`editor/touchGesture.ts\` 의 패닝·홀드 선택이 가로를 계속 쓴다). 홀드
+   선택이 성립한 뒤의 **세로** 드래그(분수의 분자/분모 넘나들기)는 브라우저가
+   가져가면 안 되므로, 그때만 \`touchmove\` 로 막는다(같은 파일).
+
+   임계값은 \`src/mobile.ts\` 의 \`MOBILE_QUERY\` 하나를 쓴다 — 셰도우 CSS라
+   \`src/styles/\` 밖에 있어 \`styles/mediaQuery.test.ts\` 가 못 보는 자리다. */
+@media ${MOBILE_QUERY} {
+  .ML__container {
+    touch-action: pan-y;
+  }
+
+  /* \\sqrt 안쪽 오른쪽 끝에 탭 여백을 준다. 근호 본문이 자기 너비에 딱 맞게
+     렌더되어(위 vinculum이 마지막 글자 바로 뒤에서 끝난다), "본문 맨 끝, 근호
+     안쪽"에 캐럿을 두려는 탭이 손가락으로는 짚을 자리가 없었다(사용자 보고,
+     \\sqrt{1+x^2} 예시). \\overline 과 같은 구조적 이유로 같은 트릭을 쓴다:
+     이 줄(sqrt-line, vinculum)은 width: 100% 라 자기 칸(vlist)의 폭을
+     따라가므로, **본문 쪽에만** 오른쪽 패딩을 주면 vlist가 그만큼 넓어지고
+     줄이 그 여백까지 뻗는다 — 실측(76px→81px폭, +0.35em 만큼).
+
+     .overline 과 달리 sqrt의 바깥 원자에는 걸 만한 클래스가 없다
+     (mathlive.mjs 의 ML__sqrt CSS 클래스는 죽은 규칙 — 실제로는 안 붙는다).
+     대신 .ML__sqrt-sign(근호 기호)의 다음 형제가 언제나 본문의 .ML__vlist-t2
+     라는 구조(실측: SqrtAtom.render, [delimBox, bodyBox])로 짚는다 —
+     \\sqrt[n]{} 처럼 앞에 지수 상자가 붙어도 그 둘의 인접 관계는 안 바뀐다.
+
+     왼쪽 패딩은 안 준다 — 근호 기호와 본문 사이는 이미 붙어 있는 게 맞는
+     렌더(수학 표기 관례)라 왼쪽을 벌리면 오히려 어색해 보인다. */
+  .ML__latex .ML__sqrt-sign + .ML__vlist-t2 > .ML__vlist-r > .ML__vlist > span:first-child > span:not(.ML__pstrut) {
+    padding-right: 0.35em;
+  }
+}
 `;
+
+/**
+ * 디버그 전용 — 원자 상자에 1px 테두리 (`features.ts` 의 `ATOM_BOX_DEBUG`, `?atombox`).
+ *
+ * `outline` 이라 레이아웃을 안 건드린다 — `border` 를 쓰면 글자가 밀려서 재려던
+ * 그 좌표가 달라진다. `outline-offset: -1px` 로 안쪽에 그려 이웃 상자끼리 선이
+ * 겹쳐 두꺼워지는 것도 막는다.
+ *
+ * 잎(글리프)과 컨테이너를 색으로 가른다 — `:has()` 로 자식 원자를 품었는지 본다.
+ * **파란 상자 사이의 맨 자리가 곧 히트테스트가 헛짚는 구간**이다.
+ */
+const ATOM_BOX_CSS = `
+.ML__latex [data-atom-id] {
+  outline: 1px solid rgba(59, 110, 245, 0.55);
+  outline-offset: -1px;
+}
+
+.ML__latex [data-atom-id]:has([data-atom-id]) {
+  outline-color: rgba(200, 60, 60, 0.35);
+}
+`;
+
+/**
+ * 이 노드가 키 팔레트(`KeyPalette.tsx`) 안인가. 팔레트는 셀 그룹 밖에 고정으로 떠
+ * 있지만 **편집 표면의 일부**라, "필드 바깥을 눌렀다" 판정에서 빼야 한다.
+ * `pointerdown` 의 target은 보통 Element지만 텍스트 노드로 올 여지를 남겨 방어한다.
+ */
+function isInKeyPalette(node: Node | null): boolean {
+  const el = node instanceof Element ? node : (node?.parentElement ?? null);
+  return el?.closest('.key-palette') != null;
+}
 
 let shadowSheet: CSSStyleSheet | null = null;
 
@@ -206,7 +304,7 @@ function applyShadowStyles(mf: MathfieldElement): void {
     if (root === null || !('adoptedStyleSheets' in root)) return;
     if (shadowSheet === null) {
       shadowSheet = new CSSStyleSheet();
-      shadowSheet.replaceSync(SHADOW_CSS);
+      shadowSheet.replaceSync(ATOM_BOX_DEBUG ? SHADOW_CSS + ATOM_BOX_CSS : SHADOW_CSS);
     }
     if (root.adoptedStyleSheets.includes(shadowSheet)) return;
     root.adoptedStyleSheets = [...root.adoptedStyleSheets, shadowSheet];
@@ -288,7 +386,6 @@ type Props = {
   onEdit?: (latex: string, caret: number) => void;
   /** Enter를 눌렀을 때. 확정하고 다음으로 넘어가는 신호다. */
   onEnter?: (latex: string) => void;
-  onFocus?: () => void;
   /**
    * 선택 영역이 바뀔 때. 선택이 없으면(collapsed) null, 있으면 선택된 LaTeX.
    * 선택 변환 버튼의 표시 여부 판단에 쓴다.
@@ -356,7 +453,6 @@ export function MathField({
   ref,
   onEdit,
   onEnter,
-  onFocus,
   onSelectionChange,
   onMoveOut,
   onTransformShortcut,
@@ -376,7 +472,6 @@ export function MathField({
   const handlers = useRef({
     onEdit,
     onEnter,
-    onFocus,
     onSelectionChange,
     onMoveOut,
     onTransformShortcut,
@@ -388,7 +483,6 @@ export function MathField({
   handlers.current = {
     onEdit,
     onEnter,
-    onFocus,
     onSelectionChange,
     onMoveOut,
     onTransformShortcut,
@@ -398,6 +492,11 @@ export function MathField({
     onDuplicate,
   };
   const initialValue = useRef(value);
+  /**
+   * 마운트된 mathfield. 선택 핸들(`SelectionHandles`)이 렌더 트리에서 이걸 봐야
+   * 해서 ref가 아니라 state다 — 마운트 직후 한 번만 바뀐다.
+   */
+  const [mounted, setMounted] = useState<MathfieldElement | null>(null);
 
   // 편집 중인지 추적한다. 편집 중에는 외부 value 동기화가 입력을 덮지 않도록 막는다.
   const isEditing = useRef(false);
@@ -416,7 +515,8 @@ export function MathField({
 
     const mf = new MathfieldElement();
     mf.value = initialValue.current;
-    // 데스크톱에서 가상 키보드가 멋대로 뜨지 않게.
+    // MathLive 자체 가상 키보드는 항상 끈다 — 자체 팔레트(KeyPalette.tsx)가 그걸
+    // 대체한다. 자체 VK는 우리 keyOps.ts·앱 단축키·인라인 숏컷 판정 경로를 우회한다.
     mf.mathVirtualKeyboardPolicy = 'manual';
     // `\` 를 치면 뜨던 LaTeX 명령어 검색 팝오버를 끈다. 이 앱의 입력 수단은 인라인
     // 숏컷(`sqrt`, `sum`…)과 키바인딩이고, 그 목록은 도움말 패널이 맡는다 — 타이핑
@@ -514,7 +614,9 @@ export function MathField({
 
     mf.addEventListener('focusin', () => {
       isEditing.current = true;
-      handlers.current.onFocus?.();
+      // 포커스의 단일 게이트(`editor/activeField.ts`). 팔레트가 키를 흘릴 대상과
+      // "지금 포커스된 필드가 있나"(가상 키보드 표시)가 둘 다 여기서 나온다.
+      notifyFieldFocus(mf);
       // selection-change는 "변화"에만 발화한다. 이미 선택이 있는 필드에 포커스가
       // 들어오면 이벤트 없이 선택만 존재해 버튼 상태가 어긋난다 — 즉시 보고해 동기화.
       reportSelection();
@@ -538,6 +640,9 @@ export function MathField({
 
     mf.addEventListener('focusout', (ev) => {
       isEditing.current = false;
+      // 포커스 게이트에 알린다 — 확정은 저쪽이 한 태스크 미룬다(셀 간 이동은
+      // focusout → focusin 이 잇따르므로 즉시 놓으면 팔레트가 깜빡인다).
+      notifyFieldBlur(mf);
       // ghost 괄호는 "편집 중인 셀의 순간 상태"다 — 셀을 떠나면 확정한다.
       // LaTeX 표현은 동일하므로 문서·계산에는 영향이 없다 (반투명 표시만 사라진다).
       finalizeGhostFences(mf);
@@ -557,11 +662,52 @@ export function MathField({
     // 포커스가 어디로도 안 옮겨가 focusout 자체가 안 난다. capture 단계라 대상 쪽이
     // 이벤트를 삼켜도 우리가 먼저 본다. 선택이 없으면 즉시 빠져나오므로, 필드마다
     // 하나씩 달려 있어도 부담이 없다.
+    /** 모바일에서 "바깥 탭인지 스크롤인지" 판정을 기다리는 중인 구독. */
+    let outsideTap: AbortController | null = null;
     const onOutsidePointerDown = (ev: PointerEvent) => {
       if (mf.selectionIsCollapsed) return;
       const target = ev.target as Node | null;
       if (target !== null && scopeOf().contains(target)) return;
-      clearSelection();
+      // 키 팔레트는 "바깥" 이 아니다 — 키보드이지 딴 데가 아니다(`KeyPalette.tsx`).
+      // 셀 그룹 밖에 고정으로 떠 있어 `scopeOf()` 에 안 잡히므로 명시적으로 뺀다.
+      // 안 빼면 **placeholder 위에서 화살표가 제자리를 맴돈다**: 캐럿이 placeholder에
+      // 서면 MathLive가 그걸 선택 상태로 만드는데(collapsed=false), 그 상태에서 팔레트를
+      // 누를 때마다 여기가 선택을 지워 캐럿이 0으로 돌아가기 때문이다. 물리 키보드는
+      // pointerdown이 아예 없어서 안 겪는 차이다
+      // (실측·회귀 핀: `editor/feedKeyParity.browser.test.tsx`).
+      if (isInKeyPalette(target)) return;
+      // 데스크톱은 누른 즉시 해제한다 — 마우스로 바깥을 누르는 건 늘 "여기로 옮김"이다.
+      if (!isMobileViewport()) {
+        clearSelection();
+        return;
+      }
+      // 모바일에서 바깥을 짚는 손짓의 대부분은 **페이지 스크롤**이다. 누른 즉시
+      // 풀면 선택을 잡아둔 채 아래로 훑어보는 것 자체가 불가능해진다(사용자 보고).
+      // 손을 뗄 때까지 기다렸다가, 거의 안 움직였으면(=탭이면) 그때 푼다.
+      const x0 = ev.clientX;
+      const y0 = ev.clientY;
+      outsideTap?.abort();
+      const controller = new AbortController();
+      outsideTap = controller;
+      const finish = (up: PointerEvent): void => {
+        controller.abort();
+        outsideTap = null;
+        if (Math.abs(up.clientX - x0) < TAP_SLOP_PX && Math.abs(up.clientY - y0) < TAP_SLOP_PX) {
+          clearSelection();
+        }
+      };
+      document.addEventListener('pointerup', finish, {
+        capture: true,
+        signal: controller.signal,
+      });
+      document.addEventListener(
+        'pointercancel',
+        () => {
+          controller.abort();
+          outsideTap = null;
+        },
+        { capture: true, signal: controller.signal },
+      );
     };
     document.addEventListener('pointerdown', onOutsidePointerDown, { capture: true });
 
@@ -686,6 +832,14 @@ export function MathField({
     );
 
     host.append(mf);
+    // ⚠ **MathLive 실측 함정 — 마운트 직후 선택이 내용 전체다.** append 전에 옵션을
+    // 하나라도 건드리면(`mathVirtualKeyboardPolicy` 등, 전부 `_setOptions` 를 탄다)
+    // 대기 중이던 선택이 `[[0, -1]]`(= 전체 선택)로 덮인다 — `mf.value` 가 넣어둔
+    // 캐럿 하나(`[[-1, -1]]`)를 지우고 간다(`mathlive.mjs` 의 `_setOptions`,
+    // `readOnly` 는 append 뒤에 켜지므로 결과 셀도 예외가 아니다). 그러면 탭을
+    // 처음 열자마자 모든 셀이 포커스도 없이 전체 선택된 채로 서고 선택 핸들까지
+    // 달린다(사용자 보고). 갓 뜬 필드에 선택이 있을 이유가 없으므로 접는다.
+    mf.position = mf.lastOffset;
     // 인라인 숏컷 On/Off 커스터마이징. `inlineShortcuts` getter/setter는 mathfield가
     // mount(= append)되기 전에 부르면 "Mathfield not mounted" 에러를 던진다(실측).
     configureInlineShortcuts(mf);
@@ -701,9 +855,22 @@ export function MathField({
     // ghost 여는 괄호(닫는 괄호 입력용) 렌더·직렬화 패치. 최초 1회만 실제 작업을
     // 하고 결과가 캐시된다 — 키 입력 도중이 아니라 여기서 미리 데워둔다.
     ensureGhostLeftSupport();
+    // 모바일 터치 제스처(가로 스크롤 / 홀드 선택 / 컨텍스트 메뉴 차단).
+    // 데스크톱에서는 아무 것도 가로채지 않는다 (`editor/touchGesture.ts`).
+    const detachTouchGesture = attachTouchGesture(mf, host);
+
     mfRef.current = mf;
+    setMounted(mf);
     return () => {
+      setMounted(null);
       document.removeEventListener('pointerdown', onOutsidePointerDown, { capture: true });
+      outsideTap?.abort();
+      detachTouchGesture();
+      // `remove()` 는 포커스된 필드에서도 focusout 을 안 쏜다 — 게이트에 직접 알려야
+      // 사라진 필드가 "포커스 중"으로 남지 않는다(`editor/activeField.ts`).
+      // `remove()` 는 포커스된 필드에서도 focusout 을 안 쏜다 — 게이트에 직접 알려야
+      // 사라진 필드가 "포커스 중"으로 남지 않는다(`editor/activeField.ts`).
+      notifyFieldRemoved(mf);
       mf.remove();
       mfRef.current = null;
     };
@@ -748,7 +915,8 @@ export function MathField({
     const mf = mfRef.current;
     if (mf === null) return;
     mf.focus();
-    // focus()가 선택/캐럿을 임의로 옮길 수 있으므로 그 뒤에 명시적으로 놓는다.
+    // focus() 자체는 선택/캐럿을 안 건드린다(모델에 있던 값 그대로 둔다) — 우리가
+    // 원하는 특정 자리로 보내려면 그 뒤에 명시적으로 놓아야 한다.
     if (focusSelection !== null && focusSelection !== undefined) {
       const clamp = (v: number) => Math.max(0, Math.min(v, mf.lastOffset));
       mf.selection = {
@@ -787,5 +955,11 @@ export function MathField({
     [],
   );
 
-  return <div ref={hostRef} className={readOnly ? 'mf mf-readonly' : 'mf'} />;
+  // `math-field` 는 위 이펙트가 직접 append 한다 — 여기 React 자식은 그 뒤에 붙는
+  // 오버레이(선택 핸들)뿐이다.
+  return (
+    <div ref={hostRef} className={readOnly ? 'mf mf-readonly' : 'mf'}>
+      <SelectionHandles mf={mounted} container={hostRef.current} />
+    </div>
+  );
 }

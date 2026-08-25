@@ -8,10 +8,11 @@ import { createField, pressKey as pressRealKey } from './harness';
 import { MathField } from '../components/MathField';
 import { parseSyntax } from '../algebra';
 import { finalizeGhostFences, modelOf } from './internals';
-import { expandSelectionSemantic, siblingRunRange } from './selection';
+import { caretRunRange, expandSelectionSemantic, siblingRunRange } from './selection';
 import { KEY_OPS, dispatchKeyOp } from './keyOps';
 import { findViolations, repairLatex } from './wellformed';
 import { BLOCKED_KEYBINDINGS, CUSTOM_KEYBINDINGS, RESERVED_KEYBINDINGS } from './keybindings';
+import { feedKey } from './feedKey';
 
 /**
  * 에디터 회귀 스위트 — 실제 MathLive(헤드리스 Chromium)를 구동한다.
@@ -96,6 +97,69 @@ describe('MathLive 동작 핀 — 구조 이벤트 시퀀스 (classifyEdit의 �
   });
 });
 
+describe('MathLive 동작 핀 — 문자 입력 세 경로 대조 (feedKey 설계 근거)', () => {
+  // 물리 키보드 = 실제 keydown(브라우저가 contenteditable에 네이티브로 삽입) →
+  // input 이벤트. 세 대체 경로가 "sqrt" 4글자에서 각각 어떻게 갈리는지 재측정한다.
+  // ⚠ 메모리 핀(mathlive-typedtext-shortcut-pitfall)이 "typedText는 인라인 숏컷을
+  // 미발동"이라 적어뒀는데, mathlive 0.110 소스(onInput의 simulateKeystroke 분기가
+  // onKeystroke를 직접 부른다)와 어긋난다 — 아래가 그 재측정이다.
+
+  it('typedText + simulateKeystroke:true (harness의 f.type) — 인라인 숏컷 미발동 (재측정 확인)', async () => {
+    // 메모리 핀(mathlive-typedtext-shortcut-pitfall)의 재측정 — 여전히 유효하다.
+    // 원인(실측): onKeystroke가 미매치 글자마다 "return true"(미처리)를 내는데,
+    // onInput의 simulateKeystroke 분기는 그걸 "handled=false"로 보고 그 자리에서
+    // insertMathModeChar로 **즉시 리터럴 삽입**해버린다 — 그래서 나중에 진짜 숏컷이
+    // 완성돼도 매칭될 후보 글자들이 이미 개별 원자로 박혀 있어 안 풀린다.
+    const f = await createField();
+    cleanups.push(f.dispose);
+    await f.type('sqrt');
+    expect(f.value()).toBe('sqrt');
+  });
+
+  it('feedKey (싱크로 합성 keydown + 미소비 시 execCommand insertText 폴백) — 인라인 숏컷 발동 여부', async () => {
+    const f = await createField();
+    cleanups.push(f.dispose);
+    for (const ch of 'sqrt') {
+      feedKey(f.mf, { key: ch });
+      await f.settle();
+    }
+    expect(f.value()).toBe(String.raw`\sqrt{\placeholder{}}`);
+  });
+
+  it('raw keydown만 (싱크, 문자 삽입 폴백 없음) — 전체가 숏컷이면 그 자체로 완성된다', async () => {
+    // onKeystroke 자신이 매칭된 순간 model.setState() 로 버퍼 이전 상태로 되감고
+    // \sqrt{...} 를 직접 넣는다(ModeEditor.insert) — 미매치 글자들이 애초에 아무데도
+    // 안 박혀 있었으니(합성 keydown은 브라우저 기본 삽입을 유발하지 않는다) 되감을
+    // 것도 없다. 그래서 "sqrt" 처럼 전체가 숏컷인 입력은 폴백 없이도 정확하다.
+    const f = await createField();
+    cleanups.push(f.dispose);
+    for (const ch of 'sqrt') {
+      pressRealKey(f.mf, { key: ch });
+      await f.settle();
+    }
+    expect(f.value()).toBe(String.raw`\sqrt{\placeholder{}}`);
+  });
+
+  it('raw keydown만, 숏컷이 아닌 평범한 글자 — 아무 데도 안 박힌다 (feedKey 폴백이 필요한 이유)', async () => {
+    // 'x' 는 어떤 숏컷의 접두사도 아니라 onKeystroke가 "return true"(미처리)만 내는데,
+    // 합성 keydown은 진짜 keydown과 달리 브라우저의 기본 삽입 동작을 유발하지 않는다
+    // — 그래서 폴백이 없으면 문자가 통째로 사라진다.
+    const f = await createField();
+    cleanups.push(f.dispose);
+    pressRealKey(f.mf, { key: 'x' });
+    await f.settle();
+    expect(f.value()).toBe('');
+  });
+
+  it('feedKey, 숏컷이 아닌 평범한 글자 — execCommand insertText 폴백이 채운다', async () => {
+    const f = await createField();
+    cleanups.push(f.dispose);
+    feedKey(f.mf, { key: 'x' });
+    await f.settle();
+    expect(f.value()).toBe('x');
+  });
+});
+
 describe('선택 불변식 — 항상 한 레벨의 연속 형제 열', () => {
   const MIXED = String.raw`1+\frac{a}{b+c}+\begin{pmatrix}1 & 2\\ 3 & 4\end{pmatrix}+x^{2y}`;
 
@@ -174,6 +238,106 @@ describe('선택 불변식 — 항상 한 레벨의 연속 형제 열', () => {
   });
 });
 
+describe('손가락 선택 파생 — 끝은 안쪽으로 당긴다 (caretRunRange)', () => {
+  /**
+   * ⚠ 구조가 **맨 앞**에 있으면(`\frac{a}{bc}+d`) 새 규칙과 옛 규칙의 결과가
+   * 같다 — 당길 자리가 없어서다(실측). 차이는 그 구조 **앞에 온전한 형제가 있을
+   * 때**만 드러나므로, 여기서는 분수를 뒤에 둔 식을 쓴다.
+   *
+   * 오프셋(실측): 0=root first, 1=`d`, 2=`+`, 3=분자 first, 4=`a`,
+   * 5=분모 first, 6=`b`, 7=`c`, 8=분수 전체. root 레벨 경계는 {0,1,2,8}.
+   */
+  const TAIL_FRAC = String.raw`d+\frac{a}{bc}`;
+
+  it('끝 캐럿이 구조 안이면 그 구조를 뺀다 (옛 규칙은 통째로 삼켰다)', async () => {
+    const f = await createField(TAIL_FRAC);
+    cleanups.push(f.dispose);
+    const model = modelOf(f.mf)!;
+    const show = (r: [number, number] | null) =>
+      r === null ? null : f.mf.getValue({ ranges: [r] }, 'latex');
+
+    // 끝 캐럿이 분모 안(`c` 뒤)일 때.
+    expect(show(caretRunRange(model, 0, 7))).toBe('d+');
+    expect(show(siblingRunRange(model, 0, 7))).toBe(TAIL_FRAC); // 게이트는 그대로 넓힌다
+    // 분자 안이어도 마찬가지 — 어느 branch든 "걸쳐 있으면 뺀다".
+    expect(show(caretRunRange(model, 0, 4))).toBe('d+');
+    // 시작이 `d` 뒤면 남는 건 `+` 하나.
+    expect(show(caretRunRange(model, 1, 7))).toBe('+');
+    // 끝이 구조의 온전한 경계면 새 규칙도 그대로 포함한다.
+    expect(show(caretRunRange(model, 0, 8))).toBe(TAIL_FRAC);
+  });
+
+  it('시작 캐럿이 구조 안이면 그 구조는 그대로 포함한다 (비대칭이 의도)', async () => {
+    const f = await createField(TAIL_FRAC);
+    cleanups.push(f.dispose);
+    const model = modelOf(f.mf)!;
+    // 시작이 분모 안(`b` 뒤)이어도 분수는 **통째로** 들어온다 — 시작은 바깥으로
+    // 넓히기 때문(가장 가까운 root 경계 = 분수 바로 앞). 양끝을 다 당기는
+    // 규칙이었다면 여기서 아무 것도 안 남아 선택이 깜빡였을 자리다.
+    expect(f.mf.getValue({ ranges: [caretRunRange(model, 6, 8)!] }, 'latex')).toBe(
+      String.raw`\frac{a}{bc}`,
+    );
+  });
+
+  it('당겨서 아무 것도 안 남으면 그 끝만 확장으로 되돌린다 (빈 선택 금지)', async () => {
+    const f = await createField(TAIL_FRAC);
+    cleanups.push(f.dispose);
+    const model = modelOf(f.mf)!;
+    // 양끝이 같은 분수의 서로 다른 branch 안(분자 `a` 뒤 ↔ 분모 `c` 뒤) —
+    // root 레벨에 온전히 들어온 형제가 하나도 없다. 폴백이 분수를 살려낸다.
+    const r = caretRunRange(model, 4, 7)!;
+    expect(r[0]).toBeLessThan(r[1]); // 붕괴하지 않는다
+    expect(f.mf.getValue({ ranges: [r] }, 'latex')).toBe(String.raw`\frac{a}{bc}`);
+  });
+
+  it('두 캐럿의 순서를 가리지 않는다 (핸들이 교차해도 같은 결과)', async () => {
+    const f = await createField(TAIL_FRAC);
+    cleanups.push(f.dispose);
+    const model = modelOf(f.mf)!;
+    expect(caretRunRange(model, 7, 0)).toEqual(caretRunRange(model, 0, 7));
+    expect(caretRunRange(model, 8, 1)).toEqual(caretRunRange(model, 1, 8));
+  });
+
+  it('파생 결과는 형제 열이고, 비지 않고, 게이트를 멱등하게 통과한다 (fuzz)', async () => {
+    // ③ 이 마지막 성질이 핵심이다 — `normalizeSelection`(=`siblingRunRange`)이
+    // 우리가 당겨놓은 결과를 도로 넓혀버리면 규칙이 무력해진다. 특히 첨자
+    // 보정이 그럴 뻔한 자리라, 같은 보정을 파생 쪽에도 넣어뒀다.
+    const MIXED = String.raw`1+\frac{a}{b+c}+\begin{pmatrix}1 & 2\\ 3 & 4\end{pmatrix}+x^{2y}`;
+    const f = await createField(MIXED);
+    cleanups.push(f.dispose);
+    const model = modelOf(f.mf)!;
+    const last = model.lastOffset;
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    let checked = 0;
+    for (let i = 0; i < 300; i += 1) {
+      const a = Math.floor(rnd() * (last + 1));
+      const b = Math.floor(rnd() * (last + 1));
+      if (a === b) continue;
+      const r = caretRunRange(model, a, b);
+      expect(r).not.toBeNull();
+      const [x, y] = r!;
+      expect(x, `raw ${a},${b}`).toBeLessThan(y); // ① 비지 않는다
+      const atoms = model.getAtoms([x, y]);
+      if (atoms.length > 0) {
+        const parent = atoms[0].parent ?? null;
+        const branch = JSON.stringify(atoms[0].parentBranch ?? null);
+        expect(
+          atoms.every(
+            (at) =>
+              (at.parent ?? null) === parent &&
+              JSON.stringify(at.parentBranch ?? null) === branch,
+          ),
+          `sibling run ${a},${b}`,
+        ).toBe(true); // ② 형제 열
+      }
+      expect(siblingRunRange(model, x, y), `gate idempotent ${a},${b}`).toEqual([x, y]); // ③
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThan(250);
+  });
+});
+
 describe('키 연산 — 선언된 시나리오 순회', () => {
   for (const op of KEY_OPS) {
     describe(`${op.id}: ${op.summary}`, () => {
@@ -193,6 +357,34 @@ describe('키 연산 — 선언된 시나리오 순회', () => {
           expect(f.value()).toBe(s.expect);
           // 어떤 연산도 파손을 남기지 않는다
           expect(findViolations(f.value())).toEqual([]);
+        });
+      }
+    });
+  }
+});
+
+describe('키 연산 — feedKey 경로로 재순회 (물리 입력과 같은 결과인지)', () => {
+  // 위 스위트와 같은 시나리오 표를 그대로 돌리되, `dispatchKeyOp`를 직접 부르는
+  // 대신 `feedKey`로 셰도우 싱크에 진짜 keydown을 흘린다. `feedKey`가 노리는
+  // 것 자체가 "물리 키보드와 같은 경로"이므로, 표를 새로 쓰지 않고 같은 표가
+  // 같은 결과를 내는지 보는 게 가장 정직한 검증이다. `MathField` React 래퍼를
+  // 마운트해야 한다(`dispatchKeyOp`를 부르는 capture 리스너가 거기 달려 있다,
+  // `createField`의 맨 MathfieldElement에는 없다).
+  for (const op of KEY_OPS) {
+    describe(`${op.id}: ${op.summary}`, () => {
+      for (const s of op.scenarios) {
+        it(`${JSON.stringify(s.start)} + ${s.key} → ${JSON.stringify(s.expect)}`, async () => {
+          const { mf } = await mountMathField(s.start);
+          if (s.selection !== undefined) {
+            mf.selection = { ranges: [s.selection], direction: 'forward' };
+          } else {
+            mf.position = s.caret ?? mf.lastOffset;
+          }
+          await settle();
+          feedKey(mf, { key: s.key });
+          await settle();
+          expect(mf.value).toBe(s.expect);
+          expect(findViolations(mf.value)).toEqual([]);
         });
       }
     });
