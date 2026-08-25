@@ -39,7 +39,9 @@
     position: sticky;
     top: 0;
     z-index: 6;
-    background: var(--bg);
+    /* 셀 영역(`--bg`)이 아니라 카드와 같은 흰 면이다 — 아래 경계선과 함께
+       "머리글" 로 떨어져 보인다(시안). */
+    background: var(--card);
     padding: 0.6rem 0.75rem;
     margin: 0 0 0.25rem;
     border-bottom: 1px solid var(--line);

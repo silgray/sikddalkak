@@ -36,8 +36,9 @@
     z-index: 8;
     height: var(--palette-h);
     padding-bottom: env(safe-area-inset-bottom);
-    background: var(--bg);
-    border-top: 1px solid var(--line);
+    /* 셀 영역(`--bg`)보다 한 톤 어둡다 — 이 경계가 "여기부터 키보드"를 말한다. */
+    background: var(--pad-bg);
+    border-top: 1px solid var(--key-line);
   }
 
   .key-palette-tabs {
@@ -71,22 +72,26 @@
     font-size: 1rem;
   }
 
+  /* 시안의 탭은 **떠 있는 알약**이다 — 안 고른 탭은 아예 안 그리고(투명), 고른
+     탭만 흰 면으로 떠오른다. 예전엔 브라우저 탭처럼 아래를 튼 사다리꼴이었다. */
   .palette-tab {
     flex: 1;
-    border: 1px solid var(--line);
-    border-bottom: none;
-    border-radius: 6px 6px 0 0;
-    background: color-mix(in srgb, var(--fg) 3%, transparent);
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
     color: var(--muted);
     font-size: 0.85rem;
+    font-weight: 500;
     padding: 0.35rem 0;
     touch-action: manipulation;
   }
 
   .palette-tab-active {
-    background: var(--bg);
+    background: var(--key-face);
+    border-color: var(--key-tint-line);
     color: var(--fg);
-    font-weight: 600;
+    font-weight: 700;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
   }
 
   .key-palette-body {
@@ -130,9 +135,9 @@
 
   .palette-key {
     min-width: 0;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: color-mix(in srgb, var(--fg) 3%, transparent);
+    border: 1px solid var(--key-line);
+    border-radius: 8px;
+    background: var(--key-face);
     color: var(--fg);
     font-size: 0.95rem;
     font-style: normal;
@@ -148,11 +153,25 @@
     font-family: inherit;
   }
 
+  /* 눌린 순간은 **강조색이 아니라 톤**으로 답한다(시안) — 키를 누를 때마다
+     파란 불이 켜지면 글자보다 그게 먼저 보인다. 강조색은 상태(아래 shift)용으로 아낀다. */
   .palette-key:active {
-    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    background: var(--key-down);
   }
 
-  /* shift 켜짐 */
+  /* 숫자·백스페이스 — 자주 두드리는 키라 톤을 깔아 흰 기호 키와 갈라 놓는다
+     (`PaletteKey.tint`). ⚠ `.palette-key:active` 보다 **뒤에** 와야 눌린 색이
+     톤 쪽으로 이긴다 — 둘 다 특정도가 같아 순서가 가른다. */
+  .palette-key-tint {
+    background: var(--key-tint);
+    border-color: var(--key-tint-line);
+  }
+
+  .palette-key-tint:active {
+    background: var(--key-tint-down);
+  }
+
+  /* shift 켜짐 — 한 번 누르면 유지되는 **상태**라 강조색을 쓴다. */
   .palette-key-active {
     background: color-mix(in srgb, var(--accent) 22%, transparent);
     border-color: color-mix(in srgb, var(--accent) 55%, transparent);

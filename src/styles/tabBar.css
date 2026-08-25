@@ -90,6 +90,22 @@
     display: none;
   }
 
+  /* 시안의 탭 언어 — 안 고른 탭은 아예 안 그리고, 고른 탭만 흰 알약으로 떠오른다
+     (키 팔레트의 모드 탭과 같은 규칙, `keyPalette.css`). 데스크톱의 사다리꼴
+     브라우저 탭 꼴은 그대로 둔다. */
+  .tab {
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    margin-bottom: 0;
+  }
+
+  .tab-active {
+    background: var(--card);
+    border-color: var(--key-tint-line);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
+  }
+
   .tab-name {
     max-width: 6rem;
   }

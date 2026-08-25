@@ -35,6 +35,11 @@ export type PaletteKey = {
   blank?: boolean;
   /** 가로 폭 배수 (flex 기준). 기본 1. */
   span?: number;
+  /**
+   * 톤을 깔아 흰 기호 키와 갈라 놓는다 — 숫자·백스페이스처럼 **자주 두드리는**
+   * 키다. 색은 `styles/keyPalette.css` 의 `.palette-key-tint` 가 정한다.
+   */
+  tint?: boolean;
 };
 
 /** 한 레이어의 배치. 1번 탭만 좌/우 두 블록으로 갈린다. */
@@ -97,35 +102,28 @@ const NUM_LEFT: PaletteKey[][] = [
   ],
 ];
 
+/** 숫자 키 하나. 톤을 깔아 옆의 흰 연산자 키와 갈라 놓는다(`PaletteKey.tint`). */
+function digit(ch: string): PaletteKey {
+  return { label: ch, strokes: chars(ch), tint: true };
+}
+
 const NUM_RIGHT: PaletteKey[][] = [
   [
-    { label: '7', strokes: chars('7') },
-    { label: '8', strokes: chars('8') },
-    { label: '9', strokes: chars('9') },
+    digit('7'),
+    digit('8'),
+    digit('9'),
     { label: '÷', strokes: key('/', 'Slash'), title: 'fraction' },
     BLANK,
   ],
+  [digit('4'), digit('5'), digit('6'), { label: '×', strokes: chars('*'), title: 'cdot' }, BLANK],
+  [digit('1'), digit('2'), digit('3'), { label: '−', strokes: chars('-') }, BLANK],
   [
-    { label: '4', strokes: chars('4') },
-    { label: '5', strokes: chars('5') },
-    { label: '6', strokes: chars('6') },
-    { label: '×', strokes: chars('*'), title: 'cdot' },
-    BLANK,
-  ],
-  [
-    { label: '1', strokes: chars('1') },
-    { label: '2', strokes: chars('2') },
-    { label: '3', strokes: chars('3') },
-    { label: '−', strokes: chars('-') },
-    BLANK,
-  ],
-  [
-    { label: '0', strokes: chars('0') },
-    { label: '.', strokes: chars('.') },
+    digit('0'),
+    digit('.'),
     // 평가가 아니라 **문자 `=`** 다 — 평가는 nav 줄의 ↵ 가 맡는다.
     { label: '=', strokes: chars('=') },
     { label: '+', strokes: chars('+') },
-    { label: '⌫', strokes: key('Backspace', 'Backspace'), title: 'backspace' },
+    { label: '⌫', strokes: key('Backspace', 'Backspace'), title: 'backspace', tint: true },
   ],
 ];
 
@@ -268,11 +266,18 @@ function PaletteButton({
 
   const isShift = k.label === SHIFT_LABEL && k.strokes === undefined;
   const label = upper && /^[a-z]$/.test(k.label) ? k.label.toUpperCase() : k.label;
+  const className = [
+    'palette-key',
+    k.tint === true ? 'palette-key-tint' : null,
+    isShift && upper ? 'palette-key-active' : null,
+  ]
+    .filter((c) => c !== null)
+    .join(' ');
 
   return (
     <button
       type="button"
-      className={isShift && upper ? 'palette-key palette-key-active' : 'palette-key'}
+      className={className}
       style={{ flex }}
       title={k.title}
       aria-pressed={isShift ? upper : undefined}

@@ -302,3 +302,36 @@ describe('KeyPalette — 포커스된 셀이 없으면 접힌다', () => {
     expect(parseFloat(getComputedStyle(app).paddingBottom)).toBe(0);
   });
 });
+
+describe('KeyPalette — 숫자 키는 톤으로 갈린다 (시안)', () => {
+  /** 라벨로 팔레트 키 하나를 집는다. */
+  function keyOf(host: HTMLElement, label: string): HTMLButtonElement {
+    const btn = [...host.querySelectorAll<HTMLButtonElement>('.palette-key')].find(
+      (b) => b.textContent === label,
+    );
+    if (btn === undefined) throw new Error(`palette key not found: ${label}`);
+    return btn;
+  }
+
+  it('숫자·백스페이스만 tint 클래스를 단다', async () => {
+    const { host } = await mount();
+    // 선언 데이터(`PaletteKey.tint`)가 실제 클래스로 나오는지 — 이 둘이 끊기면
+    // 톤이 조용히 사라진다.
+    for (const label of ['7', '0', '.', '⌫']) {
+      expect(keyOf(host, label).classList.contains('palette-key-tint'), label).toBe(true);
+    }
+    for (const label of ['÷', '×', '+', '=']) {
+      expect(keyOf(host, label).classList.contains('palette-key-tint'), label).toBe(false);
+    }
+  });
+
+  it('그 클래스가 실제로 다른 배경을 만든다 (CSS까지 이어져 있다)', async () => {
+    // 클래스만 붙고 CSS가 없으면 위 테스트는 통과해도 화면은 그대로다 —
+    // 계산된 값으로 한 번 더 잰다. 정확한 색이 아니라 **갈렸다**는 것만 본다
+    // (라이트/다크 어느 쪽이든 성립해야 하므로).
+    const { host } = await mount();
+    const tinted = getComputedStyle(keyOf(host, '7')).backgroundColor;
+    const plain = getComputedStyle(keyOf(host, '÷')).backgroundColor;
+    expect(tinted).not.toBe(plain);
+  });
+});
