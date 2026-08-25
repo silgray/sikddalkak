@@ -157,6 +157,18 @@ const CUSTOM_INLINE_SHORTCUTS: InlineShortcutDefinitions = {
   // 켤레. `Alt+-` 키바인딩(`editor/keybindings.ts`)과 같은 표기를 타이핑으로도 낼 수
   // 있게 한다 — 저쪽은 선택을 감싸야 해서 `#@`, 이쪽은 감쌀 선택이 없으니 `#?`(빈 칸)다.
   conj: '\\overline{#?}',
+  // 아래 셋은 `KeyPalette.tsx` 의 ƒ(x)·αβγ 레이어 전용 — MathLive 기본 인라인 숏컷
+  // 사전에 없는 트리거라(실측, `mathlive.mjs` 의 `INLINE_SHORTCUTS`) 여기서 만든다.
+  star: '\\star',
+  // 미분 표기. `#?` 는 분모의 변수 자리(기본 `d` 뒤에 이어 쓴다, 예: `ddx` → `\frac{d}{dx}`).
+  ddx: '\\frac{d}{d#?}',
+  // 끝시그마(ς). `sigma`(→ `\sigma`)는 기본 사전에 있지만 변형은 없다.
+  varsigma: '\\varsigma',
+  // 나눗셈 기호. 기본 사전의 `divide`/`-:` 는 의도적으로 꺼 뒀다(DISABLED_INLINE_SHORTCUTS
+  // 아래) — 그 결정은 그대로 두고, 숫자 탭의 `÷` 키만을 위해 새 트리거를 만든다.
+  // (숫자 탭의 다른 `÷`/`×` 자리는 각각 분수·`\cdot` 로 이미 자리를 잡고 있다 —
+  // 여기 `div` 는 그와 구분되는 진짜 나눗셈 기호가 필요해진 자리에만 쓴다.)
+  div: '\\div',
 };
 
 /**

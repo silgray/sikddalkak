@@ -102,11 +102,13 @@
     border-top: 1px solid var(--line);
   }
 
-  /* 1번 탭만 좌(기호·함수) + 우(숫자·연산) 두 블록으로 갈린다. 두 블록의 열 수가
-     달라서(4 vs 5) 한 그리드로는 못 담는다 — 각자 자기 행을 갖는 flex 블록이다. */
+  /* 1번 탭만 좌(기호·함수) + 우(숫자·연산) 두 블록 + 오른쪽 끝 좁은 열(⌫)로
+     갈린다. 세 블록의 열 수·폭이 달라 한 그리드로는 못 담는다 — 각자 자기
+     행을 갖는 flex 블록이다. 간격은 시안 그대로(20px) — 세 블록이 뚜렷이
+     갈린 구역임을 말해야 한다. */
   .key-palette-split {
     display: flex;
-    gap: 0.4rem;
+    gap: 1.25rem;
   }
 
   .key-palette-split > .key-palette-block {
@@ -120,11 +122,50 @@
     gap: 1px;
   }
 
+  /* 좌우 블록 밖, 오른쪽 끝의 좁은 열 — 1번 탭의 ⌫ 전용 자리(시안 B4). 빈 칸
+     셋 위에 ⌫ 하나만 채워, 두 4열 블록과 나란히 서되 자기 폭은 고정이다. */
+  .key-palette-aside {
+    flex: 0 0 2.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
   /* 키 폭은 `flex` 로 정한다 — 줄마다 칸 수가 달라도(qwerty 10 / asdf 9+반칸 둘)
      합이 같으면 세로로 정렬된다(`PaletteKey.span`). */
   .key-palette-row {
     display: flex;
     gap: 1px;
+  }
+
+  /* ƒ(x) 탭 — 소제목 달린 구획들(시안). `.key-palette-body` 가 이미
+     `overflow-y:auto` 라 여기서 또 스크롤을 열 필요는 없다. */
+  .key-palette-sections {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .key-palette-section-heading {
+    padding: 0.35rem 0.1rem 0.05rem;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .key-palette-section-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 1px;
+  }
+
+  /* 30개 넘는 키가 들어가는 7열 격자라 본문 키보다 작게 — `arcsin`·`sinh` 같은
+     긴 라벨도 한 줄에 들어가야 한다(시안 11.5px). */
+  .key-palette-section-grid .palette-key {
+    height: 2.1rem;
+    padding: 0.2rem 0.05rem;
+    font-size: 0.72rem;
   }
 
   .key-palette-nav {
@@ -175,6 +216,20 @@
   .palette-key-active {
     background: color-mix(in srgb, var(--accent) 22%, transparent);
     border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+
+  /* 강조색으로 채운 키 — nav 줄의 `=`(평가)처럼 "이게 핵심 동작"임을 눈에 먼저
+     띄운다(시안). 톤/눌림보다 확실히 이겨야 하므로 뒤에 둔다. */
+  .palette-key-accent {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg);
+    font-weight: 600;
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+
+  .palette-key-accent:active {
+    filter: brightness(0.92);
   }
 
   /* 자리 맞춤용 빈 칸 — 버튼이 아니다. */

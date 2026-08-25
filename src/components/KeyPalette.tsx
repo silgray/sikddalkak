@@ -40,13 +40,41 @@ export type PaletteKey = {
    * 키다. 색은 `styles/keyPalette.css` 의 `.palette-key-tint` 가 정한다.
    */
   tint?: boolean;
+  /**
+   * 강조색으로 채운다 — 하단 nav 줄의 `=`(평가)처럼 "이게 핵심 동작"임을 눈에
+   * 먼저 띄워야 하는 자리(시안). 색은 `.palette-key-accent`.
+   */
+  accent?: boolean;
+  /**
+   * ⇧ 가 켜졌을 때 이 키 대신 흘릴 시퀀스. 대문자 **명령이 따로 있는** 그리스
+   * 문자용이다(Γ Δ Θ Λ Ξ Π Σ Φ Ψ Ω — MathLive 인라인 숏컷 사전에 실재하는 것만,
+   * 실측). 없으면 `shifted()` 로 대체한다 — 그건 단일 글자 키만 대문자화하므로,
+   * 대문자 명령이 없는 그리스 키는 `upperStrokes` 없이 그대로(소문자) 나간다.
+   */
+  upperStrokes?: KeyStroke[];
 };
 
-/** 한 레이어의 배치. 1번 탭만 좌/우 두 블록으로 갈린다. */
+/** ƒ(x) 레이어의 한 구획 — 소제목 + 그 아래 키들(7열 격자, 시안). */
+export type PaletteSection = {
+  heading: string;
+  keys: PaletteKey[];
+};
+
+/** 한 레이어의 배치. 1번 탭은 좌/우(+선택 우측 좁은 열) 블록, ƒ(x) 탭은 소제목 달린 구획들. */
 export type PaletteLayer = {
   id: string;
   label: string;
-} & ({ kind: 'rows'; rows: PaletteKey[][] } | { kind: 'split'; left: PaletteKey[][]; right: PaletteKey[][] });
+} & (
+  | { kind: 'rows'; rows: PaletteKey[][] }
+  | {
+      kind: 'split';
+      left: PaletteKey[][];
+      right: PaletteKey[][];
+      /** 좌우 블록 밖, 오른쪽 끝의 좁은 열(1번 탭의 ⌫ 자리, 시안). */
+      aside?: PaletteKey[][];
+    }
+  | { kind: 'sections'; sections: PaletteSection[] }
+);
 
 /** 글자 하나의 물리 `code` — 있으면 키바인딩 매칭이 물리 입력과 같아진다. */
 function codeOf(ch: string): string | undefined {
@@ -85,8 +113,10 @@ const NUM_LEFT: PaletteKey[][] = [
   [
     { label: '(', strokes: chars('(') },
     { label: ')', strokes: chars(')') },
-    BLANK,
-    BLANK,
+    { label: ',', strokes: chars(',') },
+    // □/□ 는 이 앱이 이미 쓰는 "빈 자리" 표기다(옆의 a²·a^□·a_□ 와 같은 어휘) —
+    // 분수 구조 자체를 그리는 전용 아이콘 없이 그 관례를 그대로 쓴다.
+    { label: '□/□', strokes: key('/', 'Slash'), title: 'fraction' },
   ],
   [
     { label: '|a|', strokes: chars('|'), title: 'absolute value' },
@@ -107,46 +137,45 @@ function digit(ch: string): PaletteKey {
   return { label: ch, strokes: chars(ch), tint: true };
 }
 
+// 4열 — ⌫ 는 이 그리드 밖, 오른쪽 좁은 열(`NUM_ASIDE`)에 따로 산다(시안 B4:
+// 두 블록 사이 20px 틈 + 36px 전용 열. `.key-palette-split`/`.key-palette-aside`,
+// `keyPalette.css`).
 const NUM_RIGHT: PaletteKey[][] = [
-  [
-    digit('7'),
-    digit('8'),
-    digit('9'),
-    { label: '÷', strokes: key('/', 'Slash'), title: 'fraction' },
-    BLANK,
-  ],
-  [digit('4'), digit('5'), digit('6'), { label: '×', strokes: chars('*'), title: 'cdot' }, BLANK],
-  [digit('1'), digit('2'), digit('3'), { label: '−', strokes: chars('-') }, BLANK],
+  [digit('7'), digit('8'), digit('9'), { label: '÷', strokes: chars('div'), title: 'divide' }],
+  [digit('4'), digit('5'), digit('6'), { label: '×', strokes: chars('*'), title: 'cdot' }],
+  [digit('1'), digit('2'), digit('3'), { label: '−', strokes: chars('-') }],
   [
     digit('0'),
     digit('.'),
     // 평가가 아니라 **문자 `=`** 다 — 평가는 nav 줄의 ↵ 가 맡는다.
     { label: '=', strokes: chars('=') },
     { label: '+', strokes: chars('+') },
-    { label: '⌫', strokes: key('Backspace', 'Backspace'), title: 'backspace', tint: true },
   ],
 ];
 
-// --- 2번 탭: 기호 한 줄 + QWERTY ---
-
-const ABC_TOP: PaletteKey[] = [
-  { label: 'a²', strokes: [...chars('^'), ...chars('2')], title: 'square' },
-  { label: 'a^□', strokes: chars('^'), title: 'superscript' },
-  { label: '+', strokes: chars('+') },
-  { label: '−', strokes: chars('-') },
-  { label: '·', strokes: chars('*'), title: 'cdot' },
-  { label: '×', strokes: chars('xx'), title: 'times' },
-  { label: '÷', strokes: key('/', 'Slash'), title: 'fraction' },
-  { label: '(', strokes: chars('(') },
-  { label: ')', strokes: chars(')') },
-  { label: 'a_□', strokes: chars('_'), title: 'subscript' },
+/** 1번 탭 오른쪽 끝의 좁은 열 — 빈 칸 셋 위에 ⌫ 하나(시안). */
+const NUM_ASIDE: PaletteKey[][] = [
+  [BLANK],
+  [BLANK],
+  [BLANK],
+  [{ label: '⌫', strokes: key('Backspace', 'Backspace'), title: 'backspace', tint: true }],
 ];
+
+// --- 2번 탭: 숫자 한 줄 + QWERTY ---
+// (기호는 `123`·`ƒ(x)` 탭에 이미 있다 — 여기 첫 줄은 시안대로 숫자를 둔다.)
+
+/** 톤 없는 숫자 — `digit()`(123 탭)와 달리 abc·αβγ 탭은 흰 배경을 쓴다(시안). */
+function plainDigit(ch: string): PaletteKey {
+  return { label: ch, strokes: chars(ch) };
+}
+
+const DIGITS_ROW: PaletteKey[] = [...'1234567890'].map(plainDigit);
 
 const letters = (row: string): PaletteKey[] =>
   [...row].map((ch) => ({ label: ch, strokes: chars(ch) }));
 
 const ABC_ROWS: PaletteKey[][] = [
-  ABC_TOP,
+  DIGITS_ROW,
   letters('qwertyuiop'),
   // 가운데 줄은 반 칸씩 들여 위/아래 줄과 키 폭을 맞춘다(합이 10칸).
   [HALF_BLANK, ...letters('asdfghjkl'), HALF_BLANK],
@@ -161,39 +190,162 @@ const ABC_ROWS: PaletteKey[][] = [
 /** `⇧` 는 입력이 아니라 상태 토글이라 `strokes` 가 없다 — 그걸로 식별한다. */
 const SHIFT_LABEL = '⇧';
 
-// --- 3번 탭: 함수·기호 ---
+// --- 3번 탭: 그리스 문자 ---
 
-const SYM_ROWS: PaletteKey[][] = [
+/**
+ * 그리스 소문자 하나. `upper`(대문자 명령이 따로 있는 열 글자만)는
+ * `PaletteKey.upperStrokes` 로 얹는다 — 나머지는 `press()`/`shifted()` 가 그냥
+ * 소문자 그대로 흘린다(대문자로 우겨 붙이면 트리거 자체가 안 맞는다).
+ *
+ * ⚠ **`ο`(omicron)만 예외** — MathLive 기본 사전에 `omicron` 트리거가 없다
+ * (실측, 로마자 `o` 와 겹쳐 보여 따로 안 둔 듯하다). 그래서 이 키만 진짜 글자
+ * `o` 하나를 흘린다 — 어차피 로마자 o와 시각적으로 구분이 안 되니 해가 없다.
+ */
+function greek(label: string, trigger: string, upperTrigger?: string): PaletteKey {
+  if (trigger === 'o') return { label, strokes: chars('o') };
+  return {
+    label,
+    strokes: chars(trigger),
+    title: trigger,
+    upperStrokes: upperTrigger === undefined ? undefined : chars(upperTrigger),
+  };
+}
+
+const GR_ROWS: PaletteKey[][] = [
+  DIGITS_ROW,
+  // 9칸뿐이라 양끝에 반 칸씩 들여 위 숫자 줄(10칸)과 세로로 맞춘다(ABC_ROWS의
+  // asdf 줄과 같은 요령).
   [
-    { label: '√', strokes: chars('sqrt'), title: 'sqrt' },
-    { label: 'π', strokes: chars('pi'), title: 'pi' },
-    { label: 'Σ', strokes: chars('sum'), title: 'sum' },
-    { label: '∫', strokes: chars('int'), title: 'integral' },
-    { label: '∞', strokes: chars('infinity') },
-    { label: '∂', strokes: chars('del') },
+    HALF_BLANK,
+    // ς(끝시그마)는 대문자가 없다 — `MathField.tsx` 의 커스텀 `varsigma` 트리거.
+    greek('ς', 'varsigma'),
+    greek('ε', 'epsilon'),
+    greek('ρ', 'rho'),
+    greek('τ', 'tau'),
+    greek('υ', 'upsilon'),
+    greek('θ', 'theta', 'Theta'),
+    greek('ι', 'iota'),
+    greek('ο', 'o'),
+    greek('π', 'pi', 'Pi'),
+    HALF_BLANK,
   ],
   [
-    { label: 'sin', strokes: chars('sin') },
-    { label: 'cos', strokes: chars('cos') },
-    { label: 'tan', strokes: chars('tan') },
-    { label: 'ln', strokes: chars('ln') },
-    { label: 'log', strokes: chars('log') },
-    { label: 'exp', strokes: chars('exp') },
+    HALF_BLANK,
+    greek('α', 'alpha'),
+    greek('σ', 'sigma', 'Sigma'),
+    greek('δ', 'delta', 'Delta'),
+    greek('φ', 'phi', 'Phi'),
+    greek('γ', 'gamma', 'Gamma'),
+    greek('η', 'eta'),
+    greek('ξ', 'xi', 'Xi'),
+    greek('κ', 'kappa'),
+    greek('λ', 'lambda', 'Lambda'),
+    HALF_BLANK,
   ],
   [
-    { label: 'tr', strokes: chars('tr') },
-    { label: 'z̄', strokes: chars('conj'), title: 'conjugate' },
-    { label: 'α', strokes: chars('alpha') },
-    { label: 'β', strokes: chars('beta') },
-    { label: 'θ', strokes: chars('theta') },
-    BLANK,
+    { label: '⇧', title: 'shift (uppercase)', span: 1.3 },
+    greek('ζ', 'zeta'),
+    greek('χ', 'chi'),
+    greek('ψ', 'psi', 'Psi'),
+    greek('ω', 'omega', 'Omega'),
+    greek('β', 'beta'),
+    greek('ν', 'nu'),
+    greek('μ', 'mu'),
+    { label: '⌫', strokes: key('Backspace', 'Backspace'), title: 'backspace', span: 1.3 },
   ],
 ];
 
+// --- 4번 탭: 함수·기호 (소제목 달린 구획, 시안) ---
+
+/**
+ * 소제목 달린 구획들(시안) — 7열 스크롤 격자. 각 트리거는 실측 확인했다
+ * (`node_modules/mathlive/mathlive.mjs` 의 `INLINE_SHORTCUTS`, 없는 셋은
+ * `MathField.tsx` 의 `CUSTOM_INLINE_SHORTCUTS` 에 새로 얹었다: `star`·`ddx`).
+ *
+ * ⚠ 예전 sym 탭에 있던 `∞`·`∂`·conjugate(`z̄`)는 시안 이 화면엔 없어서 뺐다 —
+ * `∞`는 `infinity`, conjugate 는 `conj` 트리거로 여전히 살아있으니(각각
+ * Alt+- 키바인딩 등 다른 경로), 없어진 건 **이 팔레트의 버튼**뿐이다.
+ */
+const SYM_SECTIONS: PaletteSection[] = [
+  {
+    heading: 'Operators',
+    keys: [
+      { label: '√', strokes: chars('sqrt'), title: 'sqrt' },
+      { label: 'Σ', strokes: chars('sum'), title: 'sum' },
+      { label: '∏', strokes: chars('prod'), title: 'product' },
+      { label: '×', strokes: chars('times'), title: 'times' },
+      { label: '·', strokes: chars('*'), title: 'cdot' },
+      { label: '⋆', strokes: chars('star'), title: 'star' },
+      // 'tt' 는 기존 커스텀 트리거(`MathField.tsx`)를 그대로 쓴다 — 라벨만 †.
+      { label: '†', strokes: chars('tt'), title: 'dagger' },
+    ],
+  },
+  {
+    heading: 'Trigonometric',
+    keys: [
+      { label: 'sin', strokes: chars('sin') },
+      { label: 'cos', strokes: chars('cos') },
+      { label: 'tan', strokes: chars('tan') },
+      { label: 'sec', strokes: chars('sec') },
+      { label: 'csc', strokes: chars('csc') },
+      { label: 'cot', strokes: chars('cot') },
+    ],
+  },
+  {
+    heading: 'Inverse trig',
+    keys: [
+      { label: 'arcsin', strokes: chars('arcsin') },
+      { label: 'arccos', strokes: chars('arccos') },
+      { label: 'arctan', strokes: chars('arctan') },
+    ],
+  },
+  {
+    heading: 'Hyperbolic',
+    keys: [
+      { label: 'sinh', strokes: chars('sinh') },
+      { label: 'cosh', strokes: chars('cosh') },
+      { label: 'tanh', strokes: chars('tanh') },
+      { label: 'coth', strokes: chars('coth') },
+      { label: 'sech', strokes: chars('sech') },
+    ],
+  },
+  {
+    heading: 'Log & exp',
+    keys: [
+      { label: 'ln', strokes: chars('ln') },
+      { label: 'log', strokes: chars('log') },
+      { label: 'lg', strokes: chars('lg') },
+      { label: 'exp', strokes: chars('exp') },
+    ],
+  },
+  {
+    heading: 'Matrix & complex',
+    keys: [
+      { label: 'det', strokes: chars('det') },
+      // 기존 커스텀 트리거를 그대로 쓴다(`MathField.tsx`).
+      { label: 'tr', strokes: chars('tr') },
+      // MathLive 기본 사전은 대문자 `Re`/`Im` 만 있다(소문자 없음, 실측).
+      { label: 'Re', strokes: chars('Re'), title: 'real part' },
+      { label: 'Im', strokes: chars('Im'), title: 'imaginary part' },
+    ],
+  },
+  {
+    heading: 'Other',
+    keys: [
+      // `conj` 커스텀 트리거(`\overline{#?}`, `MathField.tsx`)를 재사용한다 —
+      // 시안의 "위에 줄 긋기"와 기존 켤레 표기가 결과적으로 같은 LaTeX이다.
+      { label: 'a̅', strokes: chars('conj'), title: 'overline' },
+      { label: '∇', strokes: chars('nabla') },
+      { label: 'd/dx', strokes: chars('ddx'), title: 'derivative' },
+    ],
+  },
+];
+
 export const PALETTE_LAYERS: readonly PaletteLayer[] = [
-  { id: 'num', label: '123', kind: 'split', left: NUM_LEFT, right: NUM_RIGHT },
+  { id: 'num', label: '123', kind: 'split', left: NUM_LEFT, right: NUM_RIGHT, aside: NUM_ASIDE },
   { id: 'abc', label: 'abc', kind: 'rows', rows: ABC_ROWS },
-  { id: 'sym', label: 'ƒ(x)', kind: 'rows', rows: SYM_ROWS },
+  { id: 'gr', label: 'αβγ', kind: 'rows', rows: GR_ROWS },
+  { id: 'sym', label: 'ƒ(x)', kind: 'sections', sections: SYM_SECTIONS },
 ];
 
 /**
@@ -207,14 +359,17 @@ export const PALETTE_LAYERS: readonly PaletteLayer[] = [
 export const NAV_ROW: PaletteKey[] = [
   { label: '←', strokes: key('ArrowLeft', 'ArrowLeft'), title: 'move left' },
   { label: '→', strokes: key('ArrowRight', 'ArrowRight'), title: 'move right' },
-  // 평가(Enter). 숫자 탭의 `=` 는 문자 입력이라 이쪽과 역할이 갈린다.
-  { label: '=', strokes: key('Enter', 'Enter'), title: 'evaluate (Enter)' },
-  // Ctrl+Enter — 그룹 밖 아래에 새 빈 셀(`MathField.tsx`의 onInsertCell).
+  // Ctrl+Enter — 그룹 밖 아래에 새 빈 셀(`MathField.tsx`의 onInsertCell). 시안은
+  // 화살표 다음, 평가 앞에 둔다 — 폭도 평가보다 좁다(56px 대 96px, span으로 흉내).
   {
     label: '⏎',
     strokes: key('Enter', 'Enter', { ctrlKey: true }),
     title: 'new cell below (Ctrl+Enter)',
+    span: 0.85,
   },
+  // 평가(Enter). 숫자 탭의 `=` 는 문자 입력이라 이쪽과 역할이 갈린다. 시안에서
+  // 이 줄의 유일한 강조색 키다 — "이게 핵심 동작"임을 눈에 먼저 띄운다.
+  { label: '=', strokes: key('Enter', 'Enter'), title: 'evaluate (Enter)', accent: true, span: 1.6 },
 ];
 
 /**
@@ -230,11 +385,20 @@ export const HISTORY_KEYS: PaletteKey[] = [
   { label: '↷', strokes: key('y', 'KeyY', { ctrlKey: true }), title: 'redo (Ctrl+Y)' },
 ];
 
-/** 대문자 상태에서 흘려보낼 키로 바꾼다. 글자 키가 아니면 그대로. */
+/**
+ * 대문자 상태에서 흘려보낼 키로 바꾼다. **단일 글자 키만** 대문자화한다 —
+ * 여러 글자를 흘리는 트리거(`chars('alpha')` 등)를 통째로 대문자화하면
+ * 글자 하나하나가 `shiftKey:true` 로 나가 트리거 자체가 안 맞아버린다
+ * (실측: `SHIFT` 를 누른 채 다른 탭의 `sin`/`alpha` 류 키를 누르면 리터럴
+ * "SIN"/"ALPHA" 가 그대로 박혔다 — 그리스 탭을 새로 얹으며 드러난 기존 버그,
+ * 여기서 같이 고친다). 대문자 명령이 따로 있는 키는 `PaletteKey.upperStrokes`
+ * 로 명시하고, 여기 도달하는 건 그게 없는 경우뿐이다.
+ */
 function shifted(strokes: KeyStroke[]): KeyStroke[] {
-  return strokes.map((s) =>
-    /^[a-z]$/.test(s.key) ? { ...s, key: s.key.toUpperCase(), shiftKey: true } : s,
-  );
+  if (strokes.length !== 1) return strokes;
+  const [s] = strokes;
+  if (!/^[a-z]$/.test(s.key)) return strokes;
+  return [{ ...s, key: s.key.toUpperCase(), shiftKey: true }];
 }
 
 /** 버튼 하나 누름 = strokes를 순서대로 활성 필드에 흘린다. 대상이 없으면 no-op. */
@@ -245,7 +409,7 @@ function press(k: PaletteKey, upper: boolean): void {
     mf.insert(k.insert, { selectionMode: 'item' });
     return;
   }
-  const strokes = upper ? shifted(k.strokes ?? []) : (k.strokes ?? []);
+  const strokes = upper ? (k.upperStrokes ?? shifted(k.strokes ?? [])) : (k.strokes ?? []);
   for (const s of strokes) feedKey(mf, s);
 }
 
@@ -265,10 +429,16 @@ function PaletteButton({
   if (k.blank === true) return <span className="palette-gap" style={{ flex }} />;
 
   const isShift = k.label === SHIFT_LABEL && k.strokes === undefined;
-  const label = upper && /^[a-z]$/.test(k.label) ? k.label.toUpperCase() : k.label;
+  // 라벨도 실제로 나갈 게 대문자일 때만 그려 보인다 — 로마자는 항상 그렇고
+  // (`.toUpperCase()` 는 그리스 문자도 정확히 대문자로 바꾼다, θ→Θ), 그리스는
+  // `upperStrokes` 가 있는 열 글자만 그렇다(나머지는 눌러도 소문자 그대로 나가므로
+  // 라벨도 안 바뀌어야 앞뒤가 맞는다).
+  const showUpper = upper && (/^[a-z]$/.test(k.label) || k.upperStrokes !== undefined);
+  const label = showUpper ? k.label.toUpperCase() : k.label;
   const className = [
     'palette-key',
     k.tint === true ? 'palette-key-tint' : null,
+    k.accent === true ? 'palette-key-accent' : null,
     isShift && upper ? 'palette-key-active' : null,
   ]
     .filter((c) => c !== null)
@@ -360,13 +530,38 @@ export function KeyPalette() {
       </div>
 
       <div className="key-palette-body">
-        {layer.kind === 'split' ? (
+        {layer.kind === 'split' && (
           <div className="key-palette-split">
             <div className="key-palette-block">{layer.left.map(renderRow)}</div>
             <div className="key-palette-block">{layer.right.map(renderRow)}</div>
+            {/* 좌우 블록 밖, 오른쪽 끝의 좁은 열(1번 탭의 ⌫ 자리, 시안 B4). */}
+            {layer.aside !== undefined && (
+              <div className="key-palette-aside">{layer.aside.map(renderRow)}</div>
+            )}
           </div>
-        ) : (
+        )}
+        {layer.kind === 'rows' && (
           <div className="key-palette-block">{layer.rows.map(renderRow)}</div>
+        )}
+        {layer.kind === 'sections' && (
+          <div className="key-palette-sections">
+            {layer.sections.map((section) => (
+              <div className="key-palette-section" key={section.heading}>
+                <div className="key-palette-section-heading">{section.heading}</div>
+                <div className="key-palette-section-grid">
+                  {section.keys.map((k, j) => (
+                    <PaletteButton
+                      key={j}
+                      k={k}
+                      upper={upper}
+                      onToggleShift={() => setUpper((v) => !v)}
+                      onPressed={() => setUpper(false)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 

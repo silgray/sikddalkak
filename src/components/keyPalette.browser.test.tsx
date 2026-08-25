@@ -214,8 +214,13 @@ describe('KeyPalette — 인라인 숏컷 의존 키가 실제로 변환된다',
     k.strokes.length > 1 &&
     k.strokes.every((s) => /^[a-zA-Z]$/.test(s.key));
 
-  const keysOf = (layer: (typeof PALETTE_LAYERS)[number]): PaletteKey[] =>
-    layer.kind === 'split' ? [...layer.left.flat(), ...layer.right.flat()] : layer.rows.flat();
+  const keysOf = (layer: (typeof PALETTE_LAYERS)[number]): PaletteKey[] => {
+    if (layer.kind === 'split') {
+      return [...layer.left.flat(), ...layer.right.flat(), ...(layer.aside?.flat() ?? [])];
+    }
+    if (layer.kind === 'sections') return layer.sections.flatMap((s) => s.keys);
+    return layer.rows.flat();
+  };
 
   const targets = PALETTE_LAYERS.flatMap((layer) =>
     keysOf(layer)
@@ -236,6 +241,36 @@ describe('KeyPalette — 인라인 숏컷 의존 키가 실제로 변환된다',
       clickKey(host, k.title ?? k.label);
       await settle();
       // 숏컷이 죽었으면 트리거 글자가 그대로 남는다. 그게 이 테스트가 잡는 것이다.
+      expect(mf.value, `"${trigger}" 인라인 숏컷이 사라졌거나 이름이 바뀌었다`).not.toBe(trigger);
+      expect(mf.value).not.toBe('');
+    });
+  }
+
+  /**
+   * `upperStrokes` (⇧ 상태에서 대신 흘리는 시퀀스, 그리스 대문자 키)도 같은
+   * 위험이 있다 — 위 스위프는 `upper=false` 로만 누르므로 이건 못 잡는다.
+   * ⇧ 를 먼저 누른 뒤 같은 방식으로 훑는다.
+   */
+  const upperTargets = PALETTE_LAYERS.flatMap((layer) =>
+    keysOf(layer)
+      .filter((k) => k.upperStrokes !== undefined && k.upperStrokes.length > 1)
+      .map((k) => ({ layer, k })),
+  );
+
+  it('⇧ 상태 전용 트리거(upperStrokes)도 존재한다', () => {
+    expect(upperTargets.length).toBeGreaterThan(0);
+  });
+
+  for (const { layer, k } of upperTargets) {
+    const trigger = k.upperStrokes!.map((s) => s.key).join('');
+    it(`[${layer.label}] ⇧+"${k.label}" (${trigger}) 가 리터럴로 남지 않는다`, async () => {
+      const { mf, host } = await mount();
+      clickTab(host, layer.label);
+      await settle();
+      clickKey(host, 'shift (uppercase)');
+      await settle();
+      clickKey(host, k.title ?? k.label);
+      await settle();
       expect(mf.value, `"${trigger}" 인라인 숏컷이 사라졌거나 이름이 바뀌었다`).not.toBe(trigger);
       expect(mf.value).not.toBe('');
     });
