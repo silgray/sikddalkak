@@ -39,8 +39,14 @@ math-field::part(virtual-keyboard-toggle) {
 
 @media (max-width: 640px) {
   .mf math-field {
-    /* 16px 밑으로 두면 iOS가 포커스 시 페이지를 확대한다. */
-    font-size: 1.25rem;
+    /* 16px 밑으로 두면 iOS가 포커스 시 페이지를 확대한다(23px, 시안). */
+    font-size: 1.4375rem;
+  }
+
+  /* 결과는 입력보다 한 단계 작게(22px, 시안) — 데스크톱과 같은 위계를 유지한다. */
+  .mf-readonly math-field,
+  .result .mf math-field {
+    font-size: 1.375rem;
   }
 
   /* MathLive 자체 가상 키보드는 안 쓴다(`mathVirtualKeyboardPolicy` 항상 'manual',

@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRoot } from 'react-dom/client';
 import { createElement } from 'react';
 import type { MathfieldElement } from 'mathlive';
+// 이 파일 대부분은 배선(props→dispatch)만 보지만, 아래 π/3.14 칩 회귀 핀은
+// 실제 계산된 CSS 값을 잰다 — 전역 스타일시트가 있어야 한다.
+import '../styles.css';
 import { CellGroup } from './CellGroup';
 import { makeObject, type Tab } from '../state/workspace';
 import type { EvalResult, FormulaObject } from '../types';
@@ -340,6 +343,29 @@ describe('CellGroup — 결과 표시 모드 스위치 (정확값 / 근삿값)',
     expect(container.querySelector('.result-arrow')?.textContent).toBe('≈');
     await waitFor(() => resultField(container).value !== EXACT);
     expect(resultField(container).value.startsWith('0.333')).toBe(true);
+  });
+
+  it('모바일에서 π/3.14 칩 — 자기 색을 낸다 (`.result-actions button` 리셋에 안 진다)', async () => {
+    // 회귀 핀 — `.result-actions button`(cell.css, 데스크톱 범위)이 명시도
+    // (0,1,1)로 배경·테두리·radius·padding을 이미 덮어쓰고 있어서, `.result-mode`
+    // 단독 선택자((0,1,0))로는 아무리 색을 정해도 안 먹었다(실측). `resultMode.css`
+    // 의 모바일 블록이 `.result-actions .result-mode`로 명시도를 올려 이긴다 —
+    // 이 헤드리스 러너의 뷰포트가 640px 아래라 별도 `pretendMobile` 없이도 그
+    // 블록이 실제로 걸린다.
+    const { container } = await exactResult();
+    const chip = toggleOf(container);
+    expect(getComputedStyle(chip).borderRadius).toBe('8px');
+    // `getComputedStyle` 은 살아있는 뷰라 문자열로 떠 둔다 — 객체로 들고 있으면
+    // 클릭 뒤에 다시 읽을 때 이미 바뀐 값을 가리킨다.
+    const beforeBg = getComputedStyle(chip).backgroundColor;
+    expect(beforeBg).toBe('rgb(242, 240, 236)'); // --pad-bg
+    chip.click();
+    await settle();
+    const afterBg = getComputedStyle(toggleOf(container)).backgroundColor;
+    // 근삿값 모드에선 강조색이 옅게 배어야 한다 — 꺼진 상태(회백색)와 달라야 한다.
+    expect(afterBg).not.toBe(beforeBg);
+    expect(container.querySelector('.result-mode-knob')).not.toBeNull();
+    expect(getComputedStyle(container.querySelector('.result-mode-knob')!).display).toBe('none');
   });
 
   it('다시 누르면 정확값으로 돌아온다 (문서는 안 바뀐다)', async () => {
