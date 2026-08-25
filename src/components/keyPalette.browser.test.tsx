@@ -137,11 +137,68 @@ describe('KeyPalette — 버튼 클릭이 activeField에 반영된다', () => {
     expect(mf.value).toBe('1=');
   });
 
-  it('행렬 키는 2×2 를 넣는다 (키 입력 경로가 없는 유일한 예외)', async () => {
+  it('행렬 키는 짧게 누르면(홀드 미만) 기본 2×2 를 넣는다', async () => {
+    // `.click()` 은 pointerdown/up 없이 click만 합성한다 — `MatrixKeyButton` 의
+    // "홀드 못 채우고 뗀 경우" 경로(onClick)와 정확히 같은 조건이다.
     const { mf, host } = await mount();
-    clickKey(host, 'matrix (2×2)');
+    clickKey(host, 'matrix (hold for size)');
     await settle();
+    // `#?` 로 넣은 placeholder는 되읽으면 `\placeholder{}` 로 나온다(실측) —
+    // 정확한 문자열 대신 구조(2행: `\\` 1개, 행마다 `&` 1개)로 잰다.
     expect(mf.value).toContain('pmatrix');
+    expect((mf.value.match(/\\\\/g) ?? []).length).toBe(1);
+    expect((mf.value.match(/&/g) ?? []).length).toBe(2);
+  });
+
+  it('행렬 키를 길게 눌러 드래그하면 고른 크기로 넣는다', async () => {
+    const { mf, host } = await mount();
+    const btn = [...host.querySelectorAll<HTMLButtonElement>('.palette-key')].find(
+      (b) => b.title === 'matrix (hold for size)',
+    );
+    if (btn === undefined) throw new Error('matrix key not found');
+    const start = btn.getBoundingClientRect();
+    const opts = {
+      pointerId: 7,
+      isPrimary: true,
+      pointerType: 'touch' as const,
+      bubbles: true,
+      cancelable: true,
+    };
+    btn.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        ...opts,
+        clientX: start.left + start.width / 2,
+        clientY: start.top + start.height / 2,
+      }),
+    );
+    // 홀드 임계(450ms)를 넘겨야 격자가 뜬다.
+    await new Promise((r) => setTimeout(r, 500));
+    const grid = host.querySelector('.matrix-picker-grid');
+    expect(grid, '홀드 뒤에도 격자가 안 떴다').not.toBeNull();
+    const label = host.querySelector('.matrix-picker-label');
+    expect(label?.textContent).toBe('2 × 2 matrix'); // 기본값(막 뜬 직후)
+
+    // 격자의 3번째 행·4번째 열 칸으로 손가락을 옮긴다 → 3×4 미리보기.
+    const gridRect = grid!.getBoundingClientRect();
+    const cellW = gridRect.width / 5;
+    const cellH = gridRect.height / 5;
+    const targetX = gridRect.left + cellW * 3.5; // 4번째 칸(1-based) 한가운데
+    const targetY = gridRect.top + cellH * 2.5; // 3번째 칸(1-based) 한가운데
+    btn.dispatchEvent(
+      new PointerEvent('pointermove', { ...opts, clientX: targetX, clientY: targetY }),
+    );
+    await settle();
+    expect(host.querySelector('.matrix-picker-label')?.textContent).toBe('3 × 4 matrix');
+
+    btn.dispatchEvent(
+      new PointerEvent('pointerup', { ...opts, clientX: targetX, clientY: targetY }),
+    );
+    await settle();
+
+    expect(host.querySelector('.matrix-picker-grid')).toBeNull(); // 격자가 닫혔다
+    // 3행×4열: 행 구분 `\\` 이 2개(행-1), 각 행의 칸 구분 `&` 가 3개(열-1) × 3행.
+    expect((mf.value.match(/\\\\/g) ?? []).length).toBe(2);
+    expect((mf.value.match(/&/g) ?? []).length).toBe(9);
   });
 });
 
@@ -214,8 +271,13 @@ describe('KeyPalette — 인라인 숏컷 의존 키가 실제로 변환된다',
     k.strokes.length > 1 &&
     k.strokes.every((s) => /^[a-zA-Z]$/.test(s.key));
 
-  const keysOf = (layer: (typeof PALETTE_LAYERS)[number]): PaletteKey[] =>
-    layer.kind === 'split' ? [...layer.left.flat(), ...layer.right.flat()] : layer.rows.flat();
+  const keysOf = (layer: (typeof PALETTE_LAYERS)[number]): PaletteKey[] => {
+    if (layer.kind === 'split') {
+      return [...layer.left.flat(), ...layer.right.flat(), ...(layer.aside?.flat() ?? [])];
+    }
+    if (layer.kind === 'sections') return layer.sections.flatMap((s) => s.keys);
+    return layer.rows.flat();
+  };
 
   const targets = PALETTE_LAYERS.flatMap((layer) =>
     keysOf(layer)
@@ -236,6 +298,36 @@ describe('KeyPalette — 인라인 숏컷 의존 키가 실제로 변환된다',
       clickKey(host, k.title ?? k.label);
       await settle();
       // 숏컷이 죽었으면 트리거 글자가 그대로 남는다. 그게 이 테스트가 잡는 것이다.
+      expect(mf.value, `"${trigger}" 인라인 숏컷이 사라졌거나 이름이 바뀌었다`).not.toBe(trigger);
+      expect(mf.value).not.toBe('');
+    });
+  }
+
+  /**
+   * `upperStrokes` (⇧ 상태에서 대신 흘리는 시퀀스, 그리스 대문자 키)도 같은
+   * 위험이 있다 — 위 스위프는 `upper=false` 로만 누르므로 이건 못 잡는다.
+   * ⇧ 를 먼저 누른 뒤 같은 방식으로 훑는다.
+   */
+  const upperTargets = PALETTE_LAYERS.flatMap((layer) =>
+    keysOf(layer)
+      .filter((k) => k.upperStrokes !== undefined && k.upperStrokes.length > 1)
+      .map((k) => ({ layer, k })),
+  );
+
+  it('⇧ 상태 전용 트리거(upperStrokes)도 존재한다', () => {
+    expect(upperTargets.length).toBeGreaterThan(0);
+  });
+
+  for (const { layer, k } of upperTargets) {
+    const trigger = k.upperStrokes!.map((s) => s.key).join('');
+    it(`[${layer.label}] ⇧+"${k.label}" (${trigger}) 가 리터럴로 남지 않는다`, async () => {
+      const { mf, host } = await mount();
+      clickTab(host, layer.label);
+      await settle();
+      clickKey(host, 'shift (uppercase)');
+      await settle();
+      clickKey(host, k.title ?? k.label);
+      await settle();
       expect(mf.value, `"${trigger}" 인라인 숏컷이 사라졌거나 이름이 바뀌었다`).not.toBe(trigger);
       expect(mf.value).not.toBe('');
     });
@@ -300,5 +392,38 @@ describe('KeyPalette — 포커스된 셀이 없으면 접힌다', () => {
     await settle();
     expect(getComputedStyle(palette).display).toBe('none');
     expect(parseFloat(getComputedStyle(app).paddingBottom)).toBe(0);
+  });
+});
+
+describe('KeyPalette — 숫자 키는 톤으로 갈린다 (시안)', () => {
+  /** 라벨로 팔레트 키 하나를 집는다. */
+  function keyOf(host: HTMLElement, label: string): HTMLButtonElement {
+    const btn = [...host.querySelectorAll<HTMLButtonElement>('.palette-key')].find(
+      (b) => b.textContent === label,
+    );
+    if (btn === undefined) throw new Error(`palette key not found: ${label}`);
+    return btn;
+  }
+
+  it('숫자·백스페이스만 tint 클래스를 단다', async () => {
+    const { host } = await mount();
+    // 선언 데이터(`PaletteKey.tint`)가 실제 클래스로 나오는지 — 이 둘이 끊기면
+    // 톤이 조용히 사라진다.
+    for (const label of ['7', '0', '.', '⌫']) {
+      expect(keyOf(host, label).classList.contains('palette-key-tint'), label).toBe(true);
+    }
+    for (const label of ['÷', '×', '+', '=']) {
+      expect(keyOf(host, label).classList.contains('palette-key-tint'), label).toBe(false);
+    }
+  });
+
+  it('그 클래스가 실제로 다른 배경을 만든다 (CSS까지 이어져 있다)', async () => {
+    // 클래스만 붙고 CSS가 없으면 위 테스트는 통과해도 화면은 그대로다 —
+    // 계산된 값으로 한 번 더 잰다. 정확한 색이 아니라 **갈렸다**는 것만 본다
+    // (라이트/다크 어느 쪽이든 성립해야 하므로).
+    const { host } = await mount();
+    const tinted = getComputedStyle(keyOf(host, '7')).backgroundColor;
+    const plain = getComputedStyle(keyOf(host, '÷')).backgroundColor;
+    expect(tinted).not.toBe(plain);
   });
 });

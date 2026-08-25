@@ -36,8 +36,9 @@
     z-index: 8;
     height: var(--palette-h);
     padding-bottom: env(safe-area-inset-bottom);
-    background: var(--bg);
-    border-top: 1px solid var(--line);
+    /* 셀 영역(`--bg`)보다 한 톤 어둡다 — 이 경계가 "여기부터 키보드"를 말한다. */
+    background: var(--pad-bg);
+    border-top: 1px solid var(--key-line);
   }
 
   .key-palette-tabs {
@@ -71,22 +72,26 @@
     font-size: 1rem;
   }
 
+  /* 시안의 탭은 **떠 있는 알약**이다 — 안 고른 탭은 아예 안 그리고(투명), 고른
+     탭만 흰 면으로 떠오른다. 예전엔 브라우저 탭처럼 아래를 튼 사다리꼴이었다. */
   .palette-tab {
     flex: 1;
-    border: 1px solid var(--line);
-    border-bottom: none;
-    border-radius: 6px 6px 0 0;
-    background: color-mix(in srgb, var(--fg) 3%, transparent);
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
     color: var(--muted);
     font-size: 0.85rem;
+    font-weight: 500;
     padding: 0.35rem 0;
     touch-action: manipulation;
   }
 
   .palette-tab-active {
-    background: var(--bg);
+    background: var(--key-face);
+    border-color: var(--key-tint-line);
     color: var(--fg);
-    font-weight: 600;
+    font-weight: 700;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
   }
 
   .key-palette-body {
@@ -97,11 +102,13 @@
     border-top: 1px solid var(--line);
   }
 
-  /* 1번 탭만 좌(기호·함수) + 우(숫자·연산) 두 블록으로 갈린다. 두 블록의 열 수가
-     달라서(4 vs 5) 한 그리드로는 못 담는다 — 각자 자기 행을 갖는 flex 블록이다. */
+  /* 1번 탭만 좌(기호·함수) + 우(숫자·연산) 두 블록 + 오른쪽 끝 좁은 열(⌫)로
+     갈린다. 세 블록의 열 수·폭이 달라 한 그리드로는 못 담는다 — 각자 자기
+     행을 갖는 flex 블록이다. 간격은 시안 그대로(20px) — 세 블록이 뚜렷이
+     갈린 구역임을 말해야 한다. */
   .key-palette-split {
     display: flex;
-    gap: 0.4rem;
+    gap: 1.25rem;
   }
 
   .key-palette-split > .key-palette-block {
@@ -115,11 +122,50 @@
     gap: 1px;
   }
 
+  /* 좌우 블록 밖, 오른쪽 끝의 좁은 열 — 1번 탭의 ⌫ 전용 자리(시안 B4). 빈 칸
+     셋 위에 ⌫ 하나만 채워, 두 4열 블록과 나란히 서되 자기 폭은 고정이다. */
+  .key-palette-aside {
+    flex: 0 0 2.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
   /* 키 폭은 `flex` 로 정한다 — 줄마다 칸 수가 달라도(qwerty 10 / asdf 9+반칸 둘)
      합이 같으면 세로로 정렬된다(`PaletteKey.span`). */
   .key-palette-row {
     display: flex;
     gap: 1px;
+  }
+
+  /* ƒ(x) 탭 — 소제목 달린 구획들(시안). `.key-palette-body` 가 이미
+     `overflow-y:auto` 라 여기서 또 스크롤을 열 필요는 없다. */
+  .key-palette-sections {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .key-palette-section-heading {
+    padding: 0.35rem 0.1rem 0.05rem;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .key-palette-section-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 1px;
+  }
+
+  /* 30개 넘는 키가 들어가는 7열 격자라 본문 키보다 작게 — `arcsin`·`sinh` 같은
+     긴 라벨도 한 줄에 들어가야 한다(시안 11.5px). */
+  .key-palette-section-grid .palette-key {
+    height: 2.1rem;
+    padding: 0.2rem 0.05rem;
+    font-size: 0.72rem;
   }
 
   .key-palette-nav {
@@ -130,9 +176,9 @@
 
   .palette-key {
     min-width: 0;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: color-mix(in srgb, var(--fg) 3%, transparent);
+    border: 1px solid var(--key-line);
+    border-radius: 8px;
+    background: var(--key-face);
     color: var(--fg);
     font-size: 0.95rem;
     font-style: normal;
@@ -148,14 +194,42 @@
     font-family: inherit;
   }
 
+  /* 눌린 순간은 **강조색이 아니라 톤**으로 답한다(시안) — 키를 누를 때마다
+     파란 불이 켜지면 글자보다 그게 먼저 보인다. 강조색은 상태(아래 shift)용으로 아낀다. */
   .palette-key:active {
-    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    background: var(--key-down);
   }
 
-  /* shift 켜짐 */
+  /* 숫자·백스페이스 — 자주 두드리는 키라 톤을 깔아 흰 기호 키와 갈라 놓는다
+     (`PaletteKey.tint`). ⚠ `.palette-key:active` 보다 **뒤에** 와야 눌린 색이
+     톤 쪽으로 이긴다 — 둘 다 특정도가 같아 순서가 가른다. */
+  .palette-key-tint {
+    background: var(--key-tint);
+    border-color: var(--key-tint-line);
+  }
+
+  .palette-key-tint:active {
+    background: var(--key-tint-down);
+  }
+
+  /* shift 켜짐 — 한 번 누르면 유지되는 **상태**라 강조색을 쓴다. */
   .palette-key-active {
     background: color-mix(in srgb, var(--accent) 22%, transparent);
     border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+
+  /* 강조색으로 채운 키 — nav 줄의 `=`(평가)처럼 "이게 핵심 동작"임을 눈에 먼저
+     띄운다(시안). 톤/눌림보다 확실히 이겨야 하므로 뒤에 둔다. */
+  .palette-key-accent {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg);
+    font-weight: 600;
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+
+  .palette-key-accent:active {
+    filter: brightness(0.92);
   }
 
   /* 자리 맞춤용 빈 칸 — 버튼이 아니다. */

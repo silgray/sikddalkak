@@ -59,8 +59,13 @@ import { isMobileViewport } from '../mobile';
 /** 이 거리를 넘게 움직이면 탭이 아니라 드래그. */
 const MOVE_THRESHOLD_PX = 8;
 
-/** 이만큼 누르고 있으면 홀드. */
-const HOLD_DELAY_MS = 450;
+/**
+ * 이만큼 누르고 있으면 홀드. `export` 하는 이유 — `KeyPalette.tsx`의 행렬 크기
+ * 격자(길게 눌러 5×5 미리보기)도 같은 "홀드" 조작감을 쓴다. 그쪽은 MathLive
+ * 필드가 아니라 평범한 `<button>`이라 이 파일의 제스처 파이프라인을 안 타고
+ * 자기 pointerdown/move/up으로 직접 재는데, 값만은 하나로 맞춘다.
+ */
+export const HOLD_DELAY_MS = 450;
 
 /**
  * 홀드가 선택하는 크기. `expandSelectionSemantic` 의 사다리에서 접힌 캐럿 기준

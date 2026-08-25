@@ -39,15 +39,22 @@
     position: sticky;
     top: 0;
     z-index: 6;
-    background: var(--bg);
+    /* 셀 영역(`--bg`)이 아니라 카드와 같은 흰 면이다 — 아래 경계선과 함께
+       "머리글" 로 떨어져 보인다(시안). */
+    background: var(--card);
     padding: 0.6rem 0.75rem;
     margin: 0 0 0.25rem;
     border-bottom: 1px solid var(--line);
   }
 
+  /* 시안은 제목을 가운데 두고 좌우에 서랍 토글·탭 바를 나눠 둔다(drawer.css) —
+     `.topbar` 의 세 자식(토글·제목·탭 바) 중 가운데가 늘어나며 텍스트를 중앙에
+     놓는다. `.tabbar` 는 이미 `flex:1 1 auto`(tabBar.css)라 셋이 균형을 맞춘다. */
   .app-title {
-    flex: 0 0 auto;
-    font-size: 0.95rem;
+    flex: 1 1 auto;
+    text-align: center;
+    font-size: 1.0625rem;
+    font-weight: 700;
   }
 
   .app-intro {
