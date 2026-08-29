@@ -172,6 +172,17 @@ describe('KeyPalette — 버튼 클릭이 activeField에 반영된다', () => {
     expect(mf.value).toBe('1=');
   });
 
+  it('prime 키는 프라임을 위첨자로 올려 붙인다 (분수 키를 밀어낸 자리)', async () => {
+    const { mf, host } = await mount();
+    clickKey(host, 'x');
+    await settle();
+    clickKey(host, 'prime');
+    await settle();
+    // `'` 한 글자만 흘리는데도 MathLive가 위첨자로 올려 준다(실측) — 그 실측이
+    // 깨지면 여기서 잡힌다. 우리 파서도 이 꼴을 안다(`algebra/parse/prime.test.ts`).
+    expect(mf.value).toBe(String.raw`x^{\prime}`);
+  });
+
   it('행렬 키를 누르면 크기 고르기 창이 뜬다 (누르기만 해선 아무것도 안 들어간다)', async () => {
     const { mf, host } = await mount();
     expect(host.querySelector('.matrix-picker')).toBeNull();

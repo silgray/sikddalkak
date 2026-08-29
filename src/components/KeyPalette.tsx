@@ -127,9 +127,11 @@ const NUM_LEFT: PaletteKey[][] = [
     { label: '(', strokes: chars('(') },
     { label: ')', strokes: chars(')') },
     { label: ',', strokes: chars(',') },
-    // □/□ 는 이 앱이 이미 쓰는 "빈 자리" 표기다(옆의 a²·a^□·a_□ 와 같은 어휘) —
-    // 분수 구조 자체를 그리는 전용 아이콘 없이 그 관례를 그대로 쓴다.
-    { label: '□/□', strokes: key('/', 'Slash'), title: 'fraction' },
+    // 프라임(도함수 표기). `'` 한 글자를 그냥 흘리면 MathLive가 `^{\prime}` 으로
+    // 올려 붙인다(실측) — 인라인 숏컷 사전엔 `''`(이중 프라임)부터만 있고 홑
+    // 프라임은 그 위 문자 처리에서 나온다. 라벨은 옆 줄의 `a²`·`a^□`·`a_□` 와
+    // 같은 어휘다. 분수는 오른쪽 블록의 `÷` 가 그대로 맡는다.
+    { label: "a'", strokes: chars("'"), title: 'prime' },
   ],
   [
     { label: '|a|', strokes: chars('|'), title: 'absolute value' },
