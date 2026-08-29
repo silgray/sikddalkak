@@ -196,11 +196,12 @@ const ABC_ROWS: PaletteKey[][] = [
   letters('qwertyuiop'),
   // 가운데 줄은 반 칸씩 들여 위/아래 줄과 키 폭을 맞춘다(합이 10칸).
   [HALF_BLANK, ...letters('asdfghjkl'), HALF_BLANK],
+  // 마지막 줄은 글자 일곱뿐이라 ⇧·⌫ 를 1.5칸씩 넓혀 위 줄들과 폭을 맞춘다
+  // (7 + 1.5×2 = 10칸). `,` 는 여기 없다 — 123 탭에 있다.
   [
-    { label: '⇧', title: 'shift (uppercase)' },
+    { label: '⇧', title: 'shift (uppercase)', span: 1.5 },
     ...letters('zxcvbnm'),
-    { label: ',', strokes: chars(',') },
-    { label: '⌫', strokes: key('Backspace', 'Backspace'), title: 'backspace' },
+    { label: '⌫', strokes: key('Backspace', 'Backspace'), title: 'backspace', span: 1.5 },
   ],
 ];
 
