@@ -1,10 +1,28 @@
-/* 행렬 키를 길게 눌렀을 때 뜨는 5×5 크기 격자(`KeyPalette.tsx`의
-   `MatrixKeyButton`, 시안). 데스크톱은 이 손짓(홀드) 자체가 없다 — 팔레트
-   전체가 모바일 전용이라 이 파일도 자연히 모바일 블록 하나뿐이다. */
+/* 행렬 키를 누르면 뜨는 5×5 크기 고르기 창(`KeyPalette.tsx`의 `MatrixKeyButton`).
+   팔레트 전체가 모바일 전용이라 이 파일도 자연히 모바일 블록 하나뿐이다. */
 
 @media (max-width: 640px) {
-  /* 버튼 자기 자신(`position:relative`, 인라인 스타일) 바로 위에 뜬다 —
-     행이 바뀌어도 늘 자기 키 근처에 있다. */
+  /* 키와 팝업을 함께 담는 감싸개 — 팝업이 자기 키 바로 위에 앉게 하는 기준점이다.
+     키 자체는 안에서 폭을 다 쓴다(격자 한 칸의 자리를 그대로 차지한다). */
+  .palette-key-wrap {
+    position: relative;
+    display: flex;
+    min-width: 0;
+  }
+
+  .palette-key-wrap > .palette-key {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* 바깥을 짚어 닫기 위한 투명한 판. 팝업보다 뒤에 깔린다. */
+  .matrix-picker-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 8;
+  }
+
+  /* 키 바로 위에 뜨는 작은 창. */
   .matrix-picker {
     position: absolute;
     left: 0;
@@ -13,11 +31,9 @@
     z-index: 9;
     padding: 0.6rem;
     border-radius: 12px;
+    border: 1px solid var(--key-tint-line);
     background: var(--key-face);
     box-shadow: 0 10px 28px rgb(0 0 0 / 22%);
-    /* 격자 아래에서 손가락을 계속 추적하는 동안, 이 팝업 자체는 입력을
-       가로채지 않는다 — 캡처는 버튼(`MatrixKeyButton`)이 쥐고 있다. */
-    pointer-events: none;
     /* 글자 방향과 무관하게 늘 같은 자리(왼쪽 정렬) — 팔레트 좌 블록 첫 열이라
        화면 왼쪽에 붙어 있다. */
     white-space: nowrap;
@@ -32,15 +48,18 @@
 
   .matrix-picker-grid {
     display: grid;
-    grid-template-columns: repeat(5, 1.1rem);
-    grid-template-rows: repeat(5, 1.1rem);
-    gap: 3px;
+    grid-template-columns: repeat(5, 1.5rem);
+    grid-template-rows: repeat(5, 1.5rem);
+    gap: 4px;
   }
 
+  /* 칸 하나가 곧 버튼이다 — 짚으면 왼쪽 위부터 거기까지 칠해지고, 떼면 들어간다. */
   .matrix-picker-cell {
+    padding: 0;
     border-radius: 3px;
     border: 1.2px solid var(--key-tint-line);
     background: var(--key-face);
+    touch-action: manipulation;
   }
 
   .matrix-picker-cell-on {

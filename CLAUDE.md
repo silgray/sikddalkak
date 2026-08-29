@@ -508,6 +508,9 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
   ⚠ **`display` 만 꺼서는 안 된다** — `.app` 바닥 여백이 `--palette-h` 로 팔레트
   높이와 묶여 있어(`styles/base.css`) 그 높이만큼 빈 자리가 그대로 남는다.
   `styles/keyPalette.css` 가 변수도 함께 0으로 돌린다.
+  **행렬 키만 전용 컴포넌트(`MatrixKeyButton`)가 그린다** — 누르면 5×5 크기 고르기
+  창이 뜨고(`styles/matrixPicker.css`), 칸이 아니라 **격자**가 포인터를 받아 탭과
+  끌기를 한 경로로 처리한다(터치는 암묵적 캡처라 칸마다 리스너를 달면 끌기가 죽는다).
 - **`HelpPanel.tsx`** / **`TabBar.tsx`** — 도움말 패널, 탭 바.
 - **`App.tsx`** / **`main.tsx`** — 진입점. main.tsx에서 MathLive 전역 설정
   (폰트/로케일/CE 비활성화).
