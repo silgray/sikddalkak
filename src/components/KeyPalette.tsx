@@ -101,7 +101,6 @@ function key(k: string, code?: string, mods: Partial<KeyStroke> = {}): KeyStroke
   return [{ key: k, code, ...mods }];
 }
 
-const BLANK: PaletteKey = { label: '', blank: true };
 const HALF_BLANK: PaletteKey = { label: '', blank: true, span: 0.5 };
 
 /** 크기 창이 막 떴을 때 미리 칠해 두는 크기 — 예전의 고정 2×2와 같은 기본값. */
@@ -168,11 +167,14 @@ const NUM_RIGHT: PaletteKey[][] = [
   ],
 ];
 
-/** 1번 탭 오른쪽 끝의 좁은 열 — 빈 칸 셋 위에 ⌫ 하나(시안). */
+/**
+ * 1번 탭 오른쪽 끝의 좁은 열 — ⌫ 하나뿐이고, **맨 아래** 줄에 선다.
+ *
+ * ⚠ 예전엔 빈 칸 셋을 위에 쌓아 아래로 밀었는데, 빈 칸에는 키가 없어 줄 높이가
+ * 0으로 접힌다 — ⌫ 가 도로 맨 위에 붙어 버렸다(실측). 자리는 CSS가 정한다
+ * (`.key-palette-aside { justify-content: flex-end }`, `styles/keyPalette.css`).
+ */
 const NUM_ASIDE: PaletteKey[][] = [
-  [BLANK],
-  [BLANK],
-  [BLANK],
   [{ label: '⌫', strokes: key('Backspace', 'Backspace'), title: 'backspace', tint: true }],
 ];
 

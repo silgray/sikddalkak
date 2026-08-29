@@ -122,12 +122,15 @@
     gap: 1px;
   }
 
-  /* 좌우 블록 밖, 오른쪽 끝의 좁은 열 — 1번 탭의 ⌫ 전용 자리(시안 B4). 빈 칸
-     셋 위에 ⌫ 하나만 채워, 두 4열 블록과 나란히 서되 자기 폭은 고정이다. */
+  /* 좌우 블록 밖, 오른쪽 끝의 좁은 열 — 1번 탭의 ⌫ 전용 자리(시안 B4).
+     키는 하나뿐이고 **맨 아래 줄에 선다** — 옆 숫자 블록의 마지막 줄(0 . = +)과
+     아래끝이 맞아야 한다. 열 높이는 늘여 놓고(stretch, flex 기본) 그 안에서 아래로
+     민다: 빈 줄을 위에 쌓는 방식은 빈 줄 높이가 0이라 안 통했다(`NUM_ASIDE` 주석). */
   .key-palette-aside {
     flex: 0 0 2.25rem;
     display: flex;
     flex-direction: column;
+    justify-content: flex-end;
     gap: 2px;
   }
 
@@ -176,6 +179,10 @@
 
   .palette-key {
     min-width: 0;
+    /* ⚠ **줄 높이를 못 박는다.** 안 박으면 키 높이가 글리프마다 갈린다 —
+       `⊞`·`⌫` 처럼 대체 글꼴로 그려지는 기호는 줄 상자가 더 높아 그 줄만 1px
+       커지고(실측), 4열 블록 둘의 아래끝이 어긋난다(⌫ 열이 그 틈을 그대로 드러낸다). */
+    line-height: 1.2;
     border: 1px solid var(--key-line);
     border-radius: 8px;
     background: var(--key-face);

@@ -426,6 +426,44 @@ describe('KeyPalette — 포커스된 셀이 없으면 접힌다', () => {
   });
 });
 
+/**
+ * 1번 탭의 ⌫ 는 좌우 블록 밖 좁은 열에 혼자 산다. 그 열은 **키가 하나뿐**이라
+ * 자리를 CSS가 정하는데(`justify-content: flex-end`), 그 배선이 끊기면 ⌫ 가
+ * 조용히 맨 위로 올라간다 — 예전에 빈 줄을 쌓아 밀던 방식이 딱 그렇게 깨졌다.
+ */
+describe('KeyPalette — 1번 탭의 ⌫ 는 맨 아랫줄에 선다', () => {
+  function keyByTitle(host: HTMLElement, title: string): HTMLButtonElement {
+    const btn = [...host.querySelectorAll<HTMLButtonElement>('.palette-key')].find(
+      (b) => b.title === title,
+    );
+    if (btn === undefined) throw new Error(`palette key not found: ${title}`);
+    return btn;
+  }
+  function keyByLabel(host: HTMLElement, label: string): HTMLButtonElement {
+    const btn = [...host.querySelectorAll<HTMLButtonElement>('.palette-key')].find(
+      (b) => b.textContent === label,
+    );
+    if (btn === undefined) throw new Error(`palette key not found: ${label}`);
+    return btn;
+  }
+
+  it('아래끝이 숫자 블록 마지막 줄과 맞고, 높이도 같다', async () => {
+    const { host } = await mount();
+    const back = keyByTitle(host, 'backspace').getBoundingClientRect();
+    const plus = keyByLabel(host, '+').getBoundingClientRect(); // 마지막 줄 오른쪽 끝
+    // 소수점 반올림 여지만 둔다(1px).
+    expect(Math.abs(back.bottom - plus.bottom), '아래끝이 안 맞는다').toBeLessThan(1);
+    expect(Math.abs(back.height - plus.height), '키 높이가 다르다').toBeLessThan(1);
+  });
+
+  it('첫 줄보다 아래에 있다 (맨 위로 올라가 있지 않다)', async () => {
+    const { host } = await mount();
+    const back = keyByTitle(host, 'backspace').getBoundingClientRect();
+    const seven = keyByLabel(host, '7').getBoundingClientRect(); // 첫 줄
+    expect(back.top).toBeGreaterThan(seven.bottom);
+  });
+});
+
 describe('KeyPalette — 숫자 키는 톤으로 갈린다 (시안)', () => {
   /** 라벨로 팔레트 키 하나를 집는다. */
   function keyOf(host: HTMLElement, label: string): HTMLButtonElement {
