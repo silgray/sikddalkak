@@ -435,6 +435,30 @@ describe('KeyPalette — 포커스된 셀이 없으면 접힌다', () => {
  * ƒ(x) 탭은 소제목 달린 구획들이다. 어느 키가 어느 구획에 있는지는 **화면에서
  * 찾는 순서**를 정하므로, 옮긴 자리가 조용히 되돌아가지 않게 못 박는다.
  */
+/**
+ * ⋆·† 는 위첨자 자리에 쓰는 기호라 트리거 앞에 `^` 를 먼저 흘린다. 그 `^` 가
+ * 빠지면 기호만 본문 줄에 박혀 조용히 다른 식이 된다 — 여기서 잡는다.
+ */
+describe('KeyPalette — ƒ(x) 탭의 ⋆·† 는 위첨자로 올라간다', () => {
+  it.each([
+    ['star (superscript)', String.raw`A^{\star}`],
+    ['dagger (superscript)', String.raw`A^{\dagger}`],
+  ])('%s', async (title, expected) => {
+    const { mf, host } = await mount();
+    clickTab(host, 'abc');
+    await settle();
+    clickKey(host, 'shift (uppercase)');
+    await settle();
+    clickKey(host, 'A');
+    await settle();
+    clickTab(host, 'ƒ(x)');
+    await settle();
+    clickKey(host, title);
+    await settle();
+    expect(mf.value).toBe(expected);
+  });
+});
+
 describe('KeyPalette — ƒ(x) 탭의 overline 은 Matrix & complex 구획에 있다', () => {
   /** 구획 소제목 → 그 안 키들의 title(없으면 라벨). */
   function sectionKeys(host: HTMLElement, heading: string): string[] {

@@ -293,9 +293,11 @@ const SYM_SECTIONS: PaletteSection[] = [
       { label: '∏', strokes: chars('prod'), title: 'product' },
       { label: '×', strokes: chars('times'), title: 'times' },
       { label: '·', strokes: chars('*'), title: 'cdot' },
-      { label: '⋆', strokes: chars('star'), title: 'star' },
+      // ⋆·† 는 **위첨자로** 붙는 자리에 쓰는 기호다(`A^\star`·`A^\dagger`) —
+      // 그래서 트리거 앞에 `^` 를 먼저 흘린다. 라벨은 기호 그대로 둔다.
+      { label: '⋆', strokes: [...chars('^'), ...chars('star')], title: 'star (superscript)' },
       // 'tt' 는 기존 커스텀 트리거(`MathField.tsx`)를 그대로 쓴다 — 라벨만 †.
-      { label: '†', strokes: chars('tt'), title: 'dagger' },
+      { label: '†', strokes: [...chars('^'), ...chars('tt')], title: 'dagger (superscript)' },
     ],
   },
   {
