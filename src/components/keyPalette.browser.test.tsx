@@ -46,9 +46,12 @@ function clickKey(host: HTMLElement, labelOrTitle: string): void {
   btn.click();
 }
 
-/** 행렬 크기 창의 `rows`×`cols` 칸. */
-function matrixCell(host: HTMLElement, rows: number, cols: number): HTMLButtonElement {
-  const cell = [...host.querySelectorAll<HTMLButtonElement>('.matrix-picker-cell')].find(
+/**
+ * 행렬 크기 창의 `rows`×`cols` 칸. **`document` 에서 찾는다** — 팝업이
+ * `document.body` 로 포털되어(`KeyPalette.tsx`) `host` 서브트리 밖에 산다.
+ */
+function matrixCell(rows: number, cols: number): HTMLButtonElement {
+  const cell = [...document.querySelectorAll<HTMLButtonElement>('.matrix-picker-cell')].find(
     (b) => b.title === `${rows} × ${cols}`,
   );
   if (cell === undefined) throw new Error(`matrix cell not found: ${rows}×${cols}`);
@@ -57,10 +60,10 @@ function matrixCell(host: HTMLElement, rows: number, cols: number): HTMLButtonEl
 
 /** 포인터를 격자의 `rows`×`cols` 칸 한가운데로 보낸다. 칸이 아니라 **격자**가
  *  포인터를 받으므로(암묵적 캡처, `KeyPalette.tsx` 참고) 이벤트도 격자에 쏜다. */
-function matrixPointer(host: HTMLElement, type: string, rows: number, cols: number): void {
-  const grid = host.querySelector('.matrix-picker-grid');
+function matrixPointer(type: string, rows: number, cols: number): void {
+  const grid = document.querySelector('.matrix-picker-grid');
   if (grid === null) throw new Error('matrix grid not found');
-  const box = matrixCell(host, rows, cols).getBoundingClientRect();
+  const box = matrixCell(rows, cols).getBoundingClientRect();
   grid.dispatchEvent(
     new PointerEvent(type, {
       pointerId: 7,
@@ -76,9 +79,9 @@ function matrixPointer(host: HTMLElement, type: string, rows: number, cols: numb
 }
 
 /** 짚었다 떼기 — 그 크기로 삽입된다. */
-function pickMatrixCell(host: HTMLElement, rows: number, cols: number): void {
-  matrixPointer(host, 'pointerdown', rows, cols);
-  matrixPointer(host, 'pointerup', rows, cols);
+function pickMatrixCell(rows: number, cols: number): void {
+  matrixPointer('pointerdown', rows, cols);
+  matrixPointer('pointerup', rows, cols);
 }
 
 function clickTab(host: HTMLElement, label: string): void {
@@ -185,12 +188,12 @@ describe('KeyPalette — 버튼 클릭이 activeField에 반영된다', () => {
 
   it('행렬 키를 누르면 크기 고르기 창이 뜬다 (누르기만 해선 아무것도 안 들어간다)', async () => {
     const { mf, host } = await mount();
-    expect(host.querySelector('.matrix-picker')).toBeNull();
+    expect(document.querySelector('.matrix-picker')).toBeNull();
     clickKey(host, 'matrix (pick size)');
     await settle();
-    expect(host.querySelector('.matrix-picker')).not.toBeNull();
+    expect(document.querySelector('.matrix-picker')).not.toBeNull();
     // 막 떴을 땐 기본값(2×2)이 칠해져 있다.
-    expect(host.querySelector('.matrix-picker-label')?.textContent).toBe('2 × 2 matrix');
+    expect(document.querySelector('.matrix-picker-label')?.textContent).toBe('2 × 2 matrix');
     expect(mf.value).toBe('');
   });
 
@@ -198,9 +201,9 @@ describe('KeyPalette — 버튼 클릭이 activeField에 반영된다', () => {
     const { mf, host } = await mount();
     clickKey(host, 'matrix (pick size)');
     await settle();
-    pickMatrixCell(host, 3, 4);
+    pickMatrixCell(3, 4);
     await settle();
-    expect(host.querySelector('.matrix-picker')).toBeNull();
+    expect(document.querySelector('.matrix-picker')).toBeNull();
     // `#?` 로 넣은 placeholder는 되읽으면 `\placeholder{}` 로 나온다(실측) —
     // 정확한 문자열 대신 구조로 잰다. 3행×4열: `\\` 2개(행-1), `&` 9개((열-1)×행).
     expect(mf.value).toContain('pmatrix');
@@ -212,24 +215,90 @@ describe('KeyPalette — 버튼 클릭이 activeField에 반영된다', () => {
     const { host } = await mount();
     clickKey(host, 'matrix (pick size)');
     await settle();
-    matrixPointer(host, 'pointerdown', 1, 1);
-    matrixPointer(host, 'pointermove', 2, 3);
+    matrixPointer('pointerdown', 1, 1);
+    matrixPointer('pointermove', 2, 3);
     await settle();
-    expect(host.querySelector('.matrix-picker-label')?.textContent).toBe('2 × 3 matrix');
+    expect(document.querySelector('.matrix-picker-label')?.textContent).toBe('2 × 3 matrix');
     // 칠해진 칸 수 = 2×3.
-    expect(host.querySelectorAll('.matrix-picker-cell-on').length).toBe(6);
+    expect(document.querySelectorAll('.matrix-picker-cell-on').length).toBe(6);
   });
 
   it('바깥을 짚으면 아무것도 안 넣고 닫힌다', async () => {
     const { mf, host } = await mount();
     clickKey(host, 'matrix (pick size)');
     await settle();
-    const backdrop = host.querySelector('.matrix-picker-backdrop');
+    const backdrop = document.querySelector('.matrix-picker-backdrop');
     expect(backdrop).not.toBeNull();
     backdrop!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
     await settle();
-    expect(host.querySelector('.matrix-picker')).toBeNull();
+    expect(document.querySelector('.matrix-picker')).toBeNull();
     expect(mf.value).toBe('');
+  });
+
+  it('팝업은 키보드 전체 위, document.body 에 뜬다 (스크롤 상자 안에 갇히지 않는다)', async () => {
+    const { host } = await mount();
+    clickKey(host, 'matrix (pick size)');
+    await settle();
+    const picker = document.querySelector('.matrix-picker');
+    if (picker === null) throw new Error('matrix picker not found');
+    // `.key-palette-body` 는 `overflow-y: auto` 라 그 서브트리 안에 있으면
+    // 잘려 보인다(사용자 보고) — 포털로 그 조상을 벗어났는지를 직접 본다.
+    expect(host.contains(picker), '팝업이 host(키보드) 서브트리 안에 있다').toBe(false);
+    expect(document.body.contains(picker)).toBe(true);
+
+    const keyboardTop = host.querySelector('.key-palette')!.getBoundingClientRect().top;
+    const pickerBottom = picker.getBoundingClientRect().bottom;
+    expect(pickerBottom, '팝업이 키보드 전체보다 아래(또는 겹쳐) 있다').toBeLessThanOrEqual(
+      keyboardTop,
+    );
+  });
+
+  it('다시 누르면(백드롭이 대신 받는다) 닫히고, 새는 클릭이 도로 열어버리지 않는다', async () => {
+    const { mf, host } = await mount();
+    clickKey(host, 'matrix (pick size)');
+    await settle();
+    expect(document.querySelector('.matrix-picker')).not.toBeNull();
+
+    const backdrop = document.querySelector('.matrix-picker-backdrop');
+    if (backdrop === null) throw new Error('backdrop not found');
+    const matrixBtn = [...host.querySelectorAll<HTMLButtonElement>('.palette-key')].find(
+      (b) => b.title === 'matrix (pick size)',
+    );
+    if (matrixBtn === undefined) throw new Error('matrix key not found');
+
+    // 다시 누르면 실제로는 백드롭이 맞는다(늘 맨 위에 있다, 실측) — 그
+    // pointerdown 으로 닫힌다. 백드롭이 사라진 뒤 브라우저가 합성하는 click 은
+    // 그 자리에 다시 드러난 ⊞ 키를 겨냥한다(리타게팅, 실측) — 그게 그대로
+    // 먹히면 ⊞ 의 onClick 이 다시 열어버린다("다시 눌러도 안 닫힌다"로 보이던
+    // 원인이다). ⚠ 새는 click 은 pointerdown 직후 같은 프레임 안에서 오므로
+    // (`swallowNextClick` 주석 참고) 여기서도 `settle()` 로 뜸 들이지 않는다.
+    backdrop.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+    matrixBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await settle();
+
+    expect(document.querySelector('.matrix-picker'), '새는 클릭이 다시 열어버렸다').toBeNull();
+    expect(mf.value).toBe('');
+  });
+
+  it('격자에서 크기를 고르고 나면, 새는 클릭이 다른 팔레트 키를 누르지 않는다', async () => {
+    const { mf, host } = await mount();
+    clickKey(host, 'matrix (pick size)');
+    await settle();
+    const pi = [...host.querySelectorAll<HTMLButtonElement>('.palette-key')].find(
+      (b) => b.title === 'pi',
+    );
+    if (pi === undefined) throw new Error('pi key not found');
+
+    pickMatrixCell(2, 2);
+    // ⚠ 실제 새는 click 은 pointerup 직후 같은 프레임 안에서 온다(`touch-action:
+    // manipulation`, `swallowNextClick` 주석 참고) — 그래서 여기서도 `settle()`
+    // 로 뜸 들이지 않고 바로 흉내 낸다. 뜸을 들이면 안전망 타임아웃이 이미
+    // 풀려 이 테스트 자체가 새는 클릭을 재현 못 한다.
+    pi.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await settle();
+
+    expect(mf.value).toContain('pmatrix');
+    expect(mf.value, '새는 클릭이 다른 키를 눌러버렸다').not.toContain('pi');
   });
 });
 

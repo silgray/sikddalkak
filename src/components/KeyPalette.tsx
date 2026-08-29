@@ -1,4 +1,5 @@
 import { useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { getActiveMathField, isFieldFocused, subscribeFieldFocus } from '../editor/activeField';
 import { feedKey, type KeyStroke } from '../editor/feedKey';
 
@@ -453,6 +454,34 @@ const MATRIX_GRID_SIZE = 5;
  * ⚠ **포커스를 안 뺏는다** — 키든 격자 칸이든 `pointerdown` 에서 `preventDefault`
  * 한다(다른 팔레트 키와 같은 관행). 이게 깨지면 삽입 대상(`activeField`)을 잃는다.
  */
+/**
+ * 다음 click 하나를 통째로 삼킨다. `document` **capture** 단계에서 듣는다
+ * (`editor/touchGesture.ts`의 컨텍스트 메뉴 차단과 같은 자리 — capture 라야
+ * React가 붙이는 리스너보다 항상 먼저 본다).
+ *
+ * ⚠ **왜 필요한가(실측, 사용자 보고).** 팝업/백드롭을 pointerdown·pointerup
+ * 핸들러 **안에서** 바로 지우면(state 변경 → 즉시 재렌더), 터치가 그 뒤에
+ * 합성하는 click 이벤트는 지운 **다음** 시점의 DOM으로 다시 히트테스트된다 —
+ * 방금 없어진 백드롭/격자 대신 **그 밑에 드러난 요소**(⊞ 키 자신이거나 뒤의
+ * 다른 팔레트 키)가 맞고, 그 클릭이 그대로 먹힌다. `pointerdown`/`pointerup`
+ * 에 `preventDefault` 를 걸어도 리타게팅된 클릭까지는 못 막는다 — 원래
+ * 대상이 이미 사라진 뒤라 "이 클릭은 취소됐다"는 연결이 끊긴다. 그래서 닫는
+ * 바로 그 순간 다음 click 하나를 여기서 가로챈다.
+ */
+function swallowNextClick(): void {
+  const onClick = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    document.removeEventListener('click', onClick, true);
+  };
+  document.addEventListener('click', onClick, true);
+  // 클릭이 아예 안 오는 입력(마우스 등, 리타게팅이 없다)을 위한 안전망 —
+  // 계속 붙어 있으면 그 다음 정말 다른 클릭까지 삼켜버린다. 새는 클릭은
+  // `touch-action: manipulation`(300ms 탭 지연 없음, `keyPalette.css`) 덕에
+  // pointerup 직후 같은 프레임 안에서 온다(실측) — 짧게 잡아도 충분하다.
+  setTimeout(() => document.removeEventListener('click', onClick, true), 50);
+}
+
 function MatrixKeyButton({
   flex,
   title,
@@ -482,6 +511,9 @@ function MatrixKeyButton({
 
   const insert = (size: MatrixSize): void => {
     setOpen(false);
+    // 격자를 지우는 이 pointerup 뒤로 새는 click 을 미리 막는다(`swallowNextClick`
+    // 주석 참고) — 안 막으면 방금 드러난 키보드 버튼이 대신 눌린다(실측).
+    swallowNextClick();
     const mf = getActiveMathField();
     if (mf === null) return;
     mf.insert(matrixLatex(size.rows, size.cols), { selectionMode: 'item' });
@@ -504,68 +536,79 @@ function MatrixKeyButton({
       >
         ⊞
       </button>
-      {open && (
-        <>
-          {/* 바깥을 짚으면 닫힌다 — 팝업보다 뒤(z-index)에 깔린 투명한 판이다.
-              모바일에서 click 을 기다리면 스크롤 손짓에도 안 닫히는 구간이 생겨
-              `pointerdown` 에서 바로 닫는다. */}
-          <div
-            className="matrix-picker-backdrop"
-            onPointerDown={(e) => {
-              e.preventDefault();
-              setOpen(false);
-            }}
-          />
-          <div className="matrix-picker" role="dialog" aria-label="Insert matrix">
-            <div className="matrix-picker-label">
-              {preview.rows} × {preview.cols} matrix
-            </div>
-            {/* ⚠ **칸이 아니라 격자가 포인터를 받는다.** 터치는 손가락이 처음
-                짚은 요소에 포인터가 묶여(암묵적 캡처) 옮겨 가도 다른 칸의
-                이벤트가 안 온다 — 칸마다 리스너를 달면 탭은 되지만 끌기가
-                죽는다. 좌표로 칸을 되짚으면 탭과 끌기가 한 경로로 처리된다. */}
+      {open &&
+        createPortal(
+          <>
+            {/* ⚠ **`document.body` 로 포털한다.** `.key-palette-body` 가
+                `overflow-y: auto` 라(스크롤 격자용) 여기 그대로 뒀으면 팝업이
+                그 상자 밖으로 못 나가 잘려 보인다(사용자 보고, 실측) — 포털로
+                그 조상을 아예 벗어난다. 위치는 `--palette-h`(키보드 전체 높이,
+                `keyPalette.css`) 하나로 잡아, 키보드 **전체** 바로 위에 뜬다. */}
+            {/* 바깥을 짚으면 닫힌다 — 팝업보다 뒤(z-index)에 깔린 투명한 판이다.
+                모바일에서 click 을 기다리면 스크롤 손짓에도 안 닫히는 구간이 생겨
+                `pointerdown` 에서 바로 닫는다. */}
             <div
-              ref={gridRef}
-              className="matrix-picker-grid"
+              className="matrix-picker-backdrop"
               onPointerDown={(e) => {
                 e.preventDefault();
-                try {
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                } catch {
-                  /* 캡처 실패 — 무시하고 계속한다(대부분 같은 격자 위에서 끝난다) */
-                }
-                const cell = cellAt(e.clientX, e.clientY);
-                if (cell !== null) setPreview(cell);
+                setOpen(false);
+                // ⊞ 키를 다시 눌러 닫을 때도 이 백드롭이 먼저 맞는다(백드롭이 늘
+                // 위에 있다) — 백드롭이 사라진 뒤 새는 click 이 다시 드러난 ⊞ 키를
+                // 눌러 곧바로 재오픈하던 게 "다시 눌러도 안 닫힌다"로 보인 원인이다.
+                swallowNextClick();
               }}
-              onPointerMove={(e) => {
-                // 버튼이 눌린 채일 때만 따라간다(마우스로 그냥 지나가는 건 무시).
-                if (e.buttons === 0) return;
-                const cell = cellAt(e.clientX, e.clientY);
-                if (cell !== null) setPreview(cell);
-              }}
-              onPointerUp={(e) => {
-                const cell = cellAt(e.clientX, e.clientY);
-                insert(cell ?? preview);
-              }}
-            >
-              {Array.from({ length: MATRIX_GRID_SIZE * MATRIX_GRID_SIZE }, (_, i) => {
-                const rows = Math.floor(i / MATRIX_GRID_SIZE) + 1;
-                const cols = (i % MATRIX_GRID_SIZE) + 1;
-                const on = rows <= preview.rows && cols <= preview.cols;
-                return (
-                  <div
-                    key={i}
-                    className={
-                      on ? 'matrix-picker-cell matrix-picker-cell-on' : 'matrix-picker-cell'
-                    }
-                    title={`${rows} × ${cols}`}
-                  />
-                );
-              })}
+            />
+            <div className="matrix-picker" role="dialog" aria-label="Insert matrix">
+              <div className="matrix-picker-label">
+                {preview.rows} × {preview.cols} matrix
+              </div>
+              {/* ⚠ **칸이 아니라 격자가 포인터를 받는다.** 터치는 손가락이 처음
+                  짚은 요소에 포인터가 묶여(암묵적 캡처) 옮겨 가도 다른 칸의
+                  이벤트가 안 온다 — 칸마다 리스너를 달면 탭은 되지만 끌기가
+                  죽는다. 좌표로 칸을 되짚으면 탭과 끌기가 한 경로로 처리된다. */}
+              <div
+                ref={gridRef}
+                className="matrix-picker-grid"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  try {
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                  } catch {
+                    /* 캡처 실패 — 무시하고 계속한다(대부분 같은 격자 위에서 끝난다) */
+                  }
+                  const cell = cellAt(e.clientX, e.clientY);
+                  if (cell !== null) setPreview(cell);
+                }}
+                onPointerMove={(e) => {
+                  // 버튼이 눌린 채일 때만 따라간다(마우스로 그냥 지나가는 건 무시).
+                  if (e.buttons === 0) return;
+                  const cell = cellAt(e.clientX, e.clientY);
+                  if (cell !== null) setPreview(cell);
+                }}
+                onPointerUp={(e) => {
+                  const cell = cellAt(e.clientX, e.clientY);
+                  insert(cell ?? preview);
+                }}
+              >
+                {Array.from({ length: MATRIX_GRID_SIZE * MATRIX_GRID_SIZE }, (_, i) => {
+                  const rows = Math.floor(i / MATRIX_GRID_SIZE) + 1;
+                  const cols = (i % MATRIX_GRID_SIZE) + 1;
+                  const on = rows <= preview.rows && cols <= preview.cols;
+                  return (
+                    <div
+                      key={i}
+                      className={
+                        on ? 'matrix-picker-cell matrix-picker-cell-on' : 'matrix-picker-cell'
+                      }
+                      title={`${rows} × ${cols}`}
+                    />
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        </>
-      )}
+          </>,
+          document.body,
+        )}
     </span>
   );
 }

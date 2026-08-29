@@ -2,8 +2,10 @@
    팔레트 전체가 모바일 전용이라 이 파일도 자연히 모바일 블록 하나뿐이다. */
 
 @media (max-width: 640px) {
-  /* 키와 팝업을 함께 담는 감싸개 — 팝업이 자기 키 바로 위에 앉게 하는 기준점이다.
-     키 자체는 안에서 폭을 다 쓴다(격자 한 칸의 자리를 그대로 차지한다). */
+  /* 키를 담는 감싸개 — 키 자체는 안에서 폭을 다 쓴다(격자 한 칸의 자리를 그대로
+     차지한다). 팝업·백드롭은 `document.body` 로 포털되어 이 안에 안 산다
+     (`KeyPalette.tsx` 의 `createPortal` 주석 참고) — 그래서 `position: relative`
+     가 더는 기준점 역할을 안 하지만, 남겨 둬도 해가 없다. */
   .palette-key-wrap {
     position: relative;
     display: flex;
@@ -15,27 +17,30 @@
     min-width: 0;
   }
 
-  /* 바깥을 짚어 닫기 위한 투명한 판. 팝업보다 뒤에 깔린다. */
+  /* 바깥을 짚어 닫기 위한 투명한 판. 팝업보다 뒤에 깔린다. `document.body` 의
+     직계 자식으로 포털되므로 이 z-index 는 `.key-palette`(마찬가지로 8)와
+     같은 층에서 겨루는데, 포털이 DOM 상 더 뒤에 붙어 동률이면 이긴다(실측). */
   .matrix-picker-backdrop {
     position: fixed;
     inset: 0;
     z-index: 8;
   }
 
-  /* 키 바로 위에 뜨는 작은 창. */
+  /* 키보드 **전체** 바로 위에 뜨는 작은 창. `.key-palette-body` 의
+     `overflow-y: auto` 를 포털로 벗어났으니, 위치도 그 상자가 아니라 키보드
+     전체 높이(`--palette-h`, `keyPalette.css`)를 기준으로 잡는다 — 하나만
+     바뀌어도 팝업이 따라온다. 왼쪽은 팔레트 좌 블록 첫 열(⊞ 의 자리)에 맞춘
+     고정 여백이다(포털이라 그 키의 실제 x 를 더는 물려받지 않는다). */
   .matrix-picker {
-    position: absolute;
-    left: 0;
-    bottom: 100%;
-    margin-bottom: 0.4rem;
+    position: fixed;
+    left: 0.6rem;
+    bottom: calc(var(--palette-h) + 0.4rem);
     z-index: 9;
     padding: 0.6rem;
     border-radius: 12px;
     border: 1px solid var(--key-tint-line);
     background: var(--key-face);
     box-shadow: 0 10px 28px rgb(0 0 0 / 22%);
-    /* 글자 방향과 무관하게 늘 같은 자리(왼쪽 정렬) — 팔레트 좌 블록 첫 열이라
-       화면 왼쪽에 붙어 있다. */
     white-space: nowrap;
   }
 
