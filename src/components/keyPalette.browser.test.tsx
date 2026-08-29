@@ -431,6 +431,31 @@ describe('KeyPalette — 포커스된 셀이 없으면 접힌다', () => {
  * 자리를 CSS가 정하는데(`justify-content: flex-end`), 그 배선이 끊기면 ⌫ 가
  * 조용히 맨 위로 올라간다 — 예전에 빈 줄을 쌓아 밀던 방식이 딱 그렇게 깨졌다.
  */
+/**
+ * ƒ(x) 탭은 소제목 달린 구획들이다. 어느 키가 어느 구획에 있는지는 **화면에서
+ * 찾는 순서**를 정하므로, 옮긴 자리가 조용히 되돌아가지 않게 못 박는다.
+ */
+describe('KeyPalette — ƒ(x) 탭의 overline 은 Matrix & complex 구획에 있다', () => {
+  /** 구획 소제목 → 그 안 키들의 title(없으면 라벨). */
+  function sectionKeys(host: HTMLElement, heading: string): string[] {
+    const section = [...host.querySelectorAll('.key-palette-section')].find(
+      (el) => el.querySelector('.key-palette-section-heading')?.textContent === heading,
+    );
+    if (section === undefined) throw new Error(`section not found: ${heading}`);
+    return [...section.querySelectorAll<HTMLButtonElement>('.palette-key')].map(
+      (b) => b.title || (b.textContent ?? ''),
+    );
+  }
+
+  it('Matrix & complex 에 있고 Other 에는 없다', async () => {
+    const { host } = await mount();
+    clickTab(host, 'ƒ(x)');
+    await settle();
+    expect(sectionKeys(host, 'Matrix & complex')).toContain('overline');
+    expect(sectionKeys(host, 'Other')).not.toContain('overline');
+  });
+});
+
 describe('KeyPalette — 1번 탭의 ⌫ 는 맨 아랫줄에 선다', () => {
   function keyByTitle(host: HTMLElement, title: string): HTMLButtonElement {
     const btn = [...host.querySelectorAll<HTMLButtonElement>('.palette-key')].find(

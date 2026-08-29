@@ -345,14 +345,15 @@ const SYM_SECTIONS: PaletteSection[] = [
       // MathLive 기본 사전은 대문자 `Re`/`Im` 만 있다(소문자 없음, 실측).
       { label: 'Re', strokes: chars('Re'), title: 'real part' },
       { label: 'Im', strokes: chars('Im'), title: 'imaginary part' },
+      // `conj` 커스텀 트리거(`\overline{#?}`, `MathField.tsx`)를 재사용한다 —
+      // 시안의 "위에 줄 긋기"와 기존 켤레 표기가 결과적으로 같은 LaTeX이다.
+      // 켤레라서 Re/Im 옆이 제 자리다(예전엔 맨 아래 'Other' 에 있었다).
+      { label: 'a̅', strokes: chars('conj'), title: 'overline' },
     ],
   },
   {
     heading: 'Other',
     keys: [
-      // `conj` 커스텀 트리거(`\overline{#?}`, `MathField.tsx`)를 재사용한다 —
-      // 시안의 "위에 줄 긋기"와 기존 켤레 표기가 결과적으로 같은 LaTeX이다.
-      { label: 'a̅', strokes: chars('conj'), title: 'overline' },
       { label: '∇', strokes: chars('nabla') },
       { label: 'd/dx', strokes: chars('ddx'), title: 'derivative' },
     ],
