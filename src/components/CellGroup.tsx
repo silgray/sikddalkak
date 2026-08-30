@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type Dispatch } from 'react';
+import { memo, useEffect, useRef, useState, type Dispatch } from 'react';
 import type { SelectionInfo, SelectionOp } from '../cellSelection';
 import { groupResultTargetId, pickGroupDisplay } from '../cellGroup';
 import type { Action, Tab } from '../state/workspace';
@@ -20,23 +20,30 @@ type Props = {
   objects: readonly FormulaObject[];
   /** tab.objects 안에서 이 그룹이 시작하는 절대 인덱스 (onMoveOut/onDeleteEmpty용). */
   startIndex: number;
+  /** 그룹 열 안에서 이 그룹의 순번(0부터). `onMoveGroup` 호출 시 CellStack에 되돌려준다
+   * (moveGroup 리듀서가 받는 그룹 인덱스와 정확히 같은 값 — `cellGroup.ts` 의
+   * `groupsOf` 가 결정적이라 CellStack의 렌더 시점 인덱스와 항상 일치한다). */
+  groupIndex: number;
   results: ReadonlyMap<string, EvalResult>;
   dragging: boolean;
   focus: Tab['focus'];
   syncKey: number;
   dispatch: Dispatch<Action>;
-  onDragStart: (e: React.PointerEvent) => void;
+  /** 그룹 무관 공용 핸들러 — CellStack이 그룹마다 다른 클로저를 안 만들도록 groupId를
+   * 인자로 받는다(`memo(CellGroup)` 이 이 참조 안정성에 기대고 있다, 아래 `propsEqual`). */
+  onDragStart: (groupId: string, e: React.PointerEvent) => void;
   onDragMove: (e: React.PointerEvent) => void;
   onDragEnd: () => void;
   onMoveOut: (index: number, direction: 'forward' | 'backward' | 'upward' | 'downward') => void;
   onDeleteEmpty: (index: number) => void;
   /** Alt+↑/↓ — 그룹 전체를 위/아래로. 어느 셀에서 눌러도 같은 그룹 이동이라 CellStack이
    * 그룹 하나당 하나만 만들어 그대로 내려준다(onMoveOut/onDeleteEmpty와 달리 셀별로
-   * 안 갈린다).
+   * 안 갈린다). `groupIndex`/`groupStart` 를 인자로 받는 것도 위 `onDragStart` 와 같은
+   * 이유 — 그룹마다 다른 클로저를 안 만든다.
    *
    * `refocus` 만 셀별로 갈린다 — 이동 후 어느 필드의 어느 자리로 돌아갈지는 누른
    * 곳마다 다르므로, 그건 이 컴포넌트가 채워서 올린다. */
-  onMoveGroup: (delta: -1 | 1, refocus: Refocus) => void;
+  onMoveGroup: (groupIndex: number, groupStart: number, delta: -1 | 1, refocus: Refocus) => void;
 };
 
 /** 그룹을 옮긴 뒤 되돌아갈 자리. `workspace.ts` 의 `Tab['focus']` 와 같은 규약이다. */
@@ -56,9 +63,10 @@ export type Refocus = {
  *   아닐 때만) 조용히 보여준다 — 계산이 아무것도 안 바꿨는데 줄이 느는 걸 막는다.
  * - 그 밖(둘 이상 셀인데 아무도 확정 안 함)엔 아무것도 안 보여준다.
  */
-export function CellGroup({
+function CellGroupInner({
   objects,
   startIndex,
+  groupIndex,
   results,
   dragging,
   focus,
@@ -178,7 +186,7 @@ export function CellGroup({
             onCommitDistinct={(latex, caret, selectionBefore) =>
               dispatch({ type: 'commitInput', id: object.id, latex, cursor: caret, selectionBefore })
             }
-            onDragStart={i === 0 ? onDragStart : undefined}
+            onDragStart={i === 0 ? (e) => onDragStart(groupId, e) : undefined}
             onDragMove={i === 0 ? onDragMove : undefined}
             onDragEnd={i === 0 ? onDragEnd : undefined}
             onMoveOut={(direction) => {
@@ -198,7 +206,9 @@ export function CellGroup({
             }}
             onDeleteEmpty={() => onDeleteEmpty(index)}
             onInsertCell={(position) => dispatch({ type: 'insertCell', id: object.id, position })}
-            onMoveGroup={(delta, caret) => onMoveGroup(delta, { id: object.id, offset: caret })}
+            onMoveGroup={(delta, caret) =>
+              onMoveGroup(groupIndex, startIndex, delta, { id: object.id, offset: caret })
+            }
             onDuplicate={(position, caret) =>
               dispatch({ type: 'duplicateCell', id: object.id, position, cursor: caret })
             }
@@ -225,7 +235,7 @@ export function CellGroup({
           // `MathField` 의 capture 리스너가 키를 `preventDefault` 로 먹어치우고
           // 핸들러가 undefined 라 아무 일도 안 일어난다(= 키가 죽는다).
           onMoveGroup={(delta, caret) =>
-            onMoveGroup(delta, { id: groupId, offset: caret, field: 'result' })
+            onMoveGroup(groupIndex, startIndex, delta, { id: groupId, offset: caret, field: 'result' })
           }
           // Shift+Alt+↑/↓ — 결과 행은 그룹 전체를 대표하는 자리라 그룹째 복제한다
           // (입력 행의 셀 하나 복제와 갈린다).
@@ -395,3 +405,37 @@ function ResultModeToggle({
     </button>
   );
 }
+
+/**
+ * `objects` 배열은 `CellStack` 이 매 렌더 `tab.objects.slice()` 로 새로 만들어 참조
+ * 비교가 늘 실패한다 — 대신 **길이와 원소별 참조**를 비교한다. `editInput` 리듀서
+ * ([workspace.ts](../state/workspace.ts) 의 `patch`/`editInput` 케이스)가 안 바뀐
+ * 오브젝트는 정확히 같은 참조를 돌려주므로, 타이핑 중인 그룹이 아니면 이 비교가
+ * 그대로 통과해 리렌더를 스킵한다.
+ *
+ * ⚠ **`Props` 에 필드를 추가할 때마다 여기도 같이 고친다** — 빠뜨리면 그 prop이
+ * 바뀌어도 리렌더가 안 일어나는 조용한 버그가 된다.
+ */
+function propsEqual(prev: Readonly<Props>, next: Readonly<Props>): boolean {
+  if (prev.objects.length !== next.objects.length) return false;
+  for (let i = 0; i < prev.objects.length; i += 1) {
+    if (prev.objects[i] !== next.objects[i]) return false;
+  }
+  return (
+    prev.startIndex === next.startIndex &&
+    prev.groupIndex === next.groupIndex &&
+    prev.results === next.results &&
+    prev.dragging === next.dragging &&
+    prev.focus === next.focus &&
+    prev.syncKey === next.syncKey &&
+    prev.dispatch === next.dispatch &&
+    prev.onDragStart === next.onDragStart &&
+    prev.onDragMove === next.onDragMove &&
+    prev.onDragEnd === next.onDragEnd &&
+    prev.onMoveOut === next.onMoveOut &&
+    prev.onDeleteEmpty === next.onDeleteEmpty &&
+    prev.onMoveGroup === next.onMoveGroup
+  );
+}
+
+export const CellGroup = memo(CellGroupInner, propsEqual);

@@ -34,7 +34,7 @@ function mount(
   extra: {
     focus?: Tab['focus'];
     onMoveOut?: (index: number, direction: string) => void;
-    onMoveGroup?: (delta: -1 | 1, refocus: unknown) => void;
+    onMoveGroup?: (groupIndex: number, groupStart: number, delta: -1 | 1, refocus: unknown) => void;
   } = {},
 ) {
   const container = document.createElement('div');
@@ -44,6 +44,7 @@ function mount(
     createElement(CellGroup, {
       objects,
       startIndex: 0,
+      groupIndex: 0,
       results,
       dragging: false,
       focus: extra.focus ?? null,
@@ -234,6 +235,8 @@ describe('CellGroup — 결과 필드에서도 셀 조작 단축키가 먹는다
     press(result, 'ArrowDown', { altKey: true });
     await settle();
     expect(onMoveGroup).toHaveBeenCalledWith(
+      0,
+      0,
       1,
       expect.objectContaining({ id: top.groupId, field: 'result' }),
     );
