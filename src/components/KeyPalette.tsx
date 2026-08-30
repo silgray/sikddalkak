@@ -1,7 +1,7 @@
 import { useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { getActiveMathField, isFieldFocused, subscribeFieldFocus } from '../editor/activeField';
 import { feedKey, type KeyStroke } from '../editor/feedKey';
-import { HOLD_DELAY_MS } from '../editor/touchGesture';
 
 /**
  * 자체 키 팔레트. MathLive 자체 가상 키보드 대신 이걸 쓴다 — 버튼이 `mf.insert()`가
@@ -55,7 +55,7 @@ export type PaletteKey = {
   upperStrokes?: KeyStroke[];
   /**
    * 이 키만은 `PaletteButton` 이 아니라 전용 컴포넌트가 그린다 — 지금은
-   * `'matrix'` 하나뿐(길게 눌러 크기를 고르는 `MatrixKeyButton`). `strokes`/
+   * `'matrix'` 하나뿐(눌러서 크기를 고르는 `MatrixKeyButton`). `strokes`/
    * `insert` 는 이 키에서 안 쓴다(무시된다) — 자리만 데이터로 잡아 둔다.
    */
   special?: 'matrix';
@@ -102,10 +102,9 @@ function key(k: string, code?: string, mods: Partial<KeyStroke> = {}): KeyStroke
   return [{ key: k, code, ...mods }];
 }
 
-const BLANK: PaletteKey = { label: '', blank: true };
 const HALF_BLANK: PaletteKey = { label: '', blank: true, span: 0.5 };
 
-/** 짧게 누르면(홀드 미만) 이 크기로 삽입한다 — 예전의 고정 2×2와 같은 기본값. */
+/** 크기 창이 막 떴을 때 미리 칠해 두는 크기 — 예전의 고정 2×2와 같은 기본값. */
 const MATRIX_DEFAULT_SIZE = { rows: 2, cols: 2 };
 
 /** `rows`×`cols` 행렬 LaTeX. 칸마다 `#?` 로 비워 둔다(placeholder). */
@@ -128,9 +127,11 @@ const NUM_LEFT: PaletteKey[][] = [
     { label: '(', strokes: chars('(') },
     { label: ')', strokes: chars(')') },
     { label: ',', strokes: chars(',') },
-    // □/□ 는 이 앱이 이미 쓰는 "빈 자리" 표기다(옆의 a²·a^□·a_□ 와 같은 어휘) —
-    // 분수 구조 자체를 그리는 전용 아이콘 없이 그 관례를 그대로 쓴다.
-    { label: '□/□', strokes: key('/', 'Slash'), title: 'fraction' },
+    // 프라임(도함수 표기). `'` 한 글자를 그냥 흘리면 MathLive가 `^{\prime}` 으로
+    // 올려 붙인다(실측) — 인라인 숏컷 사전엔 `''`(이중 프라임)부터만 있고 홑
+    // 프라임은 그 위 문자 처리에서 나온다. 라벨은 옆 줄의 `a²`·`a^□`·`a_□` 와
+    // 같은 어휘다. 분수는 오른쪽 블록의 `÷` 가 그대로 맡는다.
+    { label: "a'", strokes: chars("'"), title: 'prime' },
   ],
   [
     { label: '|a|', strokes: chars('|'), title: 'absolute value' },
@@ -139,7 +140,7 @@ const NUM_LEFT: PaletteKey[][] = [
     { label: 'tan', strokes: chars('tan') },
   ],
   [
-    { label: '⊞', special: 'matrix', title: 'matrix (hold for size)' },
+    { label: '⊞', special: 'matrix', title: 'matrix (pick size)' },
     { label: 'a_□', strokes: chars('_'), title: 'subscript' },
     { label: '√', strokes: chars('sqrt'), title: 'sqrt' },
     { label: 'π', strokes: chars('pi'), title: 'pi' },
@@ -167,11 +168,14 @@ const NUM_RIGHT: PaletteKey[][] = [
   ],
 ];
 
-/** 1번 탭 오른쪽 끝의 좁은 열 — 빈 칸 셋 위에 ⌫ 하나(시안). */
+/**
+ * 1번 탭 오른쪽 끝의 좁은 열 — ⌫ 하나뿐이고, **맨 아래** 줄에 선다.
+ *
+ * ⚠ 예전엔 빈 칸 셋을 위에 쌓아 아래로 밀었는데, 빈 칸에는 키가 없어 줄 높이가
+ * 0으로 접힌다 — ⌫ 가 도로 맨 위에 붙어 버렸다(실측). 자리는 CSS가 정한다
+ * (`.key-palette-aside { justify-content: flex-end }`, `styles/keyPalette.css`).
+ */
 const NUM_ASIDE: PaletteKey[][] = [
-  [BLANK],
-  [BLANK],
-  [BLANK],
   [{ label: '⌫', strokes: key('Backspace', 'Backspace'), title: 'backspace', tint: true }],
 ];
 
@@ -193,11 +197,12 @@ const ABC_ROWS: PaletteKey[][] = [
   letters('qwertyuiop'),
   // 가운데 줄은 반 칸씩 들여 위/아래 줄과 키 폭을 맞춘다(합이 10칸).
   [HALF_BLANK, ...letters('asdfghjkl'), HALF_BLANK],
+  // 마지막 줄은 글자 일곱뿐이라 ⇧·⌫ 를 1.5칸씩 넓혀 위 줄들과 폭을 맞춘다
+  // (7 + 1.5×2 = 10칸). `,` 는 여기 없다 — 123 탭에 있다.
   [
-    { label: '⇧', title: 'shift (uppercase)' },
+    { label: '⇧', title: 'shift (uppercase)', span: 1.5 },
     ...letters('zxcvbnm'),
-    { label: ',', strokes: chars(',') },
-    { label: '⌫', strokes: key('Backspace', 'Backspace'), title: 'backspace' },
+    { label: '⌫', strokes: key('Backspace', 'Backspace'), title: 'backspace', span: 1.5 },
   ],
 ];
 
@@ -256,8 +261,12 @@ const GR_ROWS: PaletteKey[][] = [
     greek('λ', 'lambda', 'Lambda'),
     HALF_BLANK,
   ],
+  // 마지막 줄은 글자 일곱뿐이라 ⇧·⌫ 를 1.5칸씩 넓힌다 — abc 탭 마지막 줄과
+  // 똑같은 계산이다(7 + 1.5×2 = 10칸, `ABC_ROWS` 참고). 예전엔 1.3이라 이 줄만
+  // 합이 9.6으로 모자라, 같은 탭 안의 다른 줄(합 10)보다 글자 키가 미묘하게
+  // 더 컸다 — abc 와도, 같은 탭 안 다른 줄과도 어긋나 있었다.
   [
-    { label: '⇧', title: 'shift (uppercase)', span: 1.3 },
+    { label: '⇧', title: 'shift (uppercase)', span: 1.5 },
     greek('ζ', 'zeta'),
     greek('χ', 'chi'),
     greek('ψ', 'psi', 'Psi'),
@@ -265,7 +274,7 @@ const GR_ROWS: PaletteKey[][] = [
     greek('β', 'beta'),
     greek('ν', 'nu'),
     greek('μ', 'mu'),
-    { label: '⌫', strokes: key('Backspace', 'Backspace'), title: 'backspace', span: 1.3 },
+    { label: '⌫', strokes: key('Backspace', 'Backspace'), title: 'backspace', span: 1.5 },
   ],
 ];
 
@@ -289,9 +298,11 @@ const SYM_SECTIONS: PaletteSection[] = [
       { label: '∏', strokes: chars('prod'), title: 'product' },
       { label: '×', strokes: chars('times'), title: 'times' },
       { label: '·', strokes: chars('*'), title: 'cdot' },
-      { label: '⋆', strokes: chars('star'), title: 'star' },
+      // ⋆·† 는 **위첨자로** 붙는 자리에 쓰는 기호다(`A^\star`·`A^\dagger`) —
+      // 그래서 트리거 앞에 `^` 를 먼저 흘린다. 라벨은 기호 그대로 둔다.
+      { label: '⋆', strokes: [...chars('^'), ...chars('star')], title: 'star (superscript)' },
       // 'tt' 는 기존 커스텀 트리거(`MathField.tsx`)를 그대로 쓴다 — 라벨만 †.
-      { label: '†', strokes: chars('tt'), title: 'dagger' },
+      { label: '†', strokes: [...chars('^'), ...chars('tt')], title: 'dagger (superscript)' },
     ],
   },
   {
@@ -341,14 +352,15 @@ const SYM_SECTIONS: PaletteSection[] = [
       // MathLive 기본 사전은 대문자 `Re`/`Im` 만 있다(소문자 없음, 실측).
       { label: 'Re', strokes: chars('Re'), title: 'real part' },
       { label: 'Im', strokes: chars('Im'), title: 'imaginary part' },
+      // `conj` 커스텀 트리거(`\overline{#?}`, `MathField.tsx`)를 재사용한다 —
+      // 시안의 "위에 줄 긋기"와 기존 켤레 표기가 결과적으로 같은 LaTeX이다.
+      // 켤레라서 Re/Im 옆이 제 자리다(예전엔 맨 아래 'Other' 에 있었다).
+      { label: 'a̅', strokes: chars('conj'), title: 'overline' },
     ],
   },
   {
     heading: 'Other',
     keys: [
-      // `conj` 커스텀 트리거(`\overline{#?}`, `MathField.tsx`)를 재사용한다 —
-      // 시안의 "위에 줄 긋기"와 기존 켤레 표기가 결과적으로 같은 LaTeX이다.
-      { label: 'a̅', strokes: chars('conj'), title: 'overline' },
       { label: '∇', strokes: chars('nabla') },
       { label: 'd/dx', strokes: chars('ddx'), title: 'derivative' },
     ],
@@ -427,24 +439,89 @@ function press(k: PaletteKey, upper: boolean): void {
   for (const s of strokes) feedKey(mf, s);
 }
 
-/**
- * 격자 한 칸의 열/행(1부터 시작, `MATRIX_GRID_SIZE` 까지).
- */
+/** 격자 한 칸의 열/행(1부터 시작, `MATRIX_GRID_SIZE` 까지). */
 type MatrixSize = { rows: number; cols: number };
 
 /** 행렬 크기 고르는 격자의 한 변 길이. */
 const MATRIX_GRID_SIZE = 5;
 
 /**
- * 행렬 키 — 길게 누르면 5×5 격자가 뜨고, 손가락을 격자 위로 끌면 크기가
- * 미리보기로 따라온다(시안). **짧게 누르면**(홀드 시간 못 채우고 뗌) 예전과
- * 같은 기본 2×2를 넣는다 — 이 갈래는 `PaletteButton`의 일반 클릭 경로와 똑같이
- * 동작해야 하므로 `onClick` 을 그대로 쓰고, 홀드로 이미 처리한 경우에만
- * `suppressClick` 으로 그 뒤에 오는 click을 걸러낸다.
+ * 행렬 키 — 누르면 크기 고르는 작은 창이 뜬다(MathLive ☰ 메뉴의 insert-matrix 와
+ * 같은 조작). 격자 칸에 손가락을 대면 왼쪽 위부터 그만큼이 칠해지고, 떼면 그
+ * 크기가 들어간다.
  *
- * ⚠ **포커스를 안 뺏는다** — 다른 팔레트 키와 같은 관행으로 `pointerdown` 에서
- * `preventDefault` 한다. 홀드 로직이 그 위에 얹히므로 이것부터 깨지면 안 된다.
+ * ⚠ **팝업이 버튼 안에 있으면 안 된다** — 칸이 전부 `<button>` 이라 버튼
+ * 중첩이 된다. 그렇다고 감싸개(`<span>`)로 버튼과 팝업을 같이 담지도 않는다 —
+ * 팝업은 `document.body` 로 포털되어 화면상 위치가 감싸개와 무관해진 뒤로
+ * (`--palette-h` 기준, 아래 참고), 감싸개는 그저 이 줄의 다른 키(같은
+ * `.palette-key`, `flex:1`)와 폭이 안 맞는 여분의 flex 아이템 하나로만
+ * 남았다(실측: `<span>` 하나가 끼면 그 줄 안에서 flex 분배가 살짝 어긋나
+ * 이 키가 좁아지고 옆 키들이 그만큼 넓어졌다). 그래서 `Fragment` 로 버튼과
+ * 포털을 나란히 반환한다 — 버튼 자체가 다른 키와 똑같은 flex 아이템이 된다.
+ *
+ * ⚠ **포커스를 안 뺏는다** — 키든 격자 칸이든 `pointerdown` 에서 `preventDefault`
+ * 한다(다른 팔레트 키와 같은 관행). 이게 깨지면 삽입 대상(`activeField`)을 잃는다.
  */
+/**
+ * 다음 click 하나를 통째로 삼킨다. `document` **capture** 단계에서 듣는다
+ * (`editor/touchGesture.ts`의 컨텍스트 메뉴 차단과 같은 자리 — capture 라야
+ * React가 붙이는 리스너보다 항상 먼저 본다).
+ *
+ * ⚠ **왜 필요한가(실측, 사용자 보고).** 팝업/백드롭을 pointerdown·pointerup
+ * 핸들러 **안에서** 바로 지우면(state 변경 → 즉시 재렌더), 터치가 그 뒤에
+ * 합성하는 click 이벤트는 지운 **다음** 시점의 DOM으로 다시 히트테스트된다 —
+ * 방금 없어진 백드롭/격자 대신 **그 밑에 드러난 요소**(⊞ 키 자신이거나 뒤의
+ * 다른 팔레트 키)가 맞고, 그 클릭이 그대로 먹힌다. `pointerdown`/`pointerup`
+ * 에 `preventDefault` 를 걸어도 리타게팅된 클릭까지는 못 막는다 — 원래
+ * 대상이 이미 사라진 뒤라 "이 클릭은 취소됐다"는 연결이 끊긴다. 그래서 닫는
+ * 바로 그 순간 다음 click 하나를 여기서 가로챈다.
+ */
+function swallowNextClick(): void {
+  const onClick = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    document.removeEventListener('click', onClick, true);
+  };
+  document.addEventListener('click', onClick, true);
+  // 클릭이 아예 안 오는 입력(마우스 등, 리타게팅이 없다)을 위한 안전망 —
+  // 계속 붙어 있으면 그 다음 정말 다른 클릭까지 삼켜버린다. 새는 클릭은
+  // `touch-action: manipulation`(300ms 탭 지연 없음, `keyPalette.css`) 덕에
+  // pointerup 직후 같은 프레임 안에서 온다(실측) — 짧게 잡아도 충분하다.
+  setTimeout(() => document.removeEventListener('click', onClick, true), 50);
+}
+
+/**
+ * ⊞ 자리에 그리는 아이콘. 대괄호(행렬 표기) 안에 2×2 격자 — Claude Design 랩
+ * 산출물(`Matrix Key Icon.dc.html`)을 그대로 옮겼다. `currentColor` 로 그려
+ * 버튼 글자색(라이트/다크 `--fg`)을 그대로 물려받는다 — 원본은 고정 `#333333`
+ * 이었지만 다크 모드에서 그러면 안 보인다.
+ */
+function MatrixIcon() {
+  return (
+    <svg
+      width="1.8em"
+      height="1.8em"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      // 아이콘을 1.5배(1.2em→1.8em) 키우면서 선 두께는 그대로 두려고 원래
+      // 값(1.1)을 1.5로 나눴다 — viewBox 스케일이 커지면 stroke-width(사용자
+      // 단위)도 그만큼 화면에 굵게 나온다(사용자 요청: "선 두께는 그대로").
+      strokeWidth={1.1 / 1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6.4 5.2H5.7C5.25 5.2 4.9 5.55 4.9 6V18C4.9 18.45 5.25 18.8 5.7 18.8H6.4" />
+      <path d="M17.6 5.2H18.3C18.75 5.2 19.1 5.55 19.1 6V18C19.1 18.45 18.75 18.8 18.3 18.8H17.6" />
+      <rect x="6.7" y="6.7" width="4.3" height="4.3" rx="0.6" />
+      <rect x="13" y="6.7" width="4.3" height="4.3" rx="0.6" />
+      <rect x="6.7" y="13" width="4.3" height="4.3" rx="0.6" />
+      <rect x="13" y="13" width="4.3" height="4.3" rx="0.6" />
+    </svg>
+  );
+}
+
 function MatrixKeyButton({
   flex,
   title,
@@ -452,21 +529,13 @@ function MatrixKeyButton({
 }: {
   flex: number;
   title: string | undefined;
-  /** 삽입이 끝난 뒤(홀드든 짧은 클릭이든) — shift 한 번 쓰고 풀기와 같은 규율. */
+  /** 삽입이 끝난 뒤 — shift 한 번 쓰고 풀기와 같은 규율. */
   onInserted: () => void;
 }) {
-  const [preview, setPreview] = useState<MatrixSize | null>(null);
-  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const held = useRef(false);
-  const suppressClick = useRef(false);
+  const [open, setOpen] = useState(false);
+  // 아직 아무 칸도 안 짚은 동안 칠해 보일 크기 — 예전 고정 삽입값과 같은 2×2다.
+  const [preview, setPreview] = useState<MatrixSize>(MATRIX_DEFAULT_SIZE);
   const gridRef = useRef<HTMLDivElement | null>(null);
-
-  const clearHoldTimer = () => {
-    if (holdTimer.current !== null) {
-      clearTimeout(holdTimer.current);
-      holdTimer.current = null;
-    }
-  };
 
   /** 손가락 좌표 → 격자 칸(1..MATRIX_GRID_SIZE). 격자가 아직 안 떴으면 null. */
   const cellAt = (clientX: number, clientY: number): MatrixSize | null => {
@@ -481,87 +550,110 @@ function MatrixKeyButton({
   };
 
   const insert = (size: MatrixSize): void => {
+    setOpen(false);
+    // 격자를 지우는 이 pointerup 뒤로 새는 click 을 미리 막는다(`swallowNextClick`
+    // 주석 참고) — 안 막으면 방금 드러난 키보드 버튼이 대신 눌린다(실측).
+    swallowNextClick();
     const mf = getActiveMathField();
     if (mf === null) return;
     mf.insert(matrixLatex(size.rows, size.cols), { selectionMode: 'item' });
+    onInserted();
   };
 
   return (
-    <button
-      type="button"
-      className="palette-key"
-      style={{ flex, position: 'relative' }}
-      title={title}
-      onPointerDown={(e) => {
-        e.preventDefault();
-        // 홀드 중엔 손가락이 버튼 밖(격자 위)으로 나간다 — 캡처해야 이 버튼이
-        // move/up을 계속 받는다. 실패해도(브라우저/환경에 따라 던질 수 있다,
-        // 실측 — 이 포인터가 "활성"으로 안 잡히는 경우) 뒤 로직은 계속 돈다.
-        // 캡처가 안 됐을 뿐 대부분의 손짓은 여전히 같은 요소 위에서 끝난다.
-        try {
-          e.currentTarget.setPointerCapture(e.pointerId);
-        } catch {
-          /* 캡처 실패 — 무시하고 계속한다 */
-        }
-        clearHoldTimer();
-        held.current = false;
-        holdTimer.current = setTimeout(() => {
-          held.current = true;
+    <>
+      <button
+        type="button"
+        // `palette-key-icon` — 글자가 아니라 아이콘(SVG)을 담는 키만의 표시.
+        // `matrixPicker.css` 가 이 클래스로 가운데 정렬을 건다(아래 아이콘
+        // 자체 주석 참고).
+        className="palette-key palette-key-icon"
+        style={{ flex }}
+        title={title}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onPointerDown={(e) => e.preventDefault()}
+        onClick={() => {
           setPreview(MATRIX_DEFAULT_SIZE);
-        }, HOLD_DELAY_MS);
-      }}
-      onPointerMove={(e) => {
-        if (!held.current) return;
-        const cell = cellAt(e.clientX, e.clientY);
-        if (cell !== null) setPreview(cell);
-      }}
-      onPointerUp={() => {
-        clearHoldTimer();
-        if (held.current) {
-          insert(preview ?? MATRIX_DEFAULT_SIZE);
-          suppressClick.current = true;
-          onInserted();
-        }
-        setPreview(null);
-        held.current = false;
-      }}
-      onPointerCancel={() => {
-        clearHoldTimer();
-        setPreview(null);
-        held.current = false;
-      }}
-      onClick={() => {
-        if (suppressClick.current) {
-          // 홀드로 이미 넣었다 — 뒤이은 click은 또 넣지 않는다.
-          suppressClick.current = false;
-          return;
-        }
-        insert(MATRIX_DEFAULT_SIZE);
-        onInserted();
-      }}
-    >
-      ⊞
-      {preview !== null && (
-        <div className="matrix-picker">
-          <div className="matrix-picker-label">
-            {preview.rows} × {preview.cols} matrix
-          </div>
-          <div className="matrix-picker-grid" ref={gridRef}>
-            {Array.from({ length: MATRIX_GRID_SIZE * MATRIX_GRID_SIZE }, (_, i) => {
-              const row = Math.floor(i / MATRIX_GRID_SIZE) + 1;
-              const col = (i % MATRIX_GRID_SIZE) + 1;
-              const on = row <= preview.rows && col <= preview.cols;
-              return (
-                <div
-                  key={i}
-                  className={on ? 'matrix-picker-cell matrix-picker-cell-on' : 'matrix-picker-cell'}
-                />
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </button>
+          setOpen((v) => !v);
+        }}
+      >
+        <MatrixIcon />
+      </button>
+      {open &&
+        createPortal(
+          <>
+            {/* ⚠ **`document.body` 로 포털한다.** `.key-palette-body` 가
+                `overflow-y: auto` 라(스크롤 격자용) 여기 그대로 뒀으면 팝업이
+                그 상자 밖으로 못 나가 잘려 보인다(사용자 보고, 실측) — 포털로
+                그 조상을 아예 벗어난다. 위치는 `--palette-h`(키보드 전체 높이,
+                `keyPalette.css`) 하나로 잡아, 키보드 **전체** 바로 위에 뜬다. */}
+            {/* 바깥을 짚으면 닫힌다 — 팝업보다 뒤(z-index)에 깔린 투명한 판이다.
+                모바일에서 click 을 기다리면 스크롤 손짓에도 안 닫히는 구간이 생겨
+                `pointerdown` 에서 바로 닫는다. */}
+            <div
+              className="matrix-picker-backdrop"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                setOpen(false);
+                // ⊞ 키를 다시 눌러 닫을 때도 이 백드롭이 먼저 맞는다(백드롭이 늘
+                // 위에 있다) — 백드롭이 사라진 뒤 새는 click 이 다시 드러난 ⊞ 키를
+                // 눌러 곧바로 재오픈하던 게 "다시 눌러도 안 닫힌다"로 보인 원인이다.
+                swallowNextClick();
+              }}
+            />
+            <div className="matrix-picker" role="dialog" aria-label="Insert matrix">
+              <div className="matrix-picker-label">
+                {preview.rows} × {preview.cols} matrix
+              </div>
+              {/* ⚠ **칸이 아니라 격자가 포인터를 받는다.** 터치는 손가락이 처음
+                  짚은 요소에 포인터가 묶여(암묵적 캡처) 옮겨 가도 다른 칸의
+                  이벤트가 안 온다 — 칸마다 리스너를 달면 탭은 되지만 끌기가
+                  죽는다. 좌표로 칸을 되짚으면 탭과 끌기가 한 경로로 처리된다. */}
+              <div
+                ref={gridRef}
+                className="matrix-picker-grid"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  try {
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                  } catch {
+                    /* 캡처 실패 — 무시하고 계속한다(대부분 같은 격자 위에서 끝난다) */
+                  }
+                  const cell = cellAt(e.clientX, e.clientY);
+                  if (cell !== null) setPreview(cell);
+                }}
+                onPointerMove={(e) => {
+                  // 버튼이 눌린 채일 때만 따라간다(마우스로 그냥 지나가는 건 무시).
+                  if (e.buttons === 0) return;
+                  const cell = cellAt(e.clientX, e.clientY);
+                  if (cell !== null) setPreview(cell);
+                }}
+                onPointerUp={(e) => {
+                  const cell = cellAt(e.clientX, e.clientY);
+                  insert(cell ?? preview);
+                }}
+              >
+                {Array.from({ length: MATRIX_GRID_SIZE * MATRIX_GRID_SIZE }, (_, i) => {
+                  const rows = Math.floor(i / MATRIX_GRID_SIZE) + 1;
+                  const cols = (i % MATRIX_GRID_SIZE) + 1;
+                  const on = rows <= preview.rows && cols <= preview.cols;
+                  return (
+                    <div
+                      key={i}
+                      className={
+                        on ? 'matrix-picker-cell matrix-picker-cell-on' : 'matrix-picker-cell'
+                      }
+                      title={`${rows} × ${cols}`}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          </>,
+          document.body,
+        )}
+    </>
   );
 }
 

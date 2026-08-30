@@ -1,25 +1,56 @@
-/* 행렬 키를 길게 눌렀을 때 뜨는 5×5 크기 격자(`KeyPalette.tsx`의
-   `MatrixKeyButton`, 시안). 데스크톱은 이 손짓(홀드) 자체가 없다 — 팔레트
-   전체가 모바일 전용이라 이 파일도 자연히 모바일 블록 하나뿐이다. */
+/* 행렬 키를 누르면 뜨는 5×5 크기 고르기 창(`KeyPalette.tsx`의 `MatrixKeyButton`).
+   팔레트 전체가 모바일 전용이라 이 파일도 자연히 모바일 블록 하나뿐이다. */
 
 @media (max-width: 640px) {
-  /* 버튼 자기 자신(`position:relative`, 인라인 스타일) 바로 위에 뜬다 —
-     행이 바뀌어도 늘 자기 키 근처에 있다. */
+  /* 행렬 키(아이콘 SVG 하나만 담는다). ⚠ 아이콘은 텍스트 줄과 달리
+     `line-height` 를 안 따른다 — 인라인 기본값(`vertical-align: baseline`)
+     이면 자기 실제 높이만큼 줄 상자를 늘려서, 이 키만(그리고 flex 로 키를
+     맞추는 같은 줄의 나머지 키까지) 다른 줄보다 커진다(실측: 41.98px vs
+     36.23px). `display: flex` 로 아예 줄 상자 계산을 안 타게 하고 직접
+     가운데 맞춘다.
+     ⚠ **이 키를 감싸는 별도 `<span>` 을 두지 않는다** — 팝업이
+     `document.body` 로 포털돼(아래) 위치가 이 버튼과 무관해진 뒤로, 감싸개는
+     같은 줄의 다른 `.palette-key`(flex:1)와 나란한 flex 아이템이 하나 더
+     느는 것뿐이었다. 그런데 그 감싸개(`<span>`)가 끼면 같은 줄 안 flex 분배가
+     미묘하게 어긋났다(실측: 이 키 36.4px, 옆 키들 41.6px vs 다른 줄 전부
+     40.3px) — 원인을 못 찾았지만, 감싸개를 없애고 이 버튼을 다른 키와
+     **똑같은** flex 아이템으로 두니 바로 없어졌다. 그래서 `KeyPalette.tsx` 는
+     버튼과 포털을 `Fragment` 로 나란히 반환한다. */
+  .palette-key-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* 아이콘이 커진 만큼(1.8em) 위아래 패딩을 줄여, 다른 키와 같은 전체 높이
+       (36.2px)를 지킨다 — 기본 `.palette-key` 패딩(0.5rem)을 그대로 두면
+       아이콘이 다른 줄보다 큰 높이로 그 줄을 밀어 올린다(실측). */
+    padding-top: 0.215rem;
+    padding-bottom: 0.215rem;
+  }
+
+  /* 바깥을 짚어 닫기 위한 투명한 판. 팝업보다 뒤에 깔린다. `document.body` 의
+     직계 자식으로 포털되므로 이 z-index 는 `.key-palette`(마찬가지로 8)와
+     같은 층에서 겨루는데, 포털이 DOM 상 더 뒤에 붙어 동률이면 이긴다(실측). */
+  .matrix-picker-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 8;
+  }
+
+  /* 키보드 **전체** 바로 위에 뜨는 작은 창. `.key-palette-body` 의
+     `overflow-y: auto` 를 포털로 벗어났으니, 위치도 그 상자가 아니라 키보드
+     전체 높이(`--palette-h`, `keyPalette.css`)를 기준으로 잡는다 — 하나만
+     바뀌어도 팝업이 따라온다. 왼쪽은 팔레트 좌 블록 첫 열(⊞ 의 자리)에 맞춘
+     고정 여백이다(포털이라 그 키의 실제 x 를 더는 물려받지 않는다). */
   .matrix-picker {
-    position: absolute;
-    left: 0;
-    bottom: 100%;
-    margin-bottom: 0.4rem;
+    position: fixed;
+    left: 0.6rem;
+    bottom: calc(var(--palette-h) + 0.4rem);
     z-index: 9;
     padding: 0.6rem;
     border-radius: 12px;
+    border: 1px solid var(--key-tint-line);
     background: var(--key-face);
     box-shadow: 0 10px 28px rgb(0 0 0 / 22%);
-    /* 격자 아래에서 손가락을 계속 추적하는 동안, 이 팝업 자체는 입력을
-       가로채지 않는다 — 캡처는 버튼(`MatrixKeyButton`)이 쥐고 있다. */
-    pointer-events: none;
-    /* 글자 방향과 무관하게 늘 같은 자리(왼쪽 정렬) — 팔레트 좌 블록 첫 열이라
-       화면 왼쪽에 붙어 있다. */
     white-space: nowrap;
   }
 
@@ -32,15 +63,18 @@
 
   .matrix-picker-grid {
     display: grid;
-    grid-template-columns: repeat(5, 1.1rem);
-    grid-template-rows: repeat(5, 1.1rem);
-    gap: 3px;
+    grid-template-columns: repeat(5, 1.5rem);
+    grid-template-rows: repeat(5, 1.5rem);
+    gap: 4px;
   }
 
+  /* 칸 하나가 곧 버튼이다 — 짚으면 왼쪽 위부터 거기까지 칠해지고, 떼면 들어간다. */
   .matrix-picker-cell {
+    padding: 0;
     border-radius: 3px;
     border: 1.2px solid var(--key-tint-line);
     background: var(--key-face);
+    touch-action: manipulation;
   }
 
   .matrix-picker-cell-on {
