@@ -1,4 +1,4 @@
-import { createEngine } from '../ce/engine';
+import { deferEngine } from '../ce/engine';
 import { elaborate } from '../parse/elaborate';
 import { mapChildren } from '../expression/traversal';
 import { parseCeJson } from '../parse/parse';
@@ -47,7 +47,7 @@ const CE_HEAD: Record<string, string> = {
 };
 
 /** 이 파일 전용 CE 인스턴스 (`ce/engine.ts` 참고). */
-const ce = createEngine();
+const ce = deferEngine();
 
 /** 되돌아온 결과를 다시 읽을 때 쓰는 env — 결과는 항상 스칼라라 미지 심볼은 스칼라 가정이 맞다. */
 const EMPTY_ENV: Env = { shapes: {} };
@@ -76,7 +76,7 @@ function foldBuiltinCall(e: Extract<TypedExpr, { op: 'call' }>, env: Env): Resul
   const json = arg.op === 'matrix' ? matrixLiteralToJson(arg) : cellToJson(arg);
   if (json === null) return ok(fallback);
   try {
-    const evaluated = guardCe(ce, e.name, () => ce.box([CE_HEAD[e.name], json]).evaluate());
+    const evaluated = guardCe(ce(), e.name, () => ce().box([CE_HEAD[e.name], json]).evaluate());
     const syntax = parseCeJson(evaluated.json);
     if (!syntax.ok) return ok(fallback);
     const typed = elaborate(syntax.value, EMPTY_ENV);

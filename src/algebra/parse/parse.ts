@@ -1,4 +1,4 @@
-import { createEngine } from '../ce/engine';
+import { deferEngine } from '../ce/engine';
 import type { MathJsonExpression } from '@cortex-js/compute-engine';
 import { fail, type Result } from '../result/result';
 import { preprocess } from './preprocess';
@@ -19,7 +19,7 @@ import type { SyntaxNode } from './node';
 
 
 /** 파싱 전용 CE 인스턴스 (`ce/engine.ts` 참고). */
-const ce = createEngine();
+const ce = deferEngine();
 
 
 /**
@@ -60,7 +60,7 @@ export function parseSyntax(latex: string): Result<SyntaxNode> {
   if (trimmed === '') return fail('malformed', 'Empty expression');
   let json: MathJsonExpression;
   try {
-    const parsed = ce.parse(preprocess(trimmed), { form: [...CE_PARSE_FORMS] });
+    const parsed = ce().parse(preprocess(trimmed), { form: [...CE_PARSE_FORMS] });
     if (!parsed.isValid) return fail('malformed', 'Could not parse the expression');
     json = parsed.json;
   } catch {
@@ -71,5 +71,5 @@ export function parseSyntax(latex: string): Result<SyntaxNode> {
 
 /** 테스트·진단용. 프런트엔드가 무엇을 봤는지 확인할 때 쓴다. */
 export function parseToCeJson(latex: string): unknown {
-  return ce.parse(preprocess(latex.trim()), { form: [...CE_PARSE_FORMS] }).json;
+  return ce().parse(preprocess(latex.trim()), { form: [...CE_PARSE_FORMS] }).json;
 }

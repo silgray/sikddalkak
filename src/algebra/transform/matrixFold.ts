@@ -1,4 +1,4 @@
-import { createEngine } from '../ce/engine';
+import { deferEngine } from '../ce/engine';
 import type { BoxedExpression, MathJsonExpression } from '@cortex-js/compute-engine';
 import { elaborate } from '../parse/elaborate';
 import { buildAdd, buildMul } from '../expression/builders';
@@ -136,7 +136,7 @@ function crossLiteral(a: MatrixLiteral, b: MatrixLiteral): Result<MatrixLiteral>
 // ---------------------------------------------------------------------------
 
 /** 이 파일 전용 CE 인스턴스 (`ce/engine.ts` 참고). */
-const ce = createEngine();
+const ce = deferEngine();
 
 /**
  * 되돌아온 결과를 다시 읽을 때 쓰는 env. 행렬 셀은 `elaborate` 규칙상 반드시
@@ -162,7 +162,7 @@ const MAX_SYMBOLIC_INVERSE_SIZE = 8;
  */
 export function cellToJson(cell: TypedExpr): MathJsonExpression | null {
   if (cell.op === 'num') return toCeJson(cell.value);
-  const parsed = ce.parse(render(cell));
+  const parsed = ce().parse(render(cell));
   return parsed.isValid ? parsed.json : null;
 }
 
@@ -225,7 +225,7 @@ function invertLiteral(base: MatrixLiteral, exponent: number): TypedExpr | null 
       if (baseJson === null) return null;
       const json = ['Power', baseJson, exponent] as unknown as MathJsonExpression;
       // 심볼 원소 여인수 전개는 `n!` 로 커진다 — 크기 상한만으로는 부족해 시간도 막는다.
-      evaluated = guardCe(ce, 'matInverse', () => ce.box(json).evaluate());
+      evaluated = guardCe(ce(), 'matInverse', () => ce().box(json).evaluate());
     } else {
       // 복소수 우회(파일 머리 참고): 그 칸을 더미 심볼로 감춰 CE가 정확한 여인수 경로를
       // 타게 한 뒤, 답에 원래 값을 대입해 되돌린다.
@@ -234,11 +234,11 @@ function invertLiteral(base: MatrixLiteral, exponent: number): TypedExpr | null 
       const dummyJson = matrixLiteralToJson(base, { ...complexAt, json: DUMMY_INVERSE_SYMBOL });
       if (dummyJson === null) return null;
       const json = ['Power', dummyJson, exponent] as unknown as MathJsonExpression;
-      evaluated = guardCe(ce, 'matInverse', () =>
-        ce
+      evaluated = guardCe(ce(), 'matInverse', () =>
+        ce()
           .box(json)
           .evaluate()
-          .subs({ [DUMMY_INVERSE_SYMBOL]: ce.box(originalJson) })
+          .subs({ [DUMMY_INVERSE_SYMBOL]: ce().box(originalJson) })
           .evaluate(),
       );
     }

@@ -1,4 +1,4 @@
-import { createEngine } from '../ce/engine';
+import { deferEngine } from '../ce/engine';
 import type { MathJsonExpression } from '@cortex-js/compute-engine';
 import { intLit, makeRational, type Literal } from './literal';
 import { fromCeJson, toCeJson } from './ceJson';
@@ -21,13 +21,13 @@ import { fromCeJson, toCeJson } from './ceJson';
  * 인스턴스는 `ce/engine.ts` 에서 받는다 (왜 모듈마다 따로 두는지는 그 파일 참고).
  */
 
-const ce = createEngine();
+const ce = deferEngine();
 
 /** CE에 이항 연산을 맡긴다. 우리가 못 읽는 결과가 오면 `null`. */
 function viaCe(head: string, a: Literal, b: Literal): Literal | null {
   try {
     const json = [head, toCeJson(a), toCeJson(b)] as unknown as MathJsonExpression;
-    return fromCeJson(ce.box(json).evaluate().json);
+    return fromCeJson(ce().box(json).evaluate().json);
   } catch {
     return null;
   }

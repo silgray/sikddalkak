@@ -1,4 +1,4 @@
-import { createEngine } from '../ce/engine';
+import { deferEngine } from '../ce/engine';
 import { elaborate, withBoundScalars } from '../parse/elaborate';
 import { buildAdd, buildMul } from '../expression/builders';
 import { parseCeJson } from '../parse/parse';
@@ -39,7 +39,7 @@ export function foldCalculus(e: TypedExpr, env: Env): Result<TypedExpr> {
 }
 
 /** 이 파일 전용 CE 인스턴스 (`ce/engine.ts` 참고). */
-const ce = createEngine();
+const ce = deferEngine();
 
 /** `\sum`/`\prod` 를 실제로 펼칠 최대 항 수. 폭주 방지용(`matrixFold.ts` 의 크기 상한과 같은 취지). */
 const MAX_EXPANSION = 64;
@@ -54,9 +54,9 @@ const numAtom = (n: number): TypedExpr => ({ op: 'num', shape: SCALAR, value: in
 function ceDerivOnce(body: TypedExpr, variable: string, env: Env): TypedExpr | null {
   try {
     const node: TypedExpr = { op: 'deriv', shape: body.shape, body, vars: [variable], order: 1 };
-    const parsed = ce.parse(render(node));
+    const parsed = ce().parse(render(node));
     if (!parsed.isValid) return null;
-    const evaluated = guardCe(ce, 'deriv', () => parsed.evaluate());
+    const evaluated = guardCe(ce(), 'deriv', () => parsed.evaluate());
     const syntax = parseCeJson(evaluated.json);
     if (!syntax.ok) return null;
     const typed = elaborate(syntax.value, env);
@@ -161,11 +161,11 @@ function ceIntegrateOnce(
 ): TypedExpr | null {
   try {
     const node: TypedExpr = { op: 'integral', shape: SCALAR, body, variable, lower, upper };
-    const parsed = ce.parse(render(node));
+    const parsed = ce().parse(render(node));
     if (!parsed.isValid) return null;
     // CE 0.90은 어떤 적분에서 안 돌아온다 — 상한을 걸고, 걸리면 미평가로 남긴다
     // (`ce/budget.ts` 서두에 실측 사례).
-    const evaluated = guardCe(ce, 'integral', () => parsed.evaluate());
+    const evaluated = guardCe(ce(), 'integral', () => parsed.evaluate());
     const syntax = parseCeJson(evaluated.json);
     if (!syntax.ok) return null;
     const typed = elaborate(syntax.value, env);

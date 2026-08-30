@@ -24,16 +24,31 @@ import type { TimeLimitedEngine } from './budget';
  * `mf.getValue('math-json')` 도 쓰지 않는다. MathLive↔CE 경계는 오직 LaTeX 문자열만
  * 건넌다 (`src/main.tsx`, `src/editor/harness.ts` 참고).
  *
- * **왜 모듈마다 인스턴스를 따로 두나.** 지금은 각 호출부가 `createEngine()` 으로 자기
- * 것을 하나씩 갖는다 — 원래부터 그랬고(`render.ts`/`ce/symbolName.ts`/`matrixFold.ts` 가
- * 각자 갖고 있었다) 모듈이 서로를 몰라도 자립하게 하려는 것이다. 우리 모듈 중 엔진에
- * 심볼을 `declare` 하는 곳은 없으므로 하나로 합쳐도 기능상 문제는 없지만, 공유 상태가
- * 생기는 변경이라 별도로 다룬다. 합치기로 하면 **이 파일만** 고치면 된다.
+ * **왜 모듈마다 인스턴스를 따로 두나.** 지금은 각 호출부가 `deferEngine()` 으로 자기
+ * 것을 하나씩 갖는다 — 원래부터 그랬고(`ce/symbolName.ts`/`matrixFold.ts` 가 각자 갖고
+ * 있었다) 모듈이 서로를 몰라도 자립하게 하려는 것이다. 우리 모듈 중 엔진에 심볼을
+ * `declare` 하는 곳은 없으므로 하나로 합쳐도 기능상 문제는 없지만, 공유 상태가 생기는
+ * 변경이라 별도로 다룬다. 합치기로 하면 **이 파일만** 고치면 된다.
  */
 
-/** 이 모듈 전용 CE 인스턴스를 하나 만든다. */
-export function createEngine(): ComputeEngine {
+/** 이 모듈 전용 CE 인스턴스를 하나 만든다. `deferEngine()` 전용 — 밖에서 직접 안 부른다. */
+function createEngine(): ComputeEngine {
   return new ComputeEngine();
+}
+
+/**
+ * `createEngine()` 을 **지연**시킨 게터를 돌려준다. 호출부는 파일 최상위에
+ * `const ce = deferEngine();` 로 두고 실제로 쓸 때 `ce()` 로 부른다.
+ *
+ * 왜 필요한가: `new ComputeEngine()` 은 실측 ≈22~74ms(첫 호출이 가장 비싸다,
+ * JIT·정적 테이블 초기화 추정)가 든다. 일곱 파일이 전부 파일 최상위에서 즉시
+ * 만들던 시절엔 `src/algebra` 를 import 하는 순간 7개가 한꺼번에 생겨 합계
+ * ≈209ms가 나갔다(실측) — 그중 실제로 쓰이는 건 호출 경로에 따라 일부뿐이다.
+ * 지연시키면 안 쓰는 인스턴스는 아예 안 만들어진다.
+ */
+export function deferEngine(): () => ComputeEngine {
+  let instance: ComputeEngine | null = null;
+  return () => (instance ??= createEngine());
 }
 
 /**

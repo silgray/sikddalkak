@@ -1,5 +1,5 @@
 import { elaborate } from '../parse/elaborate';
-import { createEngine } from '../ce/engine';
+import { deferEngine } from '../ce/engine';
 import { guardCe } from '../ce/budget';
 import { mapChildren } from '../expression/traversal';
 import { parseCeJson } from '../parse/parse';
@@ -29,7 +29,7 @@ import type { Env, TypedExpr } from '../expression/node';
  * 못 했다고 결과 행 전체를 오류로 만들 이유가 없다.
  */
 /** 이 파일 전용 CE 인스턴스 (`ce/engine.ts` 참고). */
-const ce = createEngine();
+const ce = deferEngine();
 
 export function approximate(e: TypedExpr, env: Env): Result<TypedExpr> {
   // ⚠ `num` 이라고 다 건너뛰면 안 된다 — `\frac{1}{3}` 은 정규화가 **유리수 리터럴**로
@@ -51,7 +51,7 @@ const ALREADY_NUMERIC: ReadonlySet<string> = new Set(['int', 'decimal']);
  */
 function viaCeNumeric(e: TypedExpr, env: Env): TypedExpr {
   try {
-    const result = guardCe(ce, 'approximate', () => ce.parse(render(e), { strict: true }).N());
+    const result = guardCe(ce(), 'approximate', () => ce().parse(render(e), { strict: true }).N());
     const syntax = parseCeJson(result.json);
     if (!syntax.ok) return e;
     const typed = elaborate(syntax.value, env);

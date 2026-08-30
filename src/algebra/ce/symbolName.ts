@@ -1,4 +1,4 @@
-import { createEngine } from './engine';
+import { deferEngine } from './engine';
 
 /**
  * 심볼 이름 → LaTeX. **CE를 사전으로만 쓰는 자리다.**
@@ -11,7 +11,7 @@ import { createEngine } from './engine';
  * 실패하면 이름을 그대로 쓴다 — 렌더가 죽는 것보다 낫다.
  */
 
-const ce = createEngine();
+const ce = deferEngine();
 
 const cache = new Map<string, string>();
 cache.set('ExponentialE', 'e'); // 초기 캐시, ce가 \exponentialE -> \mathrm{e}로 렌더해서 아예 직접 지정
@@ -21,7 +21,7 @@ export function symbolToLatex(name: string): string {
   if (cached !== undefined) return cached;
   let latex = name;
   try {
-    const boxed = ce.box(name, { canonical: false }).latex;
+    const boxed = ce().box(name, { canonical: false }).latex;
     if (typeof boxed === 'string' && boxed.length > 0) latex = boxed;
   } catch {
     // 이름을 그대로 쓴다 — 렌더가 죽는 것보다 낫다.
