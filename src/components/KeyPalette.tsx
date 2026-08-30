@@ -450,10 +450,14 @@ const MATRIX_GRID_SIZE = 5;
  * 같은 조작). 격자 칸에 손가락을 대면 왼쪽 위부터 그만큼이 칠해지고, 떼면 그
  * 크기가 들어간다.
  *
- * ⚠ **팝업이 버튼 **안**에 있으면 안 된다** — 칸이 전부 `<button>` 이라 버튼
- * 중첩이 된다. 그래서 이 컴포넌트는 감싸개(`.palette-key-wrap`)를 그리고 그 안에
- * 키와 팝업을 나란히 둔다. 감싸개가 `position: relative` 라 팝업이 자기 키 바로
- * 위에 앉는다.
+ * ⚠ **팝업이 버튼 안에 있으면 안 된다** — 칸이 전부 `<button>` 이라 버튼
+ * 중첩이 된다. 그렇다고 감싸개(`<span>`)로 버튼과 팝업을 같이 담지도 않는다 —
+ * 팝업은 `document.body` 로 포털되어 화면상 위치가 감싸개와 무관해진 뒤로
+ * (`--palette-h` 기준, 아래 참고), 감싸개는 그저 이 줄의 다른 키(같은
+ * `.palette-key`, `flex:1`)와 폭이 안 맞는 여분의 flex 아이템 하나로만
+ * 남았다(실측: `<span>` 하나가 끼면 그 줄 안에서 flex 분배가 살짝 어긋나
+ * 이 키가 좁아지고 옆 키들이 그만큼 넓어졌다). 그래서 `Fragment` 로 버튼과
+ * 포털을 나란히 반환한다 — 버튼 자체가 다른 키와 똑같은 flex 아이템이 된다.
  *
  * ⚠ **포커스를 안 뺏는다** — 키든 격자 칸이든 `pointerdown` 에서 `preventDefault`
  * 한다(다른 팔레트 키와 같은 관행). 이게 깨지면 삽입 대상(`activeField`)을 잃는다.
@@ -484,6 +488,35 @@ function swallowNextClick(): void {
   // `touch-action: manipulation`(300ms 탭 지연 없음, `keyPalette.css`) 덕에
   // pointerup 직후 같은 프레임 안에서 온다(실측) — 짧게 잡아도 충분하다.
   setTimeout(() => document.removeEventListener('click', onClick, true), 50);
+}
+
+/**
+ * ⊞ 자리에 그리는 아이콘. 대괄호(행렬 표기) 안에 2×2 격자 — Claude Design 랩
+ * 산출물(`Matrix Key Icon.dc.html`)을 그대로 옮겼다. `currentColor` 로 그려
+ * 버튼 글자색(라이트/다크 `--fg`)을 그대로 물려받는다 — 원본은 고정 `#333333`
+ * 이었지만 다크 모드에서 그러면 안 보인다.
+ */
+function MatrixIcon() {
+  return (
+    <svg
+      width="1.2em"
+      height="1.2em"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.1"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6.4 5.2H5.7C5.25 5.2 4.9 5.55 4.9 6V18C4.9 18.45 5.25 18.8 5.7 18.8H6.4" />
+      <path d="M17.6 5.2H18.3C18.75 5.2 19.1 5.55 19.1 6V18C19.1 18.45 18.75 18.8 18.3 18.8H17.6" />
+      <rect x="6.7" y="6.7" width="4.3" height="4.3" rx="0.6" />
+      <rect x="13" y="6.7" width="4.3" height="4.3" rx="0.6" />
+      <rect x="6.7" y="13" width="4.3" height="4.3" rx="0.6" />
+      <rect x="13" y="13" width="4.3" height="4.3" rx="0.6" />
+    </svg>
+  );
 }
 
 function MatrixKeyButton({
@@ -525,10 +558,14 @@ function MatrixKeyButton({
   };
 
   return (
-    <span className="palette-key-wrap" style={{ flex }}>
+    <>
       <button
         type="button"
-        className="palette-key"
+        // `palette-key-icon` — 글자가 아니라 아이콘(SVG)을 담는 키만의 표시.
+        // `matrixPicker.css` 가 이 클래스로 가운데 정렬을 건다(아래 아이콘
+        // 자체 주석 참고).
+        className="palette-key palette-key-icon"
+        style={{ flex }}
         title={title}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -538,7 +575,7 @@ function MatrixKeyButton({
           setOpen((v) => !v);
         }}
       >
-        ⊞
+        <MatrixIcon />
       </button>
       {open &&
         createPortal(
@@ -613,7 +650,7 @@ function MatrixKeyButton({
           </>,
           document.body,
         )}
-    </span>
+    </>
   );
 }
 

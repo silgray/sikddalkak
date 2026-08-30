@@ -640,6 +640,54 @@ describe('KeyPalette — αβγ 탭 키 크기는 abc 탭과 완전히 같다', 
   });
 });
 
+/**
+ * 행렬 키는 텍스트 글자(예전 `⊞`)가 아니라 SVG 아이콘을 쓴다(Claude Design 랩
+ * 산출물). 아이콘이 붙으면서 1번 탭(`123`) 키 크기가 살짝 어긋난 적이 있다
+ * (사용자 보고) — 그 회귀를 막는 스위트가 아래 두 개다.
+ */
+describe('KeyPalette — 행렬 키는 SVG 아이콘을 쓴다', () => {
+  it('버튼 안에 svg 가 있고, 텍스트 글자는 없다', async () => {
+    const { host } = await mount();
+    const btn = [...host.querySelectorAll<HTMLButtonElement>('.palette-key')].find(
+      (b) => b.title === 'matrix (pick size)',
+    );
+    if (btn === undefined) throw new Error('matrix key not found');
+    expect(btn.querySelector('svg')).not.toBeNull();
+    expect(btn.textContent?.trim()).toBe('');
+  });
+});
+
+/**
+ * 1번 탭(`123`) 키 크기 통일 회귀 테스트. 행렬 키에 아이콘을 넣거나 손볼 때마다
+ * 두 가지가 조용히 깨졌었다 — ⌫ 는 늘 예외다(폭이 다른 좁은 전용 열, `NUM_ASIDE`).
+ *
+ * ① **높이**: 아이콘(SVG)은 텍스트와 달리 `line-height` 를 안 따른다 — 인라인
+ *    기본값(`vertical-align: baseline`)이면 자기 실제 높이만큼 줄 상자를 늘려서
+ *    그 키가 속한 줄 전체가(flex 로 키 크기를 맞추므로) 다른 줄보다 커진다.
+ * ② **폭**: 행렬 키를 `<span>` 으로 한 번 더 감싸면(팝업을 담으려고), 같은 줄
+ *    안에서 flex 분배가 미묘하게 어긋나 그 키만 좁아지고 옆 키들이 넓어졌다
+ *    (원인 불명, `matrixPicker.css` 의 `.palette-key-icon` 주석 참고 — 감싸개를
+ *    없애고 버튼을 다른 키와 똑같은 flex 아이템으로 두니 없어졌다).
+ */
+describe('KeyPalette — 1번 탭 키 크기가 전부 같다 (⌫ 제외)', () => {
+  it('폭·높이가 전부 같다', async () => {
+    const { host } = await mount();
+    const rows = [...host.querySelectorAll('.key-palette-split .key-palette-block .key-palette-row')];
+    const heights = new Set<number>();
+    const widths = new Set<number>();
+    for (const row of rows) {
+      for (const b of row.querySelectorAll<HTMLElement>('.palette-key')) {
+        if (b.title === 'backspace') continue; // 아래 대비 참고 — ⌫ 는 다른 열이다.
+        const r = b.getBoundingClientRect();
+        heights.add(Math.round(r.height * 10) / 10);
+        widths.add(Math.round(r.width * 10) / 10);
+      }
+    }
+    expect([...heights], `높이가 여러 값으로 갈렸다: ${[...heights]}`).toHaveLength(1);
+    expect([...widths], `폭이 여러 값으로 갈렸다: ${[...widths]}`).toHaveLength(1);
+  });
+});
+
 describe('KeyPalette — 숫자 키는 톤으로 갈린다 (시안)', () => {
   /** 라벨로 팔레트 키 하나를 집는다. */
   function keyOf(host: HTMLElement, label: string): HTMLButtonElement {
