@@ -499,12 +499,15 @@ function swallowNextClick(): void {
 function MatrixIcon() {
   return (
     <svg
-      width="1.2em"
-      height="1.2em"
+      width="1.8em"
+      height="1.8em"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.1"
+      // 아이콘을 1.5배(1.2em→1.8em) 키우면서 선 두께는 그대로 두려고 원래
+      // 값(1.1)을 1.5로 나눴다 — viewBox 스케일이 커지면 stroke-width(사용자
+      // 단위)도 그만큼 화면에 굵게 나온다(사용자 요청: "선 두께는 그대로").
+      strokeWidth={1.1 / 1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"

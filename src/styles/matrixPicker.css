@@ -20,6 +20,11 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    /* 아이콘이 커진 만큼(1.8em) 위아래 패딩을 줄여, 다른 키와 같은 전체 높이
+       (36.2px)를 지킨다 — 기본 `.palette-key` 패딩(0.5rem)을 그대로 두면
+       아이콘이 다른 줄보다 큰 높이로 그 줄을 밀어 올린다(실측). */
+    padding-top: 0.215rem;
+    padding-bottom: 0.215rem;
   }
 
   /* 바깥을 짚어 닫기 위한 투명한 판. 팝업보다 뒤에 깔린다. `document.body` 의
