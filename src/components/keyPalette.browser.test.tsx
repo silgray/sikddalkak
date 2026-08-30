@@ -582,6 +582,64 @@ describe('KeyPalette — 1번 탭의 ⌫ 는 맨 아랫줄에 선다', () => {
   });
 });
 
+/**
+ * αβγ 탭 키 크기가 abc 탭과 완전히 같아야 한다(사용자 요청) — 폭은 `PaletteKey.span`
+ * 합이 줄마다 10칸으로 맞아야 나온다(`ABC_ROWS`/`GR_ROWS` 주석 참고). 예전엔 αβγ
+ * 마지막 줄(⇧·⌫)의 span 이 1.3이라 합이 9.6으로 모자라, 그 줄의 글자 키가 같은
+ * 탭의 다른 줄보다도, abc 탭보다도 미묘하게 더 컸다.
+ */
+describe('KeyPalette — αβγ 탭 키 크기는 abc 탭과 완전히 같다', () => {
+  function keyOf(host: HTMLElement, labelOrTitle: string): HTMLButtonElement {
+    const btn = [...host.querySelectorAll<HTMLButtonElement>('.palette-key')].find(
+      (b) => b.textContent === labelOrTitle || b.title === labelOrTitle,
+    );
+    if (btn === undefined) throw new Error(`palette key not found: ${labelOrTitle}`);
+    return btn;
+  }
+
+  it('마지막 줄의 글자 키 폭이 abc 탭의 같은 자리 글자 키와 같다', async () => {
+    const { host } = await mount();
+    clickTab(host, 'abc');
+    await settle();
+    const abcWidth = keyOf(host, 'z').getBoundingClientRect().width;
+
+    clickTab(host, 'αβγ');
+    await settle();
+    const grWidth = keyOf(host, 'zeta').getBoundingClientRect().width;
+
+    expect(Math.abs(abcWidth - grWidth), 'abc·αβγ 마지막 줄 글자 키 폭이 다르다').toBeLessThan(
+      1,
+    );
+  });
+
+  it('마지막 줄의 글자 키 폭이 같은 탭 위쪽 줄의 글자 키와도 같다', async () => {
+    const { host } = await mount();
+    clickTab(host, 'αβγ');
+    await settle();
+    const topRowWidth = keyOf(host, 'pi').getBoundingClientRect().width; // 1번 줄
+    const lastRowWidth = keyOf(host, 'zeta').getBoundingClientRect().width; // 마지막 줄
+
+    expect(
+      Math.abs(topRowWidth - lastRowWidth),
+      'αβγ 탭 안에서 줄마다 글자 키 폭이 다르다',
+    ).toBeLessThan(1);
+  });
+
+  it('⇧·⌫ 의 span 이 abc 탭과 값 자체로 같다(1.5)', () => {
+    const rowsOf = (id: string): PaletteKey[][] => {
+      const layer = PALETTE_LAYERS.find((l) => l.id === id);
+      if (layer === undefined || layer.kind !== 'rows') throw new Error(`rows layer not found: ${id}`);
+      return layer.rows;
+    };
+    const grLast = rowsOf('gr').at(-1)!;
+    const abcLast = rowsOf('abc').at(-1)!;
+    expect(grLast[0].span).toBe(1.5);
+    expect(grLast.at(-1)!.span).toBe(1.5);
+    expect(grLast[0].span).toBe(abcLast[0].span);
+    expect(grLast.at(-1)!.span).toBe(abcLast.at(-1)!.span);
+  });
+});
+
 describe('KeyPalette — 숫자 키는 톤으로 갈린다 (시안)', () => {
   /** 라벨로 팔레트 키 하나를 집는다. */
   function keyOf(host: HTMLElement, label: string): HTMLButtonElement {

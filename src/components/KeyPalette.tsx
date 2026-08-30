@@ -261,8 +261,12 @@ const GR_ROWS: PaletteKey[][] = [
     greek('λ', 'lambda', 'Lambda'),
     HALF_BLANK,
   ],
+  // 마지막 줄은 글자 일곱뿐이라 ⇧·⌫ 를 1.5칸씩 넓힌다 — abc 탭 마지막 줄과
+  // 똑같은 계산이다(7 + 1.5×2 = 10칸, `ABC_ROWS` 참고). 예전엔 1.3이라 이 줄만
+  // 합이 9.6으로 모자라, 같은 탭 안의 다른 줄(합 10)보다 글자 키가 미묘하게
+  // 더 컸다 — abc 와도, 같은 탭 안 다른 줄과도 어긋나 있었다.
   [
-    { label: '⇧', title: 'shift (uppercase)', span: 1.3 },
+    { label: '⇧', title: 'shift (uppercase)', span: 1.5 },
     greek('ζ', 'zeta'),
     greek('χ', 'chi'),
     greek('ψ', 'psi', 'Psi'),
@@ -270,7 +274,7 @@ const GR_ROWS: PaletteKey[][] = [
     greek('β', 'beta'),
     greek('ν', 'nu'),
     greek('μ', 'mu'),
-    { label: '⌫', strokes: key('Backspace', 'Backspace'), title: 'backspace', span: 1.3 },
+    { label: '⌫', strokes: key('Backspace', 'Backspace'), title: 'backspace', span: 1.5 },
   ],
 ];
 
