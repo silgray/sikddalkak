@@ -13,7 +13,8 @@ import {
   type Env,
   type FunctionDef,
 } from './algebra';
-import { buildCellEnv, splitDefinition, splitFunctionDefinition, splitRelation } from './cellEnv';
+import { buildCellEnv, splitDefinition, splitFunctionDefinition } from './cellEnv';
+import { splitRelation } from './cellRelation';
 import { groupsOf } from './cellGroup';
 import { scanLatex } from './editor/latexScan';
 import { repairLatex } from './editor/wellformed';

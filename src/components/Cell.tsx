@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormulaObject, EvalResult } from '../types';
 import { FieldClip } from './FieldClip';
 import { MathField, type MathFieldHandle } from './MathField';
-import { splitRelation } from '../cellEnv';
+import { splitRelation } from '../cellRelation';
 import { SOLVE_ENABLED } from '../features';
 import { SelectionToolbar } from './SelectionToolbar';
 import { readSelectionAsync } from '../worker/client';

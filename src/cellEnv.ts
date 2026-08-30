@@ -80,24 +80,9 @@ export function splitFunctionDefinition(
   return { name: syntax.value.name, params, rhs };
 }
 
-/**
- * 최상위 `=` 가 있는데 정의(변수·함수)가 아니면 등식이다 (`2x+1=7`, `x^2=4`).
- *
- * `splitDefinition`/`splitFunctionDefinition` **다음에** 시도해야 한다 — 셋 다 "최상위
- * `=`" 를 전제하므로, 정의 판정이 둘 다 실패한 뒤에만 등식으로 본다. `cellGraph.ts` 와
- * `Cell.tsx` 가 같이 쓴다 — solve 대상 선택 가능 여부(UI)와 그래프 진입 여부(계산)가
- * 서로 다른 판정을 쓰면 어긋난다.
- */
-export function splitRelation(latex: string): { lhs: string; rhs: string } | null {
-  const doc = scanLatex(latex);
-  const eq = doc.tokens.find((t) => t.kind === 'char' && t.text === '=');
-  if (eq === undefined) return null;
-
-  const lhs = latex.slice(0, eq.start).trim();
-  const rhs = latex.slice(eq.end).trim();
-  if (lhs === '' || rhs === '') return null;
-  return { lhs, rhs };
-}
+// `splitRelation` 은 여기 없다 — `scanLatex` 만 쓰고 algebra가 필요 없어서 잎 모듈
+// `cellRelation.ts` 로 뗐다(그 파일 문서 참고). 재노출하지 않는다 — 한 판정에 두 진입로를
+// 만들지 않는다.
 
 /**
  * 정의 레코드(이름 → 우변 LaTeX)로 심볼 환경을 만든다. `buildEnv` 의 얇은 재노출이다 —
