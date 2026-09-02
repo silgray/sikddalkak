@@ -38,11 +38,31 @@
     top: calc(100% + 0.15rem);
     left: 1.4rem;
     z-index: 5;
-    gap: 2px;
-    padding: 0.1rem 0.2rem;
+    gap: 3px;
+    padding: 0.2rem;
     border: 1px solid var(--line);
-    border-radius: 6px;
-    background: var(--bg);
+    border-radius: 10px;
+    background: var(--card);
     box-shadow: 0 3px 10px color-mix(in srgb, var(--fg) 15%, transparent);
+  }
+
+  /* 팝업 안의 변환 버튼은 브라우저 기본 버튼 테두리를 지우고, 키 팔레트와 같은
+     "알약" 언어(둥근 칩 + accent 톤)를 쓴다 — `.cell-actions .transform-btn`
+     (데스크톱 인라인 테두리 버튼, `cell.css`)과는 다른 자리라 여기서 따로 덮는다. */
+  .transform-popup .transform-btn {
+    appearance: none;
+    border: none;
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    color: var(--accent);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.4;
+    padding: 0.3rem 0.55rem;
+    white-space: nowrap;
+  }
+
+  .transform-popup .transform-btn:active {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
   }
 }
