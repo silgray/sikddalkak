@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 /**
  * 상단 도움말: 눈으로 봐서는 뜻을 알 수 없는 UI 컨트롤과 기본 단축키만. `?` 버튼으로
@@ -14,9 +14,21 @@ import { useState } from 'react';
  */
 export function HelpPanel() {
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // 패널 바깥을 누르면 접는다. 버튼 자신도 `.help` 안이라 토글 클릭과 안 겹친다.
+  useEffect(() => {
+    if (!open) return;
+    const onOutsidePointerDown = (e: PointerEvent) => {
+      if (rootRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener('pointerdown', onOutsidePointerDown, { capture: true });
+    return () => document.removeEventListener('pointerdown', onOutsidePointerDown, { capture: true });
+  }, [open]);
 
   return (
-    <div className="help">
+    <div className="help" ref={rootRef}>
       <button
         type="button"
         className="help-toggle"
