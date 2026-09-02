@@ -44,6 +44,11 @@
     border-radius: 10px;
     background: var(--card);
     box-shadow: 0 3px 10px color-mix(in srgb, var(--fg) 15%, transparent);
+    /* 선택 위에 뜨는 팝업이라 손가락이 지나가기 쉽다 — 라벨이 텍스트로 선택되거나
+       길게 눌러 콜아웃이 뜨는 걸 막는다(`keyPalette.css` 와 같은 이유·같은 안전성:
+       자식이 버튼뿐이라 math-field 호스트에 거는 것과 다르다). */
+    user-select: none;
+    -webkit-touch-callout: none;
   }
 
   /* 팝업 안의 변환 버튼은 브라우저 기본 버튼 테두리를 지우고, 키 팔레트와 같은

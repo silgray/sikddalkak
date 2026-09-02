@@ -39,6 +39,14 @@
     /* 셀 영역(`--bg`)보다 한 톤 어둡다 — 이 경계가 "여기부터 키보드"를 말한다. */
     background: var(--pad-bg);
     border-top: 1px solid var(--key-line);
+    /* 키 라벨이 텍스트로 선택되거나(꾹 눌러 길게 누르면) 그 콜아웃 메뉴가 뜨는 걸
+       막는다 — 버튼은 이미 `pointerdown` 에서 `preventDefault` 하지만(포커스 뺏지
+       않으려고, `KeyPalette.tsx`) 그건 길게 누르는 선택 제스처까지는 못 막는다
+       (실측). `user-select: none` 은 여기 자식이 전부 버튼(＝ math-field 호스트가
+       아님)이라 안전하다 — `selectionHandles.css` 의 경고는 math-field 자신에게만
+       해당한다. */
+    user-select: none;
+    -webkit-touch-callout: none;
   }
 
   .key-palette-tabs {
