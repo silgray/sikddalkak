@@ -15,6 +15,10 @@ Evaluation has two modes.
 - **formula** — the exact mathematical value.
 - **decimal** — a numeric approximation.
 
+<p align="left">
+  <img src="docs/images/result_mode.gif" alt="result_mode example" width="480">
+</p>
+
 Define symbols. Write `a = 3` or `f(x) = x^2` in a cell and any other cell can use it.
 Evaluating substitutes those symbols recursively first and computes the
 whole thing in one pass. Cyclic definitions are reported.
@@ -40,11 +44,19 @@ Combines like terms and cancels what it can, without expanding what you wrote.
 
 $$\frac{x^2-1}{x+1} \to x-1 \qquad AA^{-1} \to I \qquad AAAA \to A^4$$
 
+<p align="left">
+  <img src="docs/images/simplify.gif" alt="simplify example" width="480">
+</p>
+
 #### Expand
 
 Distributes products over sums, then combines like terms.
 
 $$(x+1)^2 \to x^2+2x+1 \qquad (A+B)^2 \to A^2 + AB + BA + B^2$$
+
+<p align="left">
+  <img src="docs/images/expand.gif" alt="expand example" width="480">
+</p>
 
 #### Factor
 
@@ -52,6 +64,10 @@ Pulls out common factors and factors polynomials. Where a product is
 non-commutative, only the front and back of each term are pulled out.
 
 $$x^2-1 \to (x+1)(x-1) \qquad AB+AC \to A(B+C)$$
+
+<p align="left">
+  <img src="docs/images/factor.gif" alt="factor example" width="480">
+</p>
 
 ## Supported notations
 
