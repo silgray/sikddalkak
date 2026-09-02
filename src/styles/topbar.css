@@ -2,6 +2,7 @@
    모바일(640px 이하)은 한 줄로 흡수된다 — 아래 모바일 블록 참고. */
 .topbar {
   display: flex;
+  flex-direction: column;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0.75rem;
@@ -15,10 +16,18 @@
 }
 
 .app-intro {
-  margin: 0 0 2rem;
+  margin: 0 0 0.5rem;
   color: var(--muted);
   font-size: 0.85rem;
   line-height: 1.7;
+}
+
+.topbar-row {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
 .app-intro code,

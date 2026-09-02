@@ -78,17 +78,25 @@ export function Workspace() {
           가운데 제목 + 도움말이 한 줄이고, 탭 바는 서랍 안으로 옮겨간다
           (`drawer.css`, 시안). */}
       <div className="topbar">
-        <button
-          type="button"
-          className="drawer-toggle"
-          title="Tabs"
-          aria-label="Tabs"
-          aria-expanded={drawerOpen}
-          onClick={() => setDrawerOpen((v) => !v)}
-        >
-          <DrawerIcon filled={drawerOpen} />
-        </button>
-        <span className="app-title">sikddalkak</span>
+        <div className="topbar-row">
+          <button
+            type="button"
+            className="drawer-toggle"
+            title="Tabs"
+            aria-label="Tabs"
+            aria-expanded={drawerOpen}
+            onClick={() => setDrawerOpen((v) => !v)}
+          >
+            <DrawerIcon filled={drawerOpen} />
+          </button>
+          <span className="app-title">sikddalkak</span>
+          <HelpPanel />
+        </div>
+        <p className="app-intro">
+          Type an expression and press <kbd>Enter</kbd> to evaluate.
+          <br />
+          Write <code>a = 3</code> to define a variable other cells can use.
+        </p>
         {/* 서랍 컨테이너. 데스크톱은 `display:contents` 로 사라져 `TabBar` 가
             바로 위 형제들과 나란히 인라인으로 보인다(지금과 동일) — 모바일만
             이 안을 슬라이드 패널로 바꾼다. */}
@@ -120,13 +128,7 @@ export function Workspace() {
             />
           </div>
         </div>
-        <HelpPanel />
       </div>
-      <p className="app-intro">
-        Type an expression and press <kbd>Enter</kbd> to evaluate.
-        <br />
-        Write <code>a = 3</code> to define a variable other cells can use.
-      </p>
       {/* 탭이 바뀌면 CellStack을 새로 마운트한다 — 이전 탭의 mathfield DOM이 남지 않게. */}
       <CellStack key={activeTab.id} tab={activeTab} dispatch={dispatch} />
       {/* MathLive 자체 가상 키보드 대신 이걸 쓴다. `position: fixed` 라 DOM 위치는
