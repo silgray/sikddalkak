@@ -114,7 +114,7 @@
   text-underline-offset: 0.2em;
 }
 
-@media (max-width: 640px) {
+@media (pointer: coarse) {
   .help-toggle {
     flex: 0 0 auto;
     width: 2rem;

@@ -4,7 +4,7 @@
   display: none;
 }
 
-@media (max-width: 640px) {
+@media (pointer: coarse) {
   :root {
     /* 가장 높은 레이어(abc: 기호 줄 + qwerty 3줄)가 스크롤 없이 들어가는 높이.
        `.app` 의 바닥 여백도 이 값을 쓴다(`base.css`) — 하나만 고치면 둘 다 맞는다. */

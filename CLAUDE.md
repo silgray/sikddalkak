@@ -325,7 +325,7 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
   이 그 경로를 끊는다. 다만 셰도우 루트가 `delegatesFocus: true` 라 네이티브
   기본 동작으로도 포커스가 들어오므로 그건 `preventDefault` 가 막는다 — **둘 다
   필요하다.** 데스크톱은 안 건드린다 — `pointerType==='touch' &&
-  isMobileViewport()` 게이트가 두 preventDefault/stopPropagation 호출보다 먼저다.
+  isMobileDevice()` 게이트가 두 preventDefault/stopPropagation 호출보다 먼저다.
   pointerdown을 막았으니 **탭·홀드는 우리가 직접 캐럿을 놓는다**(`placeCaretAt`,
   `resolveOffsetAt(mf, x, y, 0)` — bias 0 은 `SelectionHandles.tsx` 의 핸들
   위치 계산과 같은 "탭했을 때 캐럿이 서는 자리" 규칙). **홀드는 특히 이게
@@ -547,7 +547,8 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
   그래프 구성 자체는 안 한다 — 그건 `cellGraph.ts` 몫. `splitRelation` 은
   `Cell.tsx` 도 같이 쓴다(solve 버튼 노출 판정 — 판정이 두 벌이면 어긋난다).
 - **`types.ts`** — `FormulaObject`(정본), `EvalResult`, `CellMode` 등 공용 타입.
-- **`mobile.ts`** — `isMobileViewport()`. 모바일 판정의 **단일 기준점**(위 대원칙 2).
+- **`mobile.ts`** — `isMobileDevice()`/`onMobileChange()`/`MOBILE_QUERY`. 모바일 판정의
+  **단일 기준점**(위 대원칙 2). 폭이 아니라 주 입력 장치(`(pointer: coarse)`)를 본다.
 - **`features.ts`** — 기능 플래그. `SOLVE_ENABLED`(등식 풀기, CE 한계로 꺼둠),
   `HANDLE_CROSSING`(핸들이 반대쪽 캐럿을 넘어갈 수 있는지, 지금은 꺼둠),
   `ATOM_BOX_DEBUG`(원자 상자 1px 테두리, **`?atombox`** 질의 문자열로 켠다 —
@@ -556,7 +557,7 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 - **`styles.css` / `styles/`** — 전역 CSS. `styles.css` 는 `@import` 만 있는 입구이고
   (import 하는 4곳 — `main.tsx` 와 브라우저 테스트 셋 — 을 안 건드리려고 이름과 자리를
   그대로 뒀다), 규칙은 `src/styles/` 밑 **기능당 한 파일**에 있다. 각 파일이 자기
-  데스크톱 규칙과 자기 `@media (max-width: 640px)` 블록을 **둘 다** 갖는다(위 대원칙 1).
+  데스크톱 규칙과 자기 `@media (pointer: coarse)` 블록을 **둘 다** 갖는다(위 대원칙 1).
   라이트/다크는 `tokens.css` 의 CSS 변수 — 그 안에서 라이트 `:root` 가 다크보다
   **먼저** 와야 한다(같은 프로퍼티라 순서가 이긴다). `--palette-h` 만은 `keyPalette.css`
   가 갖는다 — 팔레트 높이와 `.app` 바닥 여백을 한 값으로 묶는 자리라 팔레트가 주인이다.
@@ -590,7 +591,7 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
 
 지키는 방법은 넷이다:
 
-1. **CSS는 기능별 파일에 쓰고, 모바일 규칙은 그 파일 **자기** `@media (max-width: 640px)`
+1. **CSS는 기능별 파일에 쓰고, 모바일 규칙은 그 파일 **자기** `@media (pointer: coarse)`
    블록 안에만 쓴다.** `src/styles.css` 는 `@import` 만 있는 얇은 입구이고, 실제 규칙은
    `src/styles/` 밑 기능당 한 파일에 있다. 파일 이름은 그 기능을 그리는 컴포넌트를
    따른다 (`selectionHandles.css` ↔ `SelectionHandles.tsx`).
@@ -602,7 +603,7 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
      자체를 못 봤다.
    - **미디어 블록 밖에 모바일 규칙을 쓰지 않는다.** 데스크톱을 안 건드린다는 보장은
      여전히 이 한 줄이 전부다.
-   - **임계값 문자열은 한 벌이다.** 파일마다 미디어 블록이 생겨 640px 이 여러 곳
+   - **조건 문자열은 한 벌이다.** 파일마다 미디어 블록이 생겨 같은 조건이 여러 곳
      적힌다 — `src/styles/mediaQuery.test.ts` 가 `src/styles/*.css` 를 전부 읽어
      `src/mobile.ts` 의 `MOBILE_QUERY` 와 대조한다. 기준을 바꾸려면 `mobile.ts` 를
      고치고 테스트가 짚어 주는 파일들을 따라 고친다.
@@ -615,9 +616,24 @@ MathLive의 quirk를 흡수하고 "항상 정상 구조"를 강제하는 곳. **
      순서는 `토큰 → 뼈대 → 구조 → 위젯 → 오버레이` 다. **남의 요소를 숨기거나 그 위에
      얹는 기능일수록 뒤**에 온다 (`transformPopup`·`selectionHandles`·`keyPalette` 가
      맨 뒤인 이유).
-2. **JS 분기가 꼭 필요하면 같은 640px 기준을 쓴다** (`window.matchMedia`). 그
-   기준은 **`src/mobile.ts` 의 `isMobileViewport()` 하나뿐**이다 — 새로 만들지 말고
-   이걸 쓴다. 지금 쓰는 곳은 터치 제스처 층(`editor/touchGesture.ts`) 하나다.
+2. **JS 분기가 꼭 필요하면 CSS와 같은 기준을 쓴다** (`window.matchMedia`). 그
+   기준은 **`src/mobile.ts` 의 `isMobileDevice()` 하나뿐**이다 — 새로 만들지 말고
+   이걸 쓴다.
+
+   - **"모바일" 은 화면 폭이 아니라 주 입력 장치다** (`(pointer: coarse)`). 모바일
+     UI가 필요한 이유가 화면이 좁아서가 아니라 **물리 키보드가 없고 손가락으로
+     만지기 때문**이라서다 — 키 팔레트·선택 핸들·홀드 선택·콜아웃 억제가 전부
+     손가락에 달렸다. 그래서 **태블릿은 넓어도 모바일**이고, **창을 좁힌 데스크톱은
+     좁아도 데스크톱**이다. 폭으로 판정하던 시절엔 이 둘이 다 틀렸다.
+   - ⚠ **`any-pointer` 를 쓰면 안 된다.** 터치스크린 노트북에서 참이라(실측) 물리
+     키보드가 달린 기기가 모바일 UI로 넘어간다. `pointer` 는 **주** 포인터를 묻는다.
+   - **기기 판정과 손짓 판정은 다른 질문이다.** `isMobileDevice()` 는 "이 기기가
+     손가락 기기인가", `ev.pointerType === 'touch'` 는 "이 손짓이 손가락인가" 다.
+     포인터 이벤트를 다루는 자리(`editor/touchGesture.ts` 의 pointerdown 게이트,
+     `components/MathField.tsx` 의 바깥 탭 처리)는 **둘 다** 본다.
+   - **모바일 UI를 브라우저에서 보려면 기기 에뮬레이션을 켠다** — 창을 좁히는
+     걸로는 안 나온다(그게 이 판정의 요점이다). 브라우저 테스트도 같은 이유로
+     `vitest.browser.config.ts` 가 `hasTouch` 를 켠다.
 3. **컴포넌트에 모바일 전용 DOM을 넣어야 하면, 그리기만 하고 숨김은 CSS에 맡긴다.**
    예: 결과 토글의 `π`/`3.14` 라벨은 데스크톱 `formula`/`decimal` 라벨과 **둘 다**
    렌더되고, 어느 쪽을 보일지는 미디어쿼리가 정한다. 조건부 렌더로 가르지 않는다 —

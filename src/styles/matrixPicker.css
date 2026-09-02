@@ -1,7 +1,7 @@
 /* 행렬 키를 누르면 뜨는 5×5 크기 고르기 창(`KeyPalette.tsx`의 `MatrixKeyButton`).
    팔레트 전체가 모바일 전용이라 이 파일도 자연히 모바일 블록 하나뿐이다. */
 
-@media (max-width: 640px) {
+@media (pointer: coarse) {
   /* 행렬 키(아이콘 SVG 하나만 담는다). ⚠ 아이콘은 텍스트 줄과 달리
      `line-height` 를 안 따른다 — 인라인 기본값(`vertical-align: baseline`)
      이면 자기 실제 높이만큼 줄 상자를 늘려서, 이 키만(그리고 flex 로 키를

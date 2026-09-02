@@ -31,13 +31,18 @@ afterEach(() => {
 const REAL_MATCH_MEDIA = window.matchMedia.bind(window);
 
 /**
- * 뷰포트 폭을 실제로 줄일 수는 없으니(헤드리스 창 크기는 러너 몫) 모바일 판정만
- * 갈아끼운다. `isMobileViewport()` 는 호출 시점마다 `window.matchMedia` 를 물으므로
- * 이걸로 충분하다. 다른 질의(prefers-color-scheme 등, MathLive가 쓴다)는 그대로 넘긴다.
+ * 러너의 실제 입력 장치는 못 바꾸니(포인터 종류는 브라우저 컨텍스트 몫) 모바일
+ * 판정만 갈아끼운다. `isMobileDevice()` 는 호출 시점마다 `window.matchMedia` 를
+ * 물으므로 이걸로 충분하다. 다른 질의(prefers-color-scheme 등, MathLive가 쓴다)는
+ * 그대로 넘긴다.
+ *
+ * ⚠ **`MOBILE_QUERY` 와 정확히 비교한다** — 예전엔 `'640px'` 부분 문자열로 갈랐는데,
+ * 그러면 판정 기준이 바뀌는 순간 이 스텁이 아무 것도 안 가로채는 **무성 no-op** 이
+ * 되고 테스트는 "스텁이 안 먹었다" 가 아니라 엉뚱한 동작 실패로 터진다.
  */
 function pretendMobile(on: boolean): void {
   window.matchMedia = ((query: string) => {
-    if (query.includes('640px')) {
+    if (query === MOBILE_QUERY) {
       return {
         matches: on,
         media: query,

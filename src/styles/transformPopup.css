@@ -5,7 +5,7 @@
   display: none;
 }
 
-@media (max-width: 640px) {
+@media (pointer: coarse) {
   /* `.cell-actions` 는 흐름에서 빼고, 그 안의 × 만 셀 우상단에 띄운다(`cell.css`).
      변환 버튼은 여기서 숨기고 아래 팝업이 대신한다. */
   .cell-actions .transform-btn {

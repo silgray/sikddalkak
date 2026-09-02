@@ -44,7 +44,7 @@
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
-@media (max-width: 640px) {
+@media (pointer: coarse) {
   /* 행렬 구분 기호 툴바는 셀 위로 뜨는 오버레이라 수식 자리를 안 먹는다 — 남긴다.
      `left`는 드래그 핸들 폭에 맞춘다. */
   .selection-toolbar {

@@ -18,7 +18,7 @@ import { notifyFieldBlur, notifyFieldFocus, notifyFieldRemoved } from '../editor
 import { PLACEHOLDER_RULES, contentCount, findViolations, repairLatex } from '../editor/wellformed';
 import { dispatchKeyOp } from '../editor/keyOps';
 import { attachTouchGesture } from '../editor/touchGesture';
-import { MOBILE_QUERY, isMobileViewport } from '../mobile';
+import { MOBILE_QUERY, isMobileDevice } from '../mobile';
 import { ATOM_BOX_DEBUG } from '../features';
 import { SelectionHandles } from './SelectionHandles';
 import { configureKeybindings } from '../editor/keybindings';
@@ -676,8 +676,11 @@ export function MathField({
       // pointerdown이 아예 없어서 안 겪는 차이다
       // (실측·회귀 핀: `editor/feedKeyParity.browser.test.tsx`).
       if (isInKeyPalette(target)) return;
-      // 데스크톱은 누른 즉시 해제한다 — 마우스로 바깥을 누르는 건 늘 "여기로 옮김"이다.
-      if (!isMobileViewport()) {
+      // 마우스로 바깥을 누르는 건 늘 "여기로 옮김"이라 누른 즉시 해제한다. 기다리는
+      // 건 **손가락으로 짚은 경우뿐**이다 — 아래 근거가 손짓(스크롤)에 대한 것이라
+      // 기기만 보면 태블릿에 꽂은 마우스까지 기다리게 된다(`touchGesture.ts` 의
+      // pointerdown 게이트와 같은 짝: 기기 판정 + 이 손짓의 성질).
+      if (!isMobileDevice() || ev.pointerType !== 'touch') {
         clearSelection();
         return;
       }

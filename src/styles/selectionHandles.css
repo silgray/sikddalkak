@@ -4,7 +4,7 @@
   display: none;
 }
 
-@media (max-width: 640px) {
+@media (pointer: coarse) {
   /* `.mf math-field` 의 `font-size` 는 `mathField.css` 몫이다 — 여기 있는 건
      터치 제스처 관련 프로퍼티뿐이라(겹치는 프로퍼티가 없다) 어느 쪽을 먼저
      import 해도 결과가 같다. `selectionHandles.css` 를 뒤에 두는 건 이 파일이

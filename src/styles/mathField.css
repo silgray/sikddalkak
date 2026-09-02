@@ -37,7 +37,7 @@ math-field::part(virtual-keyboard-toggle) {
   width: 100%;
 }
 
-@media (max-width: 640px) {
+@media (pointer: coarse) {
   .mf math-field {
     /* 16px 밑으로 두면 iOS가 포커스 시 페이지를 확대한다(23px, 시안). */
     font-size: 1.4375rem;

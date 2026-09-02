@@ -353,8 +353,8 @@ describe('CellGroup — 결과 표시 모드 스위치 (정확값 / 근삿값)',
     // (0,1,1)로 배경·테두리·radius·padding을 이미 덮어쓰고 있어서, `.result-mode`
     // 단독 선택자((0,1,0))로는 아무리 색을 정해도 안 먹었다(실측). `resultMode.css`
     // 의 모바일 블록이 `.result-actions .result-mode`로 명시도를 올려 이긴다 —
-    // 이 헤드리스 러너의 뷰포트가 640px 아래라 별도 `pretendMobile` 없이도 그
-    // 블록이 실제로 걸린다.
+    // 이 헤드리스 러너가 터치 기기로 떠서(`vitest.browser.config.ts` 의 `hasTouch`)
+    // 별도 `pretendMobile` 없이도 그 블록이 실제로 걸린다.
     const { container } = await exactResult();
     const chip = toggleOf(container);
     expect(getComputedStyle(chip).borderRadius).toBe('8px');

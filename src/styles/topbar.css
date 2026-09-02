@@ -1,5 +1,5 @@
 /* 제목 + 탭 바 + 도움말. 데스크톱은 두 줄(`.tabbar`가 flex-basis:100%로 줄바꿈),
-   모바일(640px 이하)은 한 줄로 흡수된다 — 아래 모바일 블록 참고. */
+   모바일(손가락 기기)은 한 줄로 흡수된다 — 아래 모바일 블록 참고. */
 .topbar {
   display: flex;
   flex-direction: column;
@@ -38,7 +38,7 @@
   font-size: 0.9em;
 }
 
-@media (max-width: 640px) {
+@media (pointer: coarse) {
   /* --- 상단 바: 제목 + 탭 + 도움말을 한 줄로 --- */
 
   .topbar {

@@ -6,7 +6,7 @@
  * `keyPalette` 가 맨 뒤인 이유. 새 기능 파일을 추가하면 반드시 여기 import 를
  * 더한다 — 빠뜨리면 조용히 안 실린다(`src/styles/mediaQuery.test.ts` 가 잡는다).
  *
- * 각 파일은 자기 데스크톱 규칙과 자기 `@media (max-width: 640px)` 블록을 둘 다
+ * 각 파일은 자기 데스크톱 규칙과 자기 `@media (pointer: coarse)` 블록을 둘 다
  * 갖는다. 자세한 규율은 CLAUDE.md "모바일 작업의 대원칙" 참고.
  */
 

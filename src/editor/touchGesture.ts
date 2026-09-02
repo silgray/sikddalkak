@@ -3,7 +3,7 @@ import { contentOf, flushShortcutBuffer, resolveOffsetAt } from './internals';
 import { expandSelectionSemantic } from './selection';
 import { setRawSelection } from './rawSelection';
 import { DIRECT_AIM, aimedPoint } from './touchAim';
-import { isMobileViewport } from '../mobile';
+import { isMobileDevice } from '../mobile';
 
 /**
  * 모바일 터치 제스처 층 — **가로 스크롤과 범위 선택을 갈라준다.**
@@ -93,7 +93,7 @@ type Mode = 'idle' | 'undecided' | 'pan' | 'hold' | 'vscroll';
 let menuBlockRefs = 0;
 
 const onDocumentContextMenu = (ev: Event): void => {
-  if (!isMobileViewport()) return; // 데스크톱 우클릭 메뉴는 그대로 둔다
+  if (!isMobileDevice()) return; // 데스크톱 우클릭 메뉴는 그대로 둔다
   const target = ev.target;
   if (target instanceof Element && target.closest('input, textarea') !== null) return;
   ev.preventDefault();
@@ -203,7 +203,10 @@ export function attachTouchGesture(mf: MathfieldElement, host: HTMLElement): () 
     // 우리가 capture로 먼저 보기 때문에 그쪽 stopPropagation으로는 못 막는다.
     const target = ev.target;
     if (target instanceof Element && target.closest('.sel-handle') !== null) return;
-    if (!ev.isPrimary || ev.pointerType !== 'touch' || !isMobileViewport()) return;
+    // `pointerType` 은 **이 손짓**이 손가락인지, `isMobileDevice()` 는 **이 기기**가
+    // 손가락 기기인지를 묻는다 — 둘은 다른 질문이라 둘 다 필요하다(터치스크린
+    // 노트북에서 손가락으로 짚어도 물리 키보드가 있으니 데스크톱 동작이어야 한다).
+    if (!ev.isPrimary || ev.pointerType !== 'touch' || !isMobileDevice()) return;
     pointerId = ev.pointerId;
     startX = ev.clientX;
     startY = ev.clientY;

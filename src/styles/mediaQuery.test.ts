@@ -7,9 +7,9 @@ import { MOBILE_QUERY } from '../mobile';
 /**
  * 모바일 CSS 분할(`CLAUDE.md` §모바일 대원칙 1)의 세 불변식을 못박는다.
  *
- * 파일마다 자기 `@media (max-width: 640px)` 블록을 갖게 되면서 그 임계값
- * 문자열이 여러 벌로 는다 — 여기서 `src/mobile.ts` 의 `MOBILE_QUERY` 하나와
- * 계속 대조해, 규율이 아니라 테스트가 어긋남을 잡게 한다.
+ * 파일마다 자기 `@media (pointer: coarse)` 블록을 갖게 되면서 그 조건 문자열이
+ * 여러 벌로 는다 — 여기서 `src/mobile.ts` 의 `MOBILE_QUERY` 하나와 계속 대조해,
+ * 규율이 아니라 테스트가 어긋남을 잡게 한다.
  */
 
 const STYLES_DIR = dirname(fileURLToPath(import.meta.url));

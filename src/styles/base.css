@@ -17,7 +17,7 @@ body {
   padding: 2.5rem 1.5rem 6rem;
 }
 
-@media (max-width: 640px) {
+@media (pointer: coarse) {
   /* --- 셀은 좌우로 거의 꽉 차되, 그룹은 둥근 카드로 서로 갈린다 --- */
 
   .app {

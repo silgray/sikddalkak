@@ -8,6 +8,7 @@ import { MathField } from './MathField';
 import { contentOf, resolveOffsetAt } from '../editor/internals';
 import { rawSelection } from '../editor/rawSelection';
 import { HANDLE_CROSSING } from '../features';
+import { MOBILE_QUERY } from '../mobile';
 
 /**
  * 선택 범위 양끝 드래그 핸들(`SelectionHandles.tsx`)의 동작 핀.
@@ -30,10 +31,12 @@ afterEach(() => {
 
 const REAL_MATCH_MEDIA = window.matchMedia.bind(window);
 
-/** 헤드리스 창 크기는 러너 몫이라 모바일 판정만 갈아끼운다 (`mobile.ts` 참고). */
+/** 러너의 입력 장치는 컨텍스트 몫이라 모바일 판정만 갈아끼운다 (`mobile.ts` 참고).
+ *  ⚠ `MOBILE_QUERY` 와 **정확히** 비교한다 — 부분 문자열로 갈랐다간 기준이 바뀔 때
+ *  이 스텁이 조용히 no-op 이 된다(`editor/touchGesture.browser.test.tsx` 의 같은 주석). */
 function pretendMobile(on: boolean): void {
   window.matchMedia = ((query: string) => {
-    if (query.includes('640px')) {
+    if (query === MOBILE_QUERY) {
       return {
         matches: on,
         media: query,

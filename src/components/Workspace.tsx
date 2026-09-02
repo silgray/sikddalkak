@@ -30,8 +30,8 @@ const SAVE_DEBOUNCE_MS = 500;
 export function Workspace() {
   const [state, dispatch] = useReducer(workspaceReducer, null, init);
   /**
-   * 서랍(탭 목록) 열림 상태 — 모바일 전용 UI지만 상태 자체는 뷰포트를 안 가린다
-   * (대원칙 2 — `isMobileViewport()` 로 존재 여부를 가르지 않는다). 데스크톱에서는
+   * 서랍(탭 목록) 열림 상태 — 모바일 전용 UI지만 상태 자체는 기기를 안 가린다
+   * (대원칙 2 — `isMobileDevice()` 로 존재 여부를 가르지 않는다). 데스크톱에서는
    * 토글 버튼 자체가 CSS로 안 보이니 열릴 방법이 없을 뿐이다.
    *
    * `TabBar` 는 **항상 하나만, 항상 마운트된 채**로 둔다 — 데스크톱은 이 서랍
@@ -74,7 +74,7 @@ export function Workspace() {
   return (
     <div className="workspace">
       {/* 데스크톱: 제목/도움말이 첫 줄, 탭 바가 그 아래(`.topbar` wrap + `.tabbar`
-          flex-basis:100%, styles.css). 모바일(640px 이하)에서는 토글 버튼 +
+          flex-basis:100%, styles.css). 모바일(손가락 기기)에서는 토글 버튼 +
           가운데 제목 + 도움말이 한 줄이고, 탭 바는 서랍 안으로 옮겨간다
           (`drawer.css`, 시안). */}
       <div className="topbar">
@@ -132,7 +132,7 @@ export function Workspace() {
       {/* 탭이 바뀌면 CellStack을 새로 마운트한다 — 이전 탭의 mathfield DOM이 남지 않게. */}
       <CellStack key={activeTab.id} tab={activeTab} dispatch={dispatch} />
       {/* MathLive 자체 가상 키보드 대신 이걸 쓴다. `position: fixed` 라 DOM 위치는
-          레이아웃에 안 걸리고, 640px 이하에서만 보인다(styles/keyPalette.css). 탭
+          레이아웃에 안 걸리고, 손가락 기기에서만 보인다(styles/keyPalette.css). 탭
           전환과 무관하게 하나만 — activeField가 어느 셀의 필드든 가리킬 수 있다. */}
       <KeyPalette />
     </div>

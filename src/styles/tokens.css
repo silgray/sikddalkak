@@ -19,7 +19,7 @@
    (시안은 라이트 전용이라 다크는 기존 팔레트를 그대로 쓴다).
    미디어쿼리를 `and (prefers-color-scheme: light)` 로 합치면 안 된다 —
    `mediaQuery.test.ts` 가 임계값 문자열을 한 벌로 묶어 두고 있다. */
-@media (max-width: 640px) {
+@media (pointer: coarse) {
   :root {
     --bg: #fbfaf9;
     --fg: #1a1c20;

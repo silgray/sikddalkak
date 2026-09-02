@@ -329,8 +329,13 @@ describe('MathField — 셰도우 DOM 스타일', () => {
     host.style.width = '400px';
     document.body.append(host);
     const root = createRoot(host);
+    // ⚠ 3행이어야 한다. 러너가 터치 기기로 뜨므로(`vitest.browser.config.ts` 의
+    // `hasTouch`) MathLive 자신의 탭 타깃 스타일이 걸려 `☰` 가 커진다 — 2행 행렬은
+    // 식 높이와 버튼 높이가 비슷해져 아래 "키가 큰 식" 전제가 성립하지 않는다(실측).
     root.render(
-      createElement(MathField, { value: String.raw`\begin{pmatrix}1&2\\3&4\end{pmatrix}` }),
+      createElement(MathField, {
+        value: String.raw`\begin{pmatrix}1&2\\3&4\\5&6\end{pmatrix}`,
+      }),
     );
     await settle();
     const mf = host.querySelector('math-field') as MathfieldElement;
@@ -396,11 +401,12 @@ describe('MathField — 셰도우 DOM 스타일', () => {
     // 그만큼 길어진다. ⚠ 깨지면 MathLive가 `.ML__sqrt-sign`/`.ML__vlist-t2` 구조를 바꾼 것이다.
     //
     // ⚠ 이 규칙은 모바일 전용 `@media` 블록 안에 있다(아래 다른 테스트가 그 조건문
-    // 자체를 확인한다). 실제로 적용되는지는 이 브라우저 러너의 뷰포트가 이미 640px
-    // 아래라 여기서도 관찰된다 — `window.matchMedia` 를 흉내 내는 건 소용없다:
-    // 셰도우 스타일시트의 `@media` 는 우리 JS가 아니라 브라우저 CSS 엔진이 진짜
-    // 뷰포트 폭으로 직접 평가한다(`touchGesture.browser.test.tsx` 도 같은 이유로
-    // 실제 적용 대신 `CSSMediaRule.conditionText` 만 구조로 확인한다).
+    // 자체를 확인한다). 실제로 적용되는지는 이 러너가 터치 기기로 떠서
+    // (`vitest.browser.config.ts` 의 `hasTouch`) 여기서도 관찰된다 —
+    // `window.matchMedia` 를 흉내 내는 건 소용없다: 셰도우 스타일시트의 `@media` 는
+    // 우리 JS가 아니라 브라우저 CSS 엔진이 진짜 입력 장치로 직접 평가한다
+    // (`touchGesture.browser.test.tsx` 도 같은 이유로 실제 적용 대신
+    // `CSSMediaRule.conditionText` 만 구조로 확인한다).
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);

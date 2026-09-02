@@ -4,7 +4,7 @@ import { clearAtomBoundsCache, contentOf, resolveOffsetAt } from '../editor/inte
 import { rawSelection, setRawSelection } from '../editor/rawSelection';
 import { aimedPoint, gripAim, type TouchAim } from '../editor/touchAim';
 import { HANDLE_CROSSING } from '../features';
-import { isMobileViewport, onMobileViewportChange } from '../mobile';
+import { isMobileDevice, onMobileChange } from '../mobile';
 
 /**
  * 모바일 선택 범위의 **양끝 드래그 핸들**.
@@ -41,9 +41,13 @@ import { isMobileViewport, onMobileViewportChange } from '../mobile';
  * 아래 `scroll` 리스너가 그때만 명시적으로 비운다(매 프레임 비우면 히트테스트가
  * 원자마다 다시 `getBoundingClientRect` 를 재야 해서 느려진다).
  *
- * 데스크톱에는 안 뜬다 — DOM은 늘 그리고 숨김은 CSS(`@media (max-width: 640px)`)가
+ * 데스크톱에는 안 뜬다 — DOM은 늘 그리고 숨김은 CSS(`@media (pointer: coarse)`)가
  * 맡는다(CLAUDE.md §모바일 대원칙 3). 다만 **측정은** 모바일에서만 돈다: 선택이 바뀔 때마다
  * 도는 자리라 데스크톱에서 헛일할 이유가 없다. 그 판정도 `mobile.ts` 하나를 쓴다.
+ *
+ * ⚠ **회전·리사이즈 재측정은 `ResizeObserver` 몫이다.** 판정이 폭이던 시절엔
+ * `onMobileChange`(옛 `onMobileViewportChange`)가 회전마다 발화해 덤으로 다시 재
+ * 줬지만, 주 포인터는 회전으로 안 바뀌므로 이제 그 경로로는 안 온다.
  */
 
 type Edge = {
@@ -198,7 +202,7 @@ export function SelectionHandles({ mf, container }: Props) {
     let disposed = false;
     const remeasure = (): void => {
       if (disposed) return;
-      setPlacement(isMobileViewport() ? measure(mf, container) : null);
+      setPlacement(isMobileDevice() ? measure(mf, container) : null);
     };
     // MathLive는 rAF에서 렌더한다 — 선택이 바뀐 직후 바로 재면 옛 위치를 본다.
     const schedule = (): void => {
@@ -220,7 +224,7 @@ export function SelectionHandles({ mf, container }: Props) {
     content?.addEventListener('scroll', onScroll, { passive: true });
     const observer = content === null ? null : new ResizeObserver(schedule);
     observer?.observe(content as Element);
-    const unsubscribe = onMobileViewportChange(schedule);
+    const unsubscribe = onMobileChange(schedule);
     schedule();
 
     return () => {
